@@ -2,8 +2,6 @@ set $mod Mod4
 
 font pango:NanumGothicCoding 12
 
-exec --no-startup-id nm-applet
-
 set $refresh_i3status killall -SIGUSR1 i3status
 bindsym Control+KP_Up exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +5% && $refresh_i3status
 bindsym Control+KP_Down exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -5% && $refresh_i3status
@@ -16,7 +14,7 @@ bindsym $mod+Shift+Tab workspace prev
 
 bindsym $mod+Return exec gnome-terminal
 bindsym $mod+Shift+q kill
-bindsym $mod+d exec --no-startup-id "rofi -show run -modi drun,run:~/rofi.sh"
+bindsym $mod+d exec --no-startup-id "rofi -show run -modi drun,run:/usr/bin/custom_rofi.sh"
 
 bindsym $mod+Left focus left
 bindsym $mod+Down focus down
