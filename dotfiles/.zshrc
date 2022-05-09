@@ -4,8 +4,8 @@ ZSH_THEME_RANDOM_QUIET=true
 
 plugins=(docker emotty fzf git z)
 
-zstyle ':completion:*:*:docker:*' option-stacking yes
-zstyle ':completion:*:*:docker-*:*' option-stacking yes
+zstyle ':completion:*:*:-command-:*:*' ignored-patterns '_*'       
+
 
 source $ZSH/oh-my-zsh.sh
 
@@ -18,4 +18,4 @@ alias "open=xdg-open"
 alias "y=xclip -selection clipboard"
 alias "p=xclip -selection clipboard -o"
 
-PATH=$PATH:/usr/share/bcc/tools
+PATH=$PATH:/usr/share/bcc/tools:~/projects/scripts
