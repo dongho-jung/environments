@@ -18,4 +18,5 @@ alias "open=xdg-open"
 alias "y=xclip -selection clipboard"
 alias "p=xclip -selection clipboard -o"
 
+EDITOR=vi
 PATH=$PATH:/usr/share/bcc/tools:~/projects/scripts
