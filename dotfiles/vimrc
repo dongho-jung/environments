@@ -1,0 +1,9 @@
+set belloff=all
+set expandtab
+set nu
+set shiftwidth=4
+set smartindent
+set tabstop=4
+
+filetype indent on
+syntax on
