@@ -1,9 +1,0 @@
-[user]
-	email = dongho971220@gmail.com
-	name = jdh
-[core]
-	editor = vi
-[commit]
-	verbose = true
-[init]
-	defaultBranch = main
