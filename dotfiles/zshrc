@@ -19,4 +19,4 @@ alias "p=xclip -selection clipboard -o"
 HISTSIZE=10000
 SAVEHIST=1000000
 EDITOR=vi
-PATH=$PATH:/usr/share/bcc/tools:~/projects/scripts
+PATH=$PATH:/usr/share/bcc/tools
