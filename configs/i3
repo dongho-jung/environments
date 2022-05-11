@@ -1,4 +1,5 @@
 set $mod Mod4
+set $alt Mod1
 
 font pango:NanumGothicCoding 10
 
@@ -15,6 +16,11 @@ bindsym $mod+Shift+Tab workspace prev
 bindsym $mod+Return exec gnome-terminal
 bindsym $mod+Shift+q kill
 bindsym $mod+d exec --no-startup-id "rofi -kb-row-tab '' -kb-row-select Tab -show $ -modi drun,run,$:/usr/bin/custom_rofi.sh"
+
+bindsym Pause exec --no-startup-id "ID=`xdotool getwindowfocus`; echo $ID>/tmp/focused-window; notify-send \\"$ID[$(xdotool getwindowname $ID)] is focused\\""
+bindsym $alt+bracketleft exec --no-startup-id send_key.sh `cat /tmp/focused-window` Left
+bindsym $alt+bracketright exec --no-startup-id send_key.sh `cat /tmp/focused-window` space
+bindsym $alt+backslash exec --no-startup-id send_key.sh `cat /tmp/focused-window` Right
 
 bindsym $mod+Left focus left
 bindsym $mod+Down focus down
