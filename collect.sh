@@ -15,3 +15,6 @@ do
     IFS=: read category path name <<< $entry
     cp $path ./${category}/${name}
 done
+
+git status
+git --no-pager diff
