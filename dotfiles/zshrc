@@ -4,6 +4,8 @@ ZSH_THEME_RANDOM_QUIET=true
 
 plugins=(docker emotty fzf git z)
 
+zstyle ':completion:*:*:docker:*' option-stacking yes
+zstyle ':completion:*:*:docker-*:*' option-stacking yes
 zstyle ':completion:*:*:-command-:*:*' ignored-patterns '_*'       
 
 source $ZSH/oh-my-zsh.sh
