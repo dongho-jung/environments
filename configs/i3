@@ -26,6 +26,8 @@ bindsym --release Control+backslash exec --no-startup-id send_key.sh `cat /tmp/f
 bindsym --release KP_Right exec --no-startup-id send_key.sh `cat /tmp/focused-window` Right
 bindsym --release KP_Up exec --no-startup-id send_key.sh `cat /tmp/focused-window` Up
 bindsym --release KP_Down exec --no-startup-id send_key.sh `cat /tmp/focused-window` Down
+bindsym --release KP_Home exec --no-startup-id send_key.sh `cat /tmp/focused-window` Shift+P
+bindsym --release KP_Prior exec --no-startup-id send_key.sh `cat /tmp/focused-window` Shit+N
 
 bindsym $mod+Left focus left
 bindsym $mod+Down focus down
