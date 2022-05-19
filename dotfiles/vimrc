@@ -1,3 +1,7 @@
+call plug#begin()
+    Plug 'mhinz/vim-startify'
+call plug#end()
+
 set belloff=all
 set expandtab
 set nu
