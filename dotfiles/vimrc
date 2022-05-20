@@ -1,5 +1,6 @@
 call plug#begin()
     Plug 'mhinz/vim-startify'
+    Plug 'junegunn/goyo.vim'
 call plug#end()
 
 set belloff=all
@@ -11,3 +12,5 @@ set tabstop=4
 
 filetype indent on
 syntax on
+
+noremap <C-g> :Goyo<CR>
