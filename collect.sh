@@ -8,7 +8,8 @@ entries=(
     configs:"$HOME/.config/i3status/config":i3status
     configs:"$HOME/.config/flameshot/flameshot.ini":flameshot
     spool:"/var/spool/cron/$(whoami)":cron  # might need `chmod o+rx /var/spool/cron`
-    directory:"$HOME/.uim.d":uim
+    directories:"$HOME/.uim.d":uim
+    services:"/etc/systemd/system/init-keycode.service":init-keycode.service
 )
 
 for entry in "${entries[@]}"
