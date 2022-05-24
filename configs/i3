@@ -29,6 +29,8 @@ bindsym --release KP_Down exec --no-startup-id send_key.sh `cat /tmp/focused-win
 bindsym --release KP_Home exec --no-startup-id send_key.sh `cat /tmp/focused-window` Shift+P
 bindsym --release KP_Prior exec --no-startup-id send_key.sh `cat /tmp/focused-window` Shit+N
 
+bindsym --release Control+Menu exec --no-startup-id "xdotool type --delay 0 --clearmodifiers `shuf -n1 /usr/share/dict/words`\ "
+
 bindsym $mod+Left focus left
 bindsym $mod+Down focus down
 bindsym $mod+Up focus up
