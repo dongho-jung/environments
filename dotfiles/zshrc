@@ -25,4 +25,4 @@ SAVEHIST=1000000
 EDITOR=vi
 export LESSHISTFILE=/dev/null
 
-PATH=$PATH:/usr/share/bcc/tools
+PATH=$PATH:/usr/share/bcc/tools:$HOME/.local/bin
