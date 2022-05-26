@@ -117,6 +117,6 @@ gaps inner 5
 
 bindsym Print exec flameshot gui
 bindsym Shift+Print exec flameshot screen -p ~/pics/screenshots
-bindsym Ctrl+Print exec "FILE=~/pics/screenshots/`date +'%Y%m%d_%H%M%S'`.png; import -window `xdotool getwindowfocus` $FILE; echo $FILE | xclip -selection clipboard"
+bindsym Ctrl+Print exec "FILE=~/pics/screenshots/`date +'%Y%m%d_%H%M%S'`.png; scrot --focused $FILE; echo $FILE | xclip -selection clipboard"
 
 exec --no-startup-id vmware-user-suid-wrapper
