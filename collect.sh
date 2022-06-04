@@ -10,6 +10,7 @@ entries=(
     spool:"/var/spool/cron/$(whoami)":cron  # might need `chmod o+rx /var/spool/cron`
     directories:"$HOME/.uim.d":uim
     services:"/etc/systemd/system/init-keycode.service":init-keycode.service
+    etc:"/etc/dunst/dunstrc":dunstrc
 )
 
 for entry in "${entries[@]}"
