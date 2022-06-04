@@ -19,6 +19,7 @@ alias y='xclip -selection clipboard'; alias p='xclip -selection clipboard -o'
 alias trash-put='gio trash'; alias trash-list='gio --list'
 alias ls='exa'; alias l='exa -lbF --git'; alias ll='exa -la --git'; alias tree='exa --tree --git'; alias ltree='tree -l'
 alias cat='bat'
+alias k='kubectl'
 
 HISTSIZE=10000
 SAVEHIST=1000000
@@ -26,3 +27,8 @@ EDITOR=vi
 export LESSHISTFILE=/dev/null
 
 PATH=$PATH:/usr/share/bcc/tools:$HOME/.local/bin
+
+
+autoload -Uz compinit
+compinit
+source <(kubectl completion zsh)
