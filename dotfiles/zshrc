@@ -31,4 +31,5 @@ PATH=$PATH:/usr/share/bcc/tools:$HOME/.local/bin:$HOME/go/bin
 
 autoload -Uz compinit
 compinit
+source <(helm completion zsh)
 source <(kubectl completion zsh)
