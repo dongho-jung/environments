@@ -117,7 +117,7 @@ for_window [class=".*"] border pixel 3
 gaps inner 5
 
 bindsym Print exec flameshot gui
-bindsym Shift+Print exec flameshot screen -p ~/pics/screenshots
+bindsym Shift+Print exec "scrot ~/pics/screenshots/'%Y%m%d_'`/usr/bin/random_name.sh`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
 bindsym Ctrl+Print exec "scrot --focused ~/pics/screenshots/'%Y%m%d_'`/usr/bin/random_name.sh`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
 
 exec --no-startup-id vmware-user-suid-wrapper
