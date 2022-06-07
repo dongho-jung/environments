@@ -8,6 +8,7 @@ entries=(
     configs:"$HOME/.config/i3/config":i3
     configs:"$HOME/.config/i3status/config":i3status
     configs:"$HOME/.config/flameshot/flameshot.ini":flameshot
+    configs:"$HOME/.config/rofi/config.rasi":rofi
     spool:"/var/spool/cron/$(whoami)":cron  # might need `chmod o+rx /var/spool/cron`
     directories:"$HOME/.uim.d":uim
     services:"/etc/systemd/system/init-keycode.service":init-keycode.service
