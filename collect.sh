@@ -1,6 +1,7 @@
 #!/bin/bash
 
 entries=(
+    dotfiles:"$HOME/.xinitrc":xinitrc
     dotfiles:"$HOME/.zshrc":zshrc
     dotfiles:"$HOME/.vimrc":vimrc
     dotfiles:"$HOME/.gitconfig":gitconfig
