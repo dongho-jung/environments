@@ -5,6 +5,7 @@ entries=(
     dotfiles:"$HOME/.zshrc":zshrc
     dotfiles:"$HOME/.vimrc":vimrc
     dotfiles:"$HOME/.gitconfig":gitconfig
+    dotfiles:"$HOME/.fu":fu
     configs:"$HOME/.config/i3/config":i3
     configs:"$HOME/.config/i3status/config":i3status
     configs:"$HOME/.config/flameshot/flameshot.ini":flameshot

@@ -33,3 +33,14 @@ autoload -Uz compinit
 compinit
 source <(helm completion zsh)
 source <(kubectl completion zsh)
+
+_FU="$HOME/.fu"
+_FU_NUM=$(echo `wc -l <$_FU`)
+_get_fu() {
+  _FU_START=$((RANDOM % _FU_NUM / 2 * 2 + 1))
+  _FU_MSG=$(head -$_FU_START $_FU | tail -2 | fold -w80)
+  echo
+  sed 's/^/  /' <<<$_FU_MSG
+  echo
+}
+add-zsh-hook precmd _get_fu
