@@ -18,18 +18,18 @@ bindsym $mod+Shift+q    kill
 bindsym $mod+d          exec --no-startup-id "rofi -show $"
 
 bindsym Pause exec --no-startup-id "ID=`xdotool getwindowfocus`; echo $ID>/tmp/focused-window; notify-send \\"$ID[$(xdotool getwindowname $ID)] is focused\\"; paplay /usr/share/sounds/freedesktop/stereo/bell.oga"
-bindsym --release Control+bracketleft   exec --no-startup-id send_key.sh `cat /tmp/focused-window` Left
-bindsym --release KP_Left               exec --no-startup-id send_key.sh `cat /tmp/focused-window` Left
-bindsym --release Control+bracketright  exec --no-startup-id send_key.sh `cat /tmp/focused-window` space
-bindsym --release KP_Begin              exec --no-startup-id send_key.sh `cat /tmp/focused-window` space
-bindsym --release Control+backslash     exec --no-startup-id send_key.sh `cat /tmp/focused-window` Right
-bindsym --release KP_Right              exec --no-startup-id send_key.sh `cat /tmp/focused-window` Right
-bindsym --release KP_Up                 exec --no-startup-id send_key.sh `cat /tmp/focused-window` Up
-bindsym --release KP_Down               exec --no-startup-id send_key.sh `cat /tmp/focused-window` Down
-bindsym --release KP_Home               exec --no-startup-id send_key.sh `cat /tmp/focused-window` Shift+P
-bindsym --release KP_Prior              exec --no-startup-id send_key.sh `cat /tmp/focused-window` Shit+N
+bindsym --release Control+bracketleft   exec --no-startup-id send_key `cat /tmp/focused-window` Left
+bindsym --release KP_Left               exec --no-startup-id send_key `cat /tmp/focused-window` Left
+bindsym --release Control+bracketright  exec --no-startup-id send_key `cat /tmp/focused-window` space
+bindsym --release KP_Begin              exec --no-startup-id send_key `cat /tmp/focused-window` space
+bindsym --release Control+backslash     exec --no-startup-id send_key `cat /tmp/focused-window` Right
+bindsym --release KP_Right              exec --no-startup-id send_key `cat /tmp/focused-window` Right
+bindsym --release KP_Up                 exec --no-startup-id send_key `cat /tmp/focused-window` Up
+bindsym --release KP_Down               exec --no-startup-id send_key `cat /tmp/focused-window` Down
+bindsym --release KP_Home               exec --no-startup-id send_key `cat /tmp/focused-window` Shift+P
+bindsym --release KP_Prior              exec --no-startup-id send_key `cat /tmp/focused-window` Shit+N
 
-bindsym --release Control+Menu exec --no-startup-id "xdotool type --delay 0 --clearmodifiers `/usr/bin/random_name.sh`' '"
+bindsym --release Control+Menu exec --no-startup-id "xdotool type --delay 0 --clearmodifiers `random_name`' '"
 
 bindsym $mod+Left   focus left
 bindsym $mod+Down   focus down
@@ -95,7 +95,7 @@ bindsym $mod+Shift+minus    move container to workspace $ws_daemon
 bindsym $mod+Shift+c reload
 bindsym $mod+Shift+r restart
 bindsym $mod+Shift+e exec "i3-nagbar -t warning -m 'You pressed the exit shortcut. Do you really want to exit i3? This will end your X session.' -B 'Yes, exit i3' 'i3-msg exit'"
-bindsym $mod+Shift+l exec lock.sh
+bindsym $mod+Shift+l exec lock
 
 mode "resize" {
         bindsym Left resize shrink width 10 px or 10 ppt
@@ -119,7 +119,9 @@ for_window [title="Picture in picture"] border pixel 0
 gaps inner 5
 
 bindsym Print exec flameshot gui
-bindsym Shift+Print exec "scrot ~/pics/screenshots/'%Y%m%d_'`/usr/bin/random_name.sh`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
-bindsym Ctrl+Print exec "scrot --focused ~/pics/screenshots/'%Y%m%d_'`/usr/bin/random_name.sh`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
+bindsym Shift+Print exec "scrot ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
+bindsym Ctrl+Print exec "scrot --focused ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
+
+bindsym --release Scroll_Lock exec demonstrate
 
 exec --no-startup-id vmware-user-suid-wrapper
