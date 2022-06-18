@@ -6293,8 +6293,6 @@ dd if=/dev/cdrom of=~/cdimage.iso
 function map() { [ -n "$1" ] && alias $1="cd `pwd`" || alias | grep "'cd "; }
 # Remove Suspend option from XFCE logoff dialog
 xfconf-query -c xfce4-session -np '/shutdown/ShowSuspend' -t 'bool' -s 'false'
-# geoip information
-geoiplookup www.commandlinefu.com
 # Batch Convert SVG to PNG
 for i in *.svg; do convert "$i" "${i%.svg}.png"; done
 # Change host name
@@ -7471,8 +7469,6 @@ realpath -s <filename>
 uptime | cut -d "," -f 1 | cut -d " " -f 4-
 # Basic Shell function die_msg
 die_msg() { echo $@ >&2; exit -1; }
-# To backup your application code, data, logs and configuration, you run:
-rhc snapshot save -a {appName}
 # Turn on NFS Debugging
 echo 1 > /proc/sys/sunrpc/nfs_debug
 # repeat any string or char n times without spaces between
