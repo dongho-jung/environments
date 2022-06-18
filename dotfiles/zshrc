@@ -45,4 +45,4 @@ _get_fu() {
   echo $_FU_MSG > /tmp/last_fu
 }
 add-zsh-hook precmd _get_fu
-alias badfu='cat .fu | rgx -s "$(rgx -r "$(cat /tmp/last_fu)")\n" | owh .fu'
+alias badfu='cat ~/.fu | rgx -s "$(rgx -r "$(cat /tmp/last_fu)")\n" | owh ~/.fu'
