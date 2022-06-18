@@ -1625,8 +1625,6 @@ nc -l -p 2000 -e /bin/bash
 ls -al --time-style=+%D| grep `date +%D`
 # Show 'Hardware path'-style tree of all devices in Linux
 lshw -short
-# poor man's vpn
-sshuttle --dns -vvr user@server 0/0
 # Remove trailing space in vi
 :%s/\s\+$//
 # show lines that appear in both file1 and file2
@@ -4003,8 +4001,6 @@ ls|wc -l
 $ i=(*);echo ${i[RANDOM%(${#i[@]}+1)]]}
 # Quick HTML image gallery
 find . -iname '*.jpg' | sed 's/.*/<img src="&">/' > gallery.html
-# Suspend to ram
-sudo pm-suspend
 # resolve short urls
 resolve(){ curl -Is $1 | egrep "Location" | sed "s/Location: \(.*\)/\1/g"; }
 # Test your total disk IO capacity, regardless of caching, to find out how fast the TRUE speed of your disks are
