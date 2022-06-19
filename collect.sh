@@ -3,6 +3,7 @@
 entries=(
     dotfiles:"$HOME/.xinitrc":xinitrc
     dotfiles:"$HOME/.zshrc":zshrc
+    dotfiles:"$HOME/.zprofile":zprofile
     dotfiles:"$HOME/.vimrc":vimrc
     dotfiles:"$HOME/.gitconfig":gitconfig
     dotfiles:"$HOME/.fu":fu
