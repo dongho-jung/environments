@@ -979,8 +979,6 @@ swapoff -a ; swapon -a
 ls | while read ITEM; do echo "$ITEM"; done
 # Launch a command from a manpage
 !date
-# hard disk information - Model/serial no.
-hdparm -i[I] /dev/sda
 # Split File in parts
 split -b 19m file Nameforpart
 # To get you started!
@@ -6313,8 +6311,6 @@ clear
 psg () { ps auxwww | egrep "$1|PID" | grep -v grep }
 # Display formatted routes
 routel
-# validate xml in a shell script using xmllint
-xmllint --noout some.xml 2>&1 >/dev/null || exit 1
 # most used unix commands
 awk '{print $1}' ~/.bash_history | sort | uniq -c | sort -rn | head -n 10
 # Access partitions inside a LVM volume
