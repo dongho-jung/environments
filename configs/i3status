@@ -5,9 +5,9 @@ general {
 }
 
 order += "ethernet ens33"
-order += "load"
 order += "disk /"
 order += "cpu_usage"
+order += "load"
 order += "memory"
 order += "volume master"
 order += "time"
@@ -17,8 +17,8 @@ disk "/" {
 }
 
 ethernet ens33 {
-	format_up = "E: %ip (%speed)"
-	format_down = "E: down"
+	format_up = "eth %speed"
+	format_down = "down"
 }
 
 cpu_usage {
@@ -35,4 +35,8 @@ volume master {
         format = "♪: %volume"
         format_muted = "♪: muted (%volume)"
         device = "pulse"
+}
+
+time {
+    format = "%Y/%m/%d %a %H:%M:%S"
 }
