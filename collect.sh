@@ -16,6 +16,7 @@ entries=(
     directories:"$HOME/.uim.d":uim
     services:"/etc/systemd/system/init-keycode.service":init-keycode.service
     etc:"/etc/dunst/dunstrc":dunstrc
+    etc:"/etc/fonts/local.conf":fonts
 )
 
 for entry in "${entries[@]}"
