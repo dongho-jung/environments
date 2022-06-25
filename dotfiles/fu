@@ -3243,8 +3243,6 @@ lsof -u www-data
 apt-cache show pkgname | grep -i "version:"
 # Graphical tree of sub-directories with files
 find . -print | sed -e 's;[^/]*/;|-- ;g;s;-- |;   |;g'
-# Make a high definition VNC
-vncserver -nohttpd -name hidef-server -depth 24 -geometry 1440x900
 # Counts number of lines
 find . \( -name '*.h' -o -name '*.cc' \) | xargs grep . | wc -l
 # Top 10 Memory Processes
@@ -4461,8 +4459,6 @@ L(){ l=`builtin printf %${2:-$COLUMNS}s` && echo -e "${l// /${1:-=}}"; }
 fdiff() { ${DIFFCMD:-diff} <( $1 $2 ) <( $1 $3 ); }
 # Exclude a string with awk
 awk '{sub("String","")}1'
-# Email yourself a quick message
-mailme(){ mailx -s "$@" $USER <<< "$@"; }
 # floating point operations in shell scripts
 echo "5 k 3 5 / p" | dc
 # Insert a line for each n lines
@@ -4515,8 +4511,6 @@ grep -2riP '\b(fuck|shit|bitch|tits|ass\b)' /usr/src/linux/
 alias tail='tail -n $((${LINES:-`tput lines 2>/dev/null||echo -n 80`} - 7))'
 # reduce mp3 bitrate (and size, of course)
 lame --mp3input -m m --resample 24 input.mp3
-# using scanner device from command line
-scanimage -d mustek_usb --resolution 100 --mode Color > image.pnm
 # Show your local ipv4 IP
 ip -o -4 a s | awk -F'[ /]+' '$2!~/lo/{print $4}'
 # Check if filesystem hangs
@@ -7589,8 +7583,6 @@ for i in `cat names.txt`; do host -r $i [nameserver]; done
 ifconfig | grep cast | cut -d':' -f2 | cut -d' ' -f1
 # Generate random valid mac addresses
 macchanger -A (nic)
-# use ethereal to generate a pcap file of a VOIP call
-tethereal -i eth0 -R 'iax2 && ip.addr==10.162.78.162' -w /tmp/iax2.pcap
 # it allows recording of your terminal
 shelr record
 # find . -name "*" -print | xargs grep -s pattern
