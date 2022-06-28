@@ -10,7 +10,7 @@ zstyle ':completion:*:*:-command-:*:*' ignored-patterns '_*'
 
 source $ZSH/oh-my-zsh.sh
 
-setopt share_history
+setopt inc_append_history
 setopt no_nomatch
 unsetopt beep
 
