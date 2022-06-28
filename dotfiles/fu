@@ -6233,8 +6233,6 @@ ps aux | awk '{print $2, $4, $11}' | sort -k2rn | head -n 10
 for (( i = 0; i < 100; i++ )); do echo "$i"; done
 # Send remote command output to your local clipboard
 command | ssh myHost xsel -i --display :0
-# Using parcellite, indents the content of the clipboard manager
-parcellite -c | sed 's/^/    /' | parcellite
 # Read Python logs with tracebacks in color
 while read i; do [ ${#i} -gt 72 ] && echo "$i"; done < /path/to/file
 # Find your graphics chipset
@@ -8287,3 +8285,4 @@ sleep 15m; yes > /dev/dsp
 diff -U 9999 file_a file_b | tail -n +3 | grep -P "^(\ Header|\-|\+)"
 # print twice each lines
 echo '1\n2\n2\n3' | sed 'p'
+
