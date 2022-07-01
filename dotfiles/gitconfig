@@ -2,7 +2,7 @@
 	email = dongho971220@gmail.com
 	name = jdh
 [core]
-	editor = vi
+	editor = vim
 [commit]
 	verbose = true
 [init]
