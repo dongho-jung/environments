@@ -7,7 +7,7 @@ entries=(
     dotfiles:"$HOME/.vimrc":vimrc
     dotfiles:"$HOME/.gitconfig":gitconfig
     dotfiles:"$HOME/.fu":fu
-    dotfiles:"$HOME/.requirements.$(hostname)":"requirements.$(hostname)"
+    dotfiles:"$HOME/.requirements":"requirements"
     configs:"$HOME/.config/i3/config":i3
     configs:"$HOME/.config/i3status/config":i3status
     configs:"$HOME/.config/flameshot/flameshot.ini":flameshot
