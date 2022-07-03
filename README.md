@@ -1,5 +1,5 @@
 # environments
-리눅스 개발환경을 위한 개인 설정 파일들
+개발환경을 위한 개인 설정 파일들. 기기/OS에 종속적인 부분들은 브랜치별로 분리
 
 일부 기능들은 [0xf4d3c0d3/scripts](https://github.com/0xF4D3C0D3/scripts)에 의존
 
