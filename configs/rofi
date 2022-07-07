@@ -1,5 +1,6 @@
 configuration {
-	modi: "drun,run,$:/usr/bin/custom_rofi.sh";
+    font: "monospace 16";
+	modi: "drun,run,$:/usr/bin/custom_rofi";
 	kb-row-tab: "";
 	kb-row-select: "Tab";
 }
