@@ -6,7 +6,7 @@ entries=(
 
 for entry in "${entries[@]}"
 do
-    IFS=: read category path name <<< $entry
+    IFS=: read category path name <<<"$entry"
     mkdir -p ./$category
 
     if [ -d $path ]; then
