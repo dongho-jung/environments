@@ -1,22 +1,7 @@
 #!/bin/bash
 
 entries=(
-    dotfiles:"$HOME/.xinitrc":xinitrc
     dotfiles:"$HOME/.zshrc":zshrc
-    dotfiles:"$HOME/.zprofile":zprofile
-    dotfiles:"$HOME/.vimrc":vimrc
-    dotfiles:"$HOME/.gitconfig":gitconfig
-    dotfiles:"$HOME/.fu":fu
-    dotfiles:"$HOME/.requirements":"requirements"
-    configs:"$HOME/.config/i3/config":i3
-    configs:"$HOME/.config/i3status/config":i3status
-    configs:"$HOME/.config/flameshot/flameshot.ini":flameshot
-    configs:"$HOME/.config/rofi/config.rasi":rofi
-    configs:"$HOME/.config/dunst/dunstrc":dunstrc
-    spool:"/var/spool/cron/$(whoami)":cron  # might need `chmod o+rx /var/spool/cron`
-    directories:"$HOME/.uim.d":uim
-    services:"/etc/systemd/system/init-keycode.service":init-keycode.service
-    etc:"/etc/fonts/local.conf":fonts
 )
 
 for entry in "${entries[@]}"
