@@ -114,7 +114,6 @@ bar {
         status_command i3status
 }
 
-
 for_window [class=".*"] border pixel 3
 for_window [title="Picture in picture"] border pixel 0
 gaps inner 5
@@ -124,5 +123,3 @@ bindsym Shift+Print exec "scrot ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h
 bindsym Ctrl+Print exec "scrot --focused ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
 
 bindsym --release Scroll_Lock exec demonstrate
-
-exec --no-startup-id vmware-user-suid-wrapper
