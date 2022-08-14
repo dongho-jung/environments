@@ -6,7 +6,6 @@ entries=(
     dotfiles:"$HOME/.zprofile":zprofile
     dotfiles:"$HOME/.vimrc":vimrc
     dotfiles:"$HOME/.gitconfig":gitconfig
-    dotfiles:"$HOME/.fu":fu
     dotfiles:"$HOME/.requirements":"requirements"
     configs:"$HOME/.config/i3/config":i3
     configs:"$HOME/.config/i3status/config":i3status
@@ -16,7 +15,6 @@ entries=(
     spool:"/var/spool/cron/$(whoami)":cron  # might need `chmod o+rx /var/spool/cron`
     directories:"$HOME/.uim.d":uim
     services:"/etc/systemd/system/init-keycode.service":init-keycode.service
-    etc:"/etc/fonts/local.conf":fonts
 )
 
 for entry in "${entries[@]}"
