@@ -1,52 +1,28 @@
-export ZSH="$HOME/.oh-my-zsh"
-ZSH_THEME='random'
-ZSH_THEME_RANDOM_QUIET=true
+export PATH=$PATH:$HOME/.local/bin:$HOME/go/bin
+export EDITOR=vim
+export LESSHISTFILE=/dev/null
+export HISTFILE="$HOME/.zsh_history"
 
-plugins=(
-    alias-tips autojump aws command-not-found
-    docker docker-compose emoji emotty
-    fzf git terraform
-)
+alias ga='git add' gc='git commit -v' gl='git pulk' gp='git push' gg='git gui'
+alias y='xclip -selection clipboard' p='xclip -selection clipboard -o' yi='y -t image/png -i'
+alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
+alias open='xdg-open' cat='bat' k='kubectl'
 
+ZP=$HOME/.config/zsh/plugins
+. /usr/share/doc/pkgfile/command-not-found.zsh
+. /usr/share/autojump/autojump.zsh
+. $ZP/omz/lib/history.zsh
+. $ZP/alias-tips/alias-tips.plugin.zsh
+. $ZP/fzf/shell/key-bindings.zsh
+. $ZP/omz/lib/key-bindings.zsh
+bindkey '^H' vi-backward-kill-word
+
+setopt share_history
+
+autoload -Uz compinit; compinit -C
 zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
-zstyle ':completion:*:*:-command-:*:*' ignored-patterns '_*'       
 
-source $ZSH/oh-my-zsh.sh
-
-setopt inc_append_history
-setopt no_nomatch
-unsetopt beep
-
-alias open='xdg-open'
-alias y='xclip -selection clipboard'; alias p='xclip -selection clipboard -o'; alias yi='y -t image/png -i'
-alias trash-put='gio trash'; alias trash-list='gio --list'
-alias ls='exa'; alias l='exa -lbF --git'; alias ll='exa -la --git'; alias tree='exa --tree --git'; alias ltree='tree -l'
-alias cat='bat'
-alias k='kubectl'
-
-HISTSIZE=10000
-SAVEHIST=1000000
-EDITOR=vi
-export LESSHISTFILE=/dev/null
-
-PATH=$PATH:/usr/share/bcc/tools:$HOME/.local/bin:$HOME/go/bin
-
-
-autoload -Uz compinit
-compinit
-source <(helm completion zsh)
-source <(kubectl completion zsh)
-
-_FU="$HOME/.fu"
-_FU_NUM=$(echo `wc -l <$_FU`)
-_get_fu() {
-  _FU_START=$((RANDOM % _FU_NUM / 2 * 2 + 1))
-  _FU_MSG=$(head -$_FU_START $_FU | tail -2 | fold -w80)
-  echo
-  sed 's/^/  /' <<<$_FU_MSG
-  echo
-  echo $_FU_MSG > /tmp/last_fu
-}
-add-zsh-hook precmd _get_fu
-alias badfu='cat ~/.fu | rgx -s "$(rgx -r "$(cat /tmp/last_fu)")\n" | owh ~/.fu'
+fpath+=($HOME/.config/zsh/plugins/pure)
+autoload -U promptinit; promptinit
+prompt pure
