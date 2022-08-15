@@ -1,5 +1,6 @@
 export EDITOR=vim
 export LESSHISTFILE=/dev/null
+export PURE_PROMPT_SYMBOL="[$(echo ${${(%):-%l}##pts/} / 2 | bc)] ❯"
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status'
 alias y='xclip -selection clipboard' yi='y -t image/png -i' p='xclip -selection clipboard -o' 
