@@ -3,26 +3,24 @@ export EDITOR=vim
 export LESSHISTFILE=/dev/null
 export HISTFILE="$HOME/.zsh_history"
 
-alias ga='git add' gc='git commit -v' gl='git pulk' gp='git push' gg='git gui'
-alias y='xclip -selection clipboard' p='xclip -selection clipboard -o' yi='y -t image/png -i'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status'
+alias y='xclip -selection clipboard' yi='y -t image/png -i' p='xclip -selection clipboard -o' 
 alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
 alias open='xdg-open' cat='bat' k='kubectl'
 
-ZP=$HOME/.config/zsh/plugins
 . /usr/share/doc/pkgfile/command-not-found.zsh
 . /usr/share/autojump/autojump.zsh
-. $ZP/omz/lib/history.zsh
-. $ZP/alias-tips/alias-tips.plugin.zsh
-. $ZP/fzf/shell/key-bindings.zsh
-. $ZP/omz/lib/key-bindings.zsh
-bindkey '^H' vi-backward-kill-word
+. pack ohmyzsh/ohmyzsh lib/history.zsh master
+. pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py master
+. pack ohmyzsh/ohmyzsh lib/key-bindings.zsh master
+. pack junegunn/fzf shell/key-bindings.zsh master
 
 setopt share_history
 
-autoload -Uz compinit; compinit -C
+autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
 
-fpath+=($HOME/.config/zsh/plugins/pure)
+fpath+=($HOME/.local/share/zsh/pure)
 autoload -U promptinit; promptinit
 prompt pure
