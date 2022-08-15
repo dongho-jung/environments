@@ -8,26 +8,20 @@
 # files
 ```shell
 environments
-├── collect.sh
 ├── configs
+│  ├── dunstrc
 │  ├── flameshot
 │  ├── i3
 │  ├── i3status
 │  └── rofi
-├── directories
-│  └── uim
-│     └── customs
 ├── dotfiles
-│  ├── fu
 │  ├── gitconfig
-│  ├── requirements.arch-desktop
+│  ├── requirements
 │  ├── vimrc
 │  ├── xinitrc
 │  ├── zprofile
 │  └── zshrc
 ├── etc
-│  ├── dunstrc
-│  └── fonts
 ├── services
 │  └── init-keycode.service
 └── spool
