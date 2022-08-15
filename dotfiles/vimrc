@@ -1,21 +1,7 @@
 call plug#begin()
-Plug 'mhinz/vim-startify'
 Plug 'junegunn/goyo.vim'
-
+Plug 'mhinz/vim-startify'
 Plug 'morhetz/gruvbox'
-Plug 'tomasr/molokai'
-Plug 'joshdick/onedark.vim'
-Plug 'nanotech/jellybeans.vim'
-Plug 'jonathanfilip/vim-lucius'
-Plug 'mhartington/oceanic-next'
-Plug 'lifepillar/vim-solarized8'
-Plug 'ajh17/spacegray.vim'
-Plug 'cocopon/iceberg.vim'
-Plug 'sainnhe/vim-color-forest-night'
-Plug 'junegunn/seoul256.vim'
-Plug 'arcticicestudio/nord-vim'
-Plug 'rakr/vim-one'
-Plug 'nlknguyen/papercolor-theme'
 call plug#end()
 
 set belloff=all
@@ -24,39 +10,10 @@ set nu
 set shiftwidth=4
 set tabstop=4
 set autoindent
-set termguicolors
 filetype plugin indent on
 
+set termguicolors
+set background=dark
+colorscheme gruvbox
+
 noremap <C-g> :Goyo<CR>
-
-function! RandomColorscheme()
-    let seed = srand()
-    let colorschemes = [
-                \['set background=dark', 'gruvbox'], ['set background=light', 'gruvbox'],
-                \['set background=dark', 'molokai'],
-                \['set background=dark', 'onedark'],
-                \['set background=dark', 'jellybeans'],
-                \['set background=dark', 'lucius'], ['set background=light', 'lucius'],
-                \['set background=dark', 'OceanicNext'],
-                \['set background=dark', 'solarized8_high'], ['set background=light', 'solarized8_high'],
-                \['set background=dark', 'solarized8'], ['set background=light', 'solarized8'],
-                \['set background=dark', 'solarized8_low'], ['set background=light', 'solarized8_low'],
-                \['set background=dark', 'solarized8_flat'], ['set background=light', 'solarized8_flat'],
-                \['set background=dark', 'spacegray'],
-                \['set background=dark', 'iceberg'], ['set background=light', 'iceberg'],
-                \['set background=dark', 'everforest'], ['set background=light', 'everforest'],
-                \['set background=dark', 'seoul256'], ['set background=light', 'seoul256'],
-                \['set background=dark', 'nord'],
-                \['set background=dark', 'one'], ['set background=light', 'one'],
-                \['set background=dark', 'PaperColor'], ['set background=light', 'PaperColor'],
-                \]
-    let cur_colorscheme_pair = colorschemes[rand(seed)%len(colorschemes)]
-    let cur_command = cur_colorscheme_pair[0]
-    let cur_colorscheme = cur_colorscheme_pair[1]
-
-    exec cur_command
-    exec 'colorscheme ' . cur_colorscheme
-endfunction
-
-call RandomColorscheme()
-noremap <C-b> :call RandomColorscheme()<CR>
