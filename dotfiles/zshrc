@@ -1,17 +1,16 @@
-export PATH=$PATH:$HOME/.local/bin:$HOME/go/bin
 export EDITOR=vim
 export LESSHISTFILE=/dev/null
-export HISTFILE="$HOME/.zsh_history"
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status'
 alias y='xclip -selection clipboard' yi='y -t image/png -i' p='xclip -selection clipboard -o' 
 alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
 alias open='xdg-open' cat='bat' k='kubectl'
 
-. /usr/share/doc/pkgfile/command-not-found.zsh
 . /usr/share/autojump/autojump.zsh
-. pack ohmyzsh/ohmyzsh lib/history.zsh master
+. /usr/share/doc/pkgfile/command-not-found.zsh
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py master
+. pack ohmyzsh/ohmyzsh lib/history.zsh master
+# fzf key-bindings should be after omz
 . pack ohmyzsh/ohmyzsh lib/key-bindings.zsh master
 . pack junegunn/fzf shell/key-bindings.zsh master
 
