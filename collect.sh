@@ -13,7 +13,6 @@ entries=(
     configs:"$HOME/.config/rofi/config.rasi":rofi
     configs:"$HOME/.config/dunst/dunstrc":dunstrc
     spool:"/var/spool/cron/$(whoami)":cron  # might need `chmod o+rx /var/spool/cron`
-    directories:"$HOME/.uim.d":uim
     services:"/etc/systemd/system/init-keycode.service":init-keycode.service
 )
 
