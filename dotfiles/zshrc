@@ -5,7 +5,7 @@ ZSH_THEME_RANDOM_QUIET=true
 plugins=(
     alias-tips autojump aws command-not-found
     docker docker-compose emoji emotty
-    fzf git pyenv terraform
+    fzf git kubectl pyenv terraform
 )
 
 zstyle ':completion:*:*:docker:*' option-stacking yes
