@@ -7,7 +7,7 @@
 ```shell
 environments
 ├── collect.sh
-├── dotfiles
-│  └── zshrc
-└── README.md
+└── dotfiles
+   ├── vimrc
+   └── zshrc
 ```
