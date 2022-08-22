@@ -1,13 +1,14 @@
 export EDITOR=vim
 export LESSHISTFILE=/dev/null
 export PURE_PROMPT_SYMBOL="[$((10#$(tty | sed 's/^[^0-9]*//')))] ❯"
+export PATH="$HOME/.local/bin:$HOME/.pyenv:$PATH"
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status'
 alias y='pbcopy' p='pbpaste' 
 alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
-alias open='xdg-open' cat='bat' k='kubectl'
+alias cat='bat' k='kubectl'
 
-. /usr/local/Cellar/autojump/22.5.3_3/share/autojump/autojump.zsh
+. /opt/homebrew/Cellar/autojump/22.5.3_3/share/autojump/autojump.zsh
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py master
 . pack ohmyzsh/ohmyzsh lib/history.zsh master
 # fzf key-bindings should be after omz
@@ -20,6 +21,10 @@ autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
 
-fpath+=($HOME/.local/share/zsh/pure)
+eval "$(pyenv init --path)"
+eval "$(pyenv init -)"
+eval "$(pyenv virtualenv-init -)"
+
+fpath+=(/opt/homebrew/share/zsh/site-functions)
 autoload -U promptinit; promptinit
 prompt pure
