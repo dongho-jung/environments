@@ -3,7 +3,7 @@ export LESSHISTFILE=/dev/null
 export PURE_PROMPT_SYMBOL="[$((10#$(tty | sed 's/^[^0-9]*//')))] ❯"
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status'
-alias y='xclip -selection clipboard' yi='y -t image/png -i' p='xclip -selection clipboard -o' 
+alias y='pbcopy' p='pbpaste' 
 alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
 alias open='xdg-open' cat='bat' k='kubectl'
 
