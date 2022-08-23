@@ -1,12 +1,13 @@
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
 export EDITOR=vim
 export LESSHISTFILE=/dev/null
-export PURE_PROMPT_SYMBOL="[$((10#$(tty | sed 's/^[^0-9]*//')))] ❯"
 export PATH="$HOME/.local/bin:$HOME/.pyenv:$PATH"
+export PURE_PROMPT_SYMBOL="[$((10#$(tty | sed 's/^[^0-9]*//')))] ❯"
 
-alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status'
-alias y='pbcopy' p='pbpaste' 
-alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
 alias cat='bat' k='kubectl'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status'
+alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
+alias y='pbcopy' p='pbpaste' 
 
 . /opt/homebrew/Cellar/autojump/22.5.3_3/share/autojump/autojump.zsh
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py master
