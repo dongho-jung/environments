@@ -4,12 +4,12 @@ Plug 'mhinz/vim-startify'
 Plug 'morhetz/gruvbox'
 call plug#end()
 
+set autoindent
 set belloff=all
 set expandtab
 set nu
 set shiftwidth=4
 set tabstop=4
-set autoindent
 filetype plugin indent on
 
 set termguicolors
