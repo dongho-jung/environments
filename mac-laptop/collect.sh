@@ -2,6 +2,7 @@
 
 entries=(
     dotfiles:"$HOME/.zshrc":zshrc
+    dotfiles:"$HOME/.vimrc":vimrc
 )
 
 for entry in "${entries[@]}"
