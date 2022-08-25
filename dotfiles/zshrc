@@ -10,11 +10,12 @@ alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltr
 alias y='pbcopy' p='pbpaste' 
 
 . /opt/homebrew/Cellar/autojump/22.5.3_3/share/autojump/autojump.zsh
-. pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py master
-. pack ohmyzsh/ohmyzsh lib/history.zsh master
+. pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
+. pack 0xF4D3C0D3/snippets expand-multiple-dots.zsh
+. pack ohmyzsh/ohmyzsh lib/history.zsh
 # fzf key-bindings should be after omz
-. pack ohmyzsh/ohmyzsh lib/key-bindings.zsh master
-. pack junegunn/fzf shell/key-bindings.zsh master
+. pack ohmyzsh/ohmyzsh lib/key-bindings.zsh
+. pack junegunn/fzf shell/key-bindings.zsh
 
 setopt share_history
 
