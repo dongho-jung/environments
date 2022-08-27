@@ -17,8 +17,9 @@ alias open='xdg-open' cat='bat' k='kubectl'
 . pack junegunn/fzf shell/key-bindings.zsh master
 
 setopt share_history
-
+autoload bashcompinit && bashcompinit
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
+complete -C aws_completer aws
 zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
 
