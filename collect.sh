@@ -9,7 +9,6 @@ entries=(
     dotfiles:"$HOME/.requirements":"requirements"
     configs:"$HOME/.config/i3/config":i3
     configs:"$HOME/.config/i3status/config":i3status
-    configs:"$HOME/.config/flameshot/flameshot.ini":flameshot
     configs:"$HOME/.config/rofi/config.rasi":rofi
     configs:"$HOME/.config/dunst/dunstrc":dunstrc
     spool:"/var/spool/cron/$(whoami)":cron  # might need `chmod o+rx /var/spool/cron`
