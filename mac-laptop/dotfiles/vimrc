@@ -1,0 +1,19 @@
+call plug#begin()
+Plug 'junegunn/goyo.vim'
+Plug 'mhinz/vim-startify'
+Plug 'morhetz/gruvbox'
+call plug#end()
+
+set autoindent
+set belloff=all
+set expandtab
+set nu
+set shiftwidth=4
+set tabstop=4
+filetype plugin indent on
+
+set termguicolors
+set background=dark
+colorscheme gruvbox
+
+noremap <C-g> :Goyo<CR>
