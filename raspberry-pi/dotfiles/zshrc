@@ -1,0 +1,27 @@
+export EDITOR=vim
+export LESSHISTFILE=/dev/null
+
+alias mt='vcgencmd measure_temp'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status'
+alias y='xclip -selection clipboard' yi='y -t image/png -i' p='xclip -selection clipboard -o' 
+alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
+alias open='xdg-open' cat='bat' k='kubectl'
+
+. /usr/share/autojump/autojump.zsh
+. /etc/zsh_command_not_found
+. pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py master
+. pack ohmyzsh/ohmyzsh lib/history.zsh master
+# fzf key-bindings should be after omz
+. pack ohmyzsh/ohmyzsh lib/key-bindings.zsh master
+. pack junegunn/fzf shell/key-bindings.zsh master
+
+setopt share_history
+autoload bashcompinit && bashcompinit
+autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
+complete -C aws_completer aws
+zstyle ':completion:*:*:docker:*' option-stacking yes
+zstyle ':completion:*:*:docker-*:*' option-stacking yes
+
+fpath+=($HOME/.local/share/zsh/pure)
+autoload -U promptinit; promptinit
+prompt pure
