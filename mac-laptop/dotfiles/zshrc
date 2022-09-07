@@ -23,6 +23,7 @@ setopt share_history
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
+zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/share/git-core/git-completion.zsh
 
 eval "$(pyenv init --path)"
 eval "$(pyenv init -)"
