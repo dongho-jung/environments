@@ -28,6 +28,7 @@ zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/sh
 eval "$(pyenv init --path)"
 eval "$(pyenv init -)"
 eval "$(pyenv virtualenv-init -)"
+eval "$(direnv hook zsh)"
 
 fpath+=(/opt/homebrew/share/zsh/site-functions)
 autoload -U promptinit; promptinit
