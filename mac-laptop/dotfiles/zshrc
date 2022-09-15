@@ -5,7 +5,8 @@ export PATH="$HOME/.local/bin:$HOME/.pyenv:$PATH"
 export PURE_PROMPT_SYMBOL="[$((10#$(tty | sed 's/^[^0-9]*//')))] ❯"
 
 alias cat='bat' k='kubectl'
-alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status' gco='git checkout'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status' gco='git checkout' \
+    gd='git diff' gds='git diff --staged'
 alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply'
 alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
 alias y='pbcopy' p='pbpaste' 
