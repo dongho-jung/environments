@@ -14,11 +14,13 @@ alias y='pbcopy' p='pbpaste'
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
 . pack 0xF4D3C0D3/snippets expand-multiple-dots.zsh
 . pack ohmyzsh/ohmyzsh lib/history.zsh
+. pack ohmyzsh/ohmyzsh plugins/dirhistory/dirhistory.plugin.zsh
 # fzf key-bindings should be after omz
 . pack ohmyzsh/ohmyzsh lib/key-bindings.zsh
 . pack junegunn/fzf shell/key-bindings.zsh
 
 setopt share_history
+setopt autopushd
 
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 zstyle ':completion:*:*:docker:*' option-stacking yes
