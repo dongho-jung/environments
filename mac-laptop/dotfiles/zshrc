@@ -20,8 +20,10 @@ alias y='pbcopy' p='pbpaste'
 . pack ohmyzsh/ohmyzsh lib/key-bindings.zsh
 . pack junegunn/fzf shell/key-bindings.zsh
 
-setopt share_history
 setopt autopushd
+setopt extended_glob
+setopt interactive_comments
+setopt share_history
 
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 zstyle ':completion:*:*:docker:*' option-stacking yes
