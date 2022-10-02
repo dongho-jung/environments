@@ -13,6 +13,7 @@ entries=(
     configs:"$HOME/.config/dunst/dunstrc":dunstrc
     spool:"/var/spool/cron/$(whoami)":cron  # might need `chmod o+rx /var/spool/cron`
     services:"/etc/systemd/system/init-keycode.service":init-keycode.service
+    services:"/usr/lib/systemd/system/getty@.service":getty@tty1.service  # it should be placed in /etc/systemd/system/getty.target.wants/getty@tty1.service which redirects to /usr/lib/...
 )
 
 for entry in "${entries[@]}"
