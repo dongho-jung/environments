@@ -1,2 +1,1 @@
 */5 * * * * DISPLAY=:0 /usr/bin/random_wallpaper
-0 * * * * for i in low normal critical; do notify-send -u $i -t 3000 '딴길 새지 않기!!'; sleep 0.5; done
