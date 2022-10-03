@@ -1,6 +1,6 @@
 export EDITOR=vim
 export LESSHISTFILE=/dev/null
-export PATH=$PATH:/usr/share/bcc/tools/:$HOME/.local/bin/
+export PATH=$PATH:/usr/share/bcc/tools/
 export PURE_PROMPT_SYMBOL="$(echo ${${(%):-%l}##pts/} / 2 | bc) ❯"
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status' gd='git diff' gds='git diff --staged' gco='git checkout' gcf='confirm_and_do "git clean -f"' grh='confirm_and_do "git reset --hard"'
