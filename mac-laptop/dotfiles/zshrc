@@ -5,16 +5,15 @@ export PATH="$HOME/.local/bin:$HOME/.pyenv:$PATH"
 export PURE_PROMPT_SYMBOL="[$((10#$(tty | sed 's/^[^0-9]*//')))] ❯"
 
 alias cat='bat' k='kubectl'
-alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status' gco='git checkout' \
-    gd='git diff' gds='git diff --staged' gcf='confirm_and_do "git clean -f"' grh='confirm_and_do "git reset --hard"'
-alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status' gco='git checkout' gd='git diff' gds='git diff --staged' gcf='confirm_and_do "git clean -f"' grh='confirm_and_do "git reset --hard"'
 alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
+alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply'
 alias y='pbcopy' p='pbpaste' 
 alias sk='source ~/.key'
 
 . /opt/homebrew/Cellar/autojump/22.5.3_3/share/autojump/autojump.zsh
-. pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
 . pack 0xF4D3C0D3/snippets expand-multiple-dots.zsh
+. pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
 . pack ohmyzsh/ohmyzsh lib/history.zsh
 . pack ohmyzsh/ohmyzsh plugins/dirhistory/dirhistory.plugin.zsh
 # fzf key-bindings should be after omz
@@ -27,8 +26,8 @@ setopt interactive_comments
 setopt share_history
 
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
-zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
+zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/share/git-core/git-completion.zsh
 
 eval "$(pyenv init --path)"
