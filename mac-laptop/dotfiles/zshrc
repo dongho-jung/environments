@@ -10,6 +10,7 @@ alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' g
 alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply'
 alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
 alias y='pbcopy' p='pbpaste' 
+alias sk='source ~/.key'
 
 . /opt/homebrew/Cellar/autojump/22.5.3_3/share/autojump/autojump.zsh
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
