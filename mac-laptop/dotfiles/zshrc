@@ -9,8 +9,9 @@ alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' g
     grs='git restore --staged' gr='git restore'
 alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply'
 alias ls='exa' sl='ls' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
-alias y='pbcopy' p='pbpaste' 
+alias c='confirm_and_do "rm /tmp/clipboard/*"'
 alias sk='source ~/.key'
+alias dam='aws sts decode-authorization-message --encoded-message "$(pbpaste)" | jq ".DecodedMessage" -r | jq'
 
 . /opt/homebrew/Cellar/autojump/22.5.3_3/share/autojump/autojump.zsh
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
@@ -31,13 +32,29 @@ zstyle ':completion:*:*:docker-*:*' option-stacking yes
 zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/share/git-core/git-completion.zsh
 source <(helm completion zsh)
 
-eval "$(pyenv init --path)"
-eval "$(pyenv init -)"
-eval "$(pyenv virtualenv-init -)"
-eval "$(direnv hook zsh)"
-
+setup_env() {
+    eval "$(pyenv init --path)"
+    eval "$(pyenv init -)"
+    eval "$(pyenv virtualenv-init -)"
+    eval "$(direnv hook zsh)"
+}
 t() { export PURE_PROMPT_SYMBOL="$1 ❯"; }
 tmp() { TMP=~/tmp/$(date +%F); mkdir -p $TMP; cd $TMP }
+y() { [[ $# = 0 ]] && pbcopy || { mkdir -p /tmp/clipboard; cat > /tmp/clipboard/$1 } }
+p() { [[ $# = 0 ]] && pbpaste || { [[ $1 == '.' ]] && ls /tmp/clipboard || cat /tmp/clipboard/$1 } }
+i() {
+    python3 -m IPython -i -c "
+        import json, pathlib
+        a = type('',(object,),{})()
+        for _ in pathlib.Path('/tmp/clipboard/').glob('*'):
+            text = _.read_text()
+            try:
+                text = json.loads(text)
+            except json.JSONDecodeError:
+                pass
+            setattr(a, _.name, text)
+    "
+}
 
 fpath+=(/opt/homebrew/share/zsh/site-functions)
 autoload -U promptinit; promptinit
