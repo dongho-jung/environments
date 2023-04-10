@@ -4,8 +4,10 @@ Plug 'mhinz/vim-startify'
 call plug#end()
 
 set autoindent
+set backspace=indent,eol,start
 set belloff=all
 set expandtab
+set mmp=8192
 set nu
 set shiftwidth=4
 set tabstop=4
