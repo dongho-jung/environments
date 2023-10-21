@@ -3,5 +3,10 @@ for f in /etc/X11/xinit/xinitrc.d/?*.sh; do
 done
 unset f
 
+export GTK_IM_MODULE=uim
+export QT_IM_MODULE=uim
+uim-xim &
+export XMODIFIERS=@im=uim
+
 export PATH=$PATH:$HOME/.local/bin
 exec i3 &>> $HOME/.i3.log
