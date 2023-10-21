@@ -121,4 +121,4 @@ bindsym Ctrl+Print exec "scrot --focused ~/pics/screenshots/'%Y%m%d_'`random_nam
 
 bindsym --release Scroll_Lock exec demonstrate
 
-exec_always --no-startup-id picom 
+exec_always --no-startup-id picom &>/dev/null
