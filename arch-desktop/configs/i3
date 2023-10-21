@@ -13,7 +13,7 @@ floating_modifier $mod
 bindsym $mod+Tab        workspace next
 bindsym $mod+Shift+Tab  workspace prev
 
-bindsym $mod+Return     exec gnome-terminal --profile="$(dconf list /org/gnome/terminal/legacy/profiles:/ | grep -e '^:' | shuf -n 1 | tr -d ':/')"
+bindsym $mod+Return     exec alacritty --config-file=$(find ~/projects/alacritty-theme/themes -type f| shuf -n1)
 bindsym $mod+Shift+q    kill
 bindsym $mod+d          exec --no-startup-id "rofi -show $"
 
