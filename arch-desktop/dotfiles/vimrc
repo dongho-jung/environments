@@ -1,4 +1,5 @@
-call plug#begin()
+set rtp+=~/.local/share/vim/
+call plug#begin('~/.local/share/vim/plugged')
 Plug 'junegunn/goyo.vim'
 Plug 'mhinz/vim-startify'
 Plug 'morhetz/gruvbox'

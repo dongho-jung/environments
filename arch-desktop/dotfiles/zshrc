@@ -1,18 +1,21 @@
+export AUTOENV_ENABLE_LEAVE=1
 export EDITOR=vim
 export LESSHISTFILE=/dev/null
-export PATH=$PATH:/usr/share/bcc/tools/
+export PATH=$PATH:$HOME/.local/bin
 export PURE_PROMPT_SYMBOL="$(echo ${${(%):-%l}##pts/} / 2 | bc) ❯"
 
-alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status' gd='git diff' gds='git diff --staged' gco='git checkout' gcf='confirm_and_do "git clean -f"' grh='confirm_and_do "git reset --hard"'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='git gui' gst='git status' gd='git diff' gds='git diff --staged' gco='git checkout'
 alias ls='exa' l='exa -lbF --git' ll='exa -la --git' tree='exa --tree --git' ltree='tree -l'    
-alias open='xdg-open' cat='bat' k='kubectl'
-alias tf='terraform' tff='tf fmt' tfp='tf plan' tfa='tf apply' tfi='tf init'
+alias open='xdg-open' cat='bat'
+alias tf='terraform' tfp='tf plan' tfa='tf apply' tfi='tf init'
 alias y='xclip -selection clipboard' yi='y -t image/png -i' p='xclip -selection clipboard -o' 
+alias rm="echo 'you should use \`trash\`'; false" t='trash'
 
 . /usr/share/autojump/autojump.zsh
 . /usr/share/doc/pkgfile/command-not-found.zsh
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py master
 . pack ohmyzsh/ohmyzsh lib/history.zsh master
+. pack hyperupcall/autoenv activate.sh master
 # fzf key-bindings should be after omz
 . pack ohmyzsh/ohmyzsh lib/key-bindings.zsh master
 . pack junegunn/fzf shell/key-bindings.zsh master
@@ -22,13 +25,9 @@ setopt extended_glob
 setopt interactive_comments
 setopt share_history
 
-autoload bashcompinit && bashcompinit
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
-complete -C aws_completer aws
-zstyle ':completion:*:*:docker:*' option-stacking yes
-zstyle ':completion:*:*:docker-*:*' option-stacking yes
 
-t() { export PURE_PROMPT_SYMBOL="$1 ❯"; }
+change_ps() { export PURE_PROMPT_SYMBOL="$1 ❯"; }
 
 fpath+=($HOME/.local/share/zsh/pure)
 autoload -U promptinit; promptinit
