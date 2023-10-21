@@ -1,0 +1,7 @@
+shadow = false;
+
+fading = false;
+
+opacity-rule = [
+    "80:class_g = 'Gnome-terminal'"
+];
