@@ -4,7 +4,7 @@ general {
         interval = 1
 }
 
-order += "ethernet ens33"
+order += "ethernet enp0s3"
 order += "disk /"
 order += "cpu_usage"
 order += "load"
@@ -16,7 +16,7 @@ disk "/" {
 	format = "disk %percentage_used used"
 }
 
-ethernet ens33 {
+ethernet enp0s3 {
 	format_up = "eth %speed"
 	format_down = "down"
 }
