@@ -1,0 +1,14 @@
+configs:
+  i3: ~/.config/i3/config
+  i3status: ~/.config/i3status/config
+  picom: ~/.config/picom/picom.conf
+  rofi: ~/.config/rofi/config.rasi
+dotfiles:
+  gitconfig: ~/.gitconfig
+  vimrc: ~/.vimrc
+  xinitrc: ~/.xinitrc
+  zprofile: ~/.zprofile
+  zshrc: ~/.zshrc
+services:
+  auto-login: /etc/systemd/system/getty.target.wants/getty@tty1.service
+  capslock-hangul: /etc/systemd/system/capslock-hangul.service
