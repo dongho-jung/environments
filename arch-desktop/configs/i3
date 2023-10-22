@@ -111,6 +111,8 @@ bindsym $mod+Ctrl+Right resize grow width 10 px or 10 ppt
 
 bar {
         status_command i3status
+        wheel_up_cmd exec i3status-wheel up
+        wheel_down_cmd exec i3status-wheel down
 }
 
 for_window [class=".*"] border pixel 3
