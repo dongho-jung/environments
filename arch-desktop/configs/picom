@@ -2,6 +2,8 @@ shadow = false;
 
 fading = false;
 
+corner-radius = 7;
+
 opacity-rule = [
     "80:class_g = 'Alacritty'"
 ];
