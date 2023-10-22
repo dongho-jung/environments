@@ -31,6 +31,8 @@ bindsym --release KP_Prior              exec --no-startup-id send_key `cat /tmp/
 
 bindsym --release Control+Menu exec --no-startup-id "xdotool type --delay 0 --clearmodifiers `random_name`' '"
 
+bindsym $mod+Button1 floating toggle
+
 bindsym $mod+Prior     exec --no-startup-id picom-trans -c -10
 bindsym $mod+Next      exec --no-startup-id picom-trans -c +10
 bindsym $mod+KP_Insert exec --no-startup-id [ "$(picom-trans -g -c)" -ne 100 ] && picom-trans -c 100 || picom-trans 80 -c
