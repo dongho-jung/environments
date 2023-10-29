@@ -111,7 +111,7 @@ bar {
         status_command i3status
         wheel_up_cmd exec i3status-wheel up
         wheel_down_cmd exec i3status-wheel down
-        bindsym button1 workspace desktop
+        bindsym button3 workspace desktop
 }
 
 for_window [class=".*"] border pixel 3
