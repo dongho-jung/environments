@@ -12,5 +12,4 @@ dotfiles:
   zprofile: ~/.zprofile
   zshrc: ~/.zshrc
 services:
-  auto-login: /etc/systemd/system/getty.target.wants/getty@tty1.service
   capslock-hangul: /etc/systemd/system/capslock-hangul.service
