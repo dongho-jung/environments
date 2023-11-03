@@ -1,9 +1,0 @@
-[Unit]
-Description=set capslock to hangul
-
-[Service]
-Type=oneshot
-ExecStart=setkeycodes 3a 122
-
-[Install]
-WantedBy=default.target
