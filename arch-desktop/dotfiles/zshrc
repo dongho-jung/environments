@@ -14,6 +14,7 @@ alias open='xdg-open' cat='bat'
 alias tf='terraform' tfp='tf plan' tfa='tf apply' tfi='tf init'
 alias y='xclip -selection clipboard' yi='y -t image/png -i' p='xclip -selection clipboard -o' 
 alias rm="echo 'you should use \`trash\`'; false" t='trash'
+alias vi="vim"
 
 . /usr/share/autojump/autojump.zsh
 . /usr/share/doc/pkgfile/command-not-found.zsh
