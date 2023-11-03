@@ -9,4 +9,4 @@ uim-xim &
 export XMODIFIERS=@im=uim
 
 export PATH=$PATH:$HOME/.local/bin
-exec i3 &>> /var/log/.i3.log
+exec i3 &>> ~/.logs/i3
