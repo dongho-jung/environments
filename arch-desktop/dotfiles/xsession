@@ -9,4 +9,5 @@ uim-xim &
 export XMODIFIERS=@im=uim
 
 export PATH=$PATH:$HOME/.local/bin
-exec i3 &>> ~/.logs/i3
+xmodmap $HOME/.Xmodmap
+exec i3 &>> $HOME/.logs/i3
