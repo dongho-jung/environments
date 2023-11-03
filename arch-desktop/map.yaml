@@ -8,8 +8,6 @@ configs:
 dotfiles:
   gitconfig: ~/.gitconfig
   vimrc: ~/.vimrc
-  xinitrc: ~/.xinitrc
+  xsession: ~/.xsession
   zprofile: ~/.zprofile
   zshrc: ~/.zshrc
-services:
-  capslock-hangul: /etc/systemd/system/capslock-hangul.service
