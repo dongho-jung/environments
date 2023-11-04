@@ -8,6 +8,6 @@ configs:
 dotfiles:
   gitconfig: ~/.gitconfig
   vimrc: ~/.vimrc
-  xsession: ~/.xsession
+  xinitrc: ~/.xinitrc
   zprofile: ~/.zprofile
   zshrc: ~/.zshrc
