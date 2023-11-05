@@ -56,7 +56,7 @@ bindsym $mod+w layout tabbed
 bindsym $mod+e layout toggle split
 
 bindsym $mod+Shift+space floating toggle
-bindsym $mod+space       focus mode_toggle
+bindsym $mod+space       workspace desktop
 
 bindsym $mod+a focus parent
 bindsym $mod+Escape focus child
