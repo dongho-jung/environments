@@ -1,0 +1,11 @@
+[user]
+	email = dongho971220@gmail.com
+	name = dongho-jung
+[core]
+	editor = vim
+[commit]
+	verbose = true
+[init]
+	defaultBranch = main
+[pull]
+    rebase = false

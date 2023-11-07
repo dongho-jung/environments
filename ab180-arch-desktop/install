@@ -1,0 +1,29 @@
+#!/bin/bash
+
+yaml_file='map.yaml'
+home_dir=$HOME
+
+# Loop through each top-level key (e.g., configs, dotfiles, services)
+yq -r 'keys[]' "$yaml_file" | while read -r top_key; do
+  # Loop through each second-level key and its value
+  yq -r ".${top_key} | keys[]" "$yaml_file" | while read -r key; do
+    value=$(yq -r ".${top_key}[\"$key\"]" "$yaml_file")
+    src="$(pwd)/${top_key}/${key}"
+    dst=${value/\~/$home_dir}
+    if [ -f "$dst" ] || [ -L "$dst" ]; then
+        mv "$dst" "/tmp/environment_install_${top_key}_${key}"
+    fi
+    mkdir -p $(dirname $dst)
+    ln_res=$(ln -s "$src" "$dst" 2>&1)
+
+    if [ $? -ne 0 ]; then
+      if [[ $ln_res == *"Permission denied"* ]]; then
+        echo "Permission denied for $dst. Retrying with sudo."
+        sudo ln -s "$src" "$dst"
+      else
+        echo "Failed to create symbolic link for a different reason: $ln_res"
+      fi
+    fi
+
+  done
+done
