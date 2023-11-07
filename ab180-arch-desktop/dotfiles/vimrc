@@ -1,0 +1,21 @@
+set rtp+=~/.local/share/vim/
+call plug#begin('~/.local/share/vim/plugged')
+Plug 'junegunn/goyo.vim'
+Plug 'mhinz/vim-startify'
+Plug 'morhetz/gruvbox'
+Plug 'vim-airline/vim-airline'
+call plug#end()
+
+set belloff=all
+set expandtab
+set nu
+set shiftwidth=4
+set tabstop=4
+set autoindent
+filetype plugin indent on
+
+set termguicolors
+set background=dark
+colorscheme gruvbox
+
+noremap <C-g> :Goyo<CR>

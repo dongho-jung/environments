@@ -1,0 +1,6 @@
+configuration {
+    font: "monospace 16";
+	modi: "drun,run,$:~/.local/bin/custom_rofi";
+	kb-element-next: "";
+	kb-row-select: "Tab";
+}
