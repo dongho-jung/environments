@@ -1,0 +1,9 @@
+[Unit]
+Description=Automatic hibernation when inactive
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl hibernate
+
+[Install]
+WantedBy=sleep.target

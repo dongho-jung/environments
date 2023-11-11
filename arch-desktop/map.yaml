@@ -11,3 +11,6 @@ dotfiles:
   xinitrc: ~/.xinitrc
   zprofile: ~/.zprofile
   zshrc: ~/.zshrc
+services:
+  auto-hibernate.service: /etc/systemd/system/auto-hibernate.service
+  auto-hibernate.timer: /etc/systemd/system/auto-hibernate.timer
