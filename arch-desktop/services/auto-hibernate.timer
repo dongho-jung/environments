@@ -1,0 +1,9 @@
+[Unit]
+Description=Timer for automatic hibernation
+
+[Timer]
+OnUnitInactiveSec=30min
+Unit=auto-hibernate.service
+
+[Install]
+WantedBy=timers.target
