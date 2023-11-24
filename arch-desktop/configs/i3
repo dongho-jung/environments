@@ -113,4 +113,3 @@ bindsym Shift+Print exec "scrot ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h
 bindsym Ctrl+Print exec "scrot --focused ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
 
 exec_always --no-startup-id picom &>> ~/.logs/picom
-workspace_auto_back_and_forth yes
