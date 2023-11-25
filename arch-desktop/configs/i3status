@@ -5,6 +5,7 @@ general {
 }
 
 order += "ethernet eno1"
+order += "read_file public_ip"
 order += "disk /"
 order += "cpu_usage"
 order += "cpu_temperature 0"
@@ -15,6 +16,12 @@ order += "time"
 
 disk "/" {
 	format = "disk %percentage_used used"
+}
+
+read_file public_ip {
+    format = %content
+    format_bad = "%title(%error)"
+    path = /tmp/public_ip
 }
 
 ethernet eno1 {
