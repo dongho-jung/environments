@@ -16,6 +16,7 @@ bindsym $mod+Shift+Tab  workspace prev
 bindsym $mod+Return     exec --no-startup-id alacritty --config-file=$(find ~/projects/alacritty-theme/computed-themes -type f| shuf -n1)
 bindsym $mod+Shift+q    kill
 bindsym $mod+d          exec --no-startup-id "rofi -show d -no-tokenize"
+bindsym $mod+r          exec --no-startup-id "rofi -show r -no-tokenize"
 
 bindsym Pause exec --no-startup-id "ID=`xdotool getwindowfocus`; echo $ID>/tmp/focused-window; notify-send \\"$ID[$(xdotool getwindowname $ID)] is focused\\"; paplay /usr/share/sounds/freedesktop/stereo/bell.oga"
 bindsym --release Control+bracketleft   exec --no-startup-id send_key `cat /tmp/focused-window` Left
