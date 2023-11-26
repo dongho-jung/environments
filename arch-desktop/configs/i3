@@ -15,7 +15,7 @@ bindsym $mod+Shift+Tab  workspace prev
 
 bindsym $mod+Return     exec --no-startup-id alacritty --config-file=$(find ~/projects/alacritty-theme/computed-themes -type f| shuf -n1)
 bindsym $mod+Shift+q    kill
-bindsym $mod+d          exec --no-startup-id "rofi -show $ -no-tokenize"
+bindsym $mod+d          exec --no-startup-id "rofi -show d -no-tokenize"
 
 bindsym Pause exec --no-startup-id "ID=`xdotool getwindowfocus`; echo $ID>/tmp/focused-window; notify-send \\"$ID[$(xdotool getwindowname $ID)] is focused\\"; paplay /usr/share/sounds/freedesktop/stereo/bell.oga"
 bindsym --release Control+bracketleft   exec --no-startup-id send_key `cat /tmp/focused-window` Left
@@ -113,3 +113,4 @@ bindsym Shift+Print exec "scrot ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h
 bindsym Ctrl+Print exec "scrot --focused ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
 
 exec_always --no-startup-id picom &>> ~/.logs/picom
+exec_always --no-startup-id curl https://ifconfig.me > /tmp/public_ip
