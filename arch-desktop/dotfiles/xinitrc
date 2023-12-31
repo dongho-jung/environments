@@ -8,8 +8,6 @@ export QT_IM_MODULE=uim
 uim-xim &
 export XMODIFIERS=@im=uim
 
-xautolock -time 30 -locker "i3lock -u -c 000000" &
-
 export PATH=$PATH:$HOME/.local/bin
 xmodmap $HOME/.Xmodmap
 exec i3 &>> $HOME/.logs/i3
