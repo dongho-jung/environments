@@ -113,5 +113,4 @@ bindsym Print exec flameshot gui
 bindsym Shift+Print exec "scrot ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
 bindsym Ctrl+Print exec "scrot --focused ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
 
-exec_always --no-startup-id picom &>> ~/.logs/picom
 exec_always --no-startup-id curl https://ifconfig.me > /tmp/public_ip
