@@ -1,0 +1,5 @@
+dotfiles:
+  gitconfig: ~/.gitconfig
+  vimrc: ~/.vimrc
+configs:
+  fish: ~/.config/fish
