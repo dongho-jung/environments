@@ -33,12 +33,17 @@ in {
 
   i18n = {
     inputMethod = {
-      enabled = "uim";
+      enabled = "kime";
     };
+    supportedLocales = [
+      "en_US.UTF-8/UTF-8"
+      "ko_KR.UTF-8/UTF-8"
+    ];
   };
   fonts = {
     packages = with pkgs; [
       nanum-gothic-coding
+      nerdfonts
       noto-fonts
       noto-fonts-cjk
       noto-fonts-emoji
@@ -46,33 +51,36 @@ in {
     ];
     fontconfig = {
       defaultFonts = {
-        serif = ["NanumGothicCoding"];
-        sansSerif = ["NanumGothicCoding"];
-        monospace = ["NanumGothicCoding"];
+        serif = ["Noto Sans Mono CJK KR"];
+        sansSerif = ["Noto Sans Mono CJK KR"];
+        monospace = ["Noto Sans Mono CJK KR"];
+        # serif = ["NanumGothicCoding"];
+        # sansSerif = ["NanumGothicCoding"];
+        # monospace = ["NanumGothicCoding"];
       };
     };
   };
 
   # Enable the X11 windowing system.
-  services.xserver = {
-    enable = true;
-    desktopManager = { xterm.enable = false; };
-    displayManager = {
-      defaultSession = "none+i3";
-      sessionCommands = "${pkgs.xorg.xmodmap}/bin/xmodmap -e 'keycode 66 = Hangul' &";
-    };
-    windowManager.i3 = {
-      enable = true;
-      extraPackages = with pkgs; [
-        dmenu
-        i3status
-        i3lock
-        i3blocks
-      ];
-    };
-    xkbOptions = "caps:none";
-    videoDrivers = ["nvidia"];
-  };
+  #  services.xserver = {
+  #    enable = true;
+  #    desktopManager = { xterm.enable = false; };
+  #    displayManager = {
+  #      defaultSession = "none+i3";
+  #      sessionCommands = "${pkgs.xorg.xmodmap}/bin/xmodmap -e 'keycode 66 = Hangul' &";
+  #    };
+  #    windowManager.i3 = {
+  #      enable = true;
+  #      extraPackages = with pkgs; [
+  #        dmenu
+  #        i3status
+  #        i3lock
+  #        i3blocks
+  #      ];
+  #    };
+  #    xkbOptions = "caps:none";
+  #    videoDrivers = ["nvidia"];
+  #  };
 
   nixpkgs.config = {
     allowUnfree = true;
@@ -92,13 +100,57 @@ in {
   };
   
   services.nordvpn.enable = true;
+  services.fcron = {
+    enable = true;
+    allow = [ "all" ];
+    systab = ''
+      @mail(no) 30s export export XDG_RUNTIME_DIR=/run/user/1000; ${unstable.swww}/bin/swww img --resize fit --transition-type random --transition-duration 1 $(find /home/dongho/images/wallpapers/ -type f | shuf -n1)
+    '';
+  };
+
+  services.keyd = {
+    enable = true;
+    keyboards.default.settings = {
+      main = {
+        capslock = "hangeul";
+      };
+    };
+  };
+
+  services.greetd = {
+    enable = true;
+    settings = rec {
+      initial_session = {
+        command = "Hyprland";
+	user = "dongho";
+      };
+      default_session = initial_session;
+    };
+  };
 
   # Enable sound.
   sound.enable = true;
   hardware.pulseaudio.enable = true;
 
+  hardware = {
+    opengl.enable = true;
+    nvidia.modesetting.enable = true;
+  };
+
   # Enable touchpad support (enabled default in most desktopManager).
-  services.xserver.libinput.enable = false;
+  # services.xserver.libinput.enable = false;
+
+  programs = {
+    fish = {
+      enable = true;
+    };
+    hyprland = {
+      enable = true;
+      enableNvidiaPatches = true;
+      xwayland.enable = true;
+    };
+    command-not-found.enable = true;
+  };
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users.users.dongho = {
@@ -120,21 +172,27 @@ in {
     docker
     dunst
     eza
+    eww
     fcron
     feh
     flameshot
     fzf
     git
+    gnome.gnome-terminal
     google-chrome 
+    gtk4
+    gtk4-layer-shell
+    gtkmm4
     helm
     htop
-    i3
+    ibus
     imagemagick
     inetutils
     inotify-tools
     jetbrains.pycharm-community
     jq
     kubectl
+    libnotify
     moreutils
     ncdu
     neofetch
@@ -143,31 +201,33 @@ in {
     powertop
     python311Packages.ipython
     python311Packages.jupyter-core
-    rofi
+    rofi-wayland
     scrot
     slack
+    unstable.swww
     terraform
     tldr
     trash-cli
-    uim
     unstable.ffmpeg
     unstable.alacritty
     vscode
+    waybar
     wget 
-    xclip
-    xdotool
+    wl-clipboard
+    xfce.tumbler
     xorg.xev
     xorg.xmodmap
     xfce.thunar
+
+    (pkgs.waybar.overrideAttrs (oldAttrs: {
+      mesonFlags = oldAttrs.mesonFlags ++ [ "-Dexperimental=true" ];
+    }))
   ];
   
   environment.pathsToLink = [ "/libexec" ];
-
-  programs = {
-    fish = {
-      enable = true;
-    };
-    command-not-found.enable = true;
+  environment.sessionVariables = {
+    WLR_NO_HARDWARE_CURSORS = "1";
+    NIXOS_OZONE_WL = "1";
   };
 
   # Copy the NixOS configuration file and link it from the resulting system
