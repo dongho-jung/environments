@@ -154,6 +154,7 @@ in {
       enableNvidiaPatches = true;
       xwayland.enable = true;
     };
+    autojump.enable = true;
     command-not-found.enable = true;
   };
 
