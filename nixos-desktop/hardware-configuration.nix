@@ -5,7 +5,8 @@
 
 {
   imports =
-    [ (modulesPath + "/installer/scan/not-detected.nix")
+    [
+      (modulesPath + "/installer/scan/not-detected.nix")
     ];
 
   boot.initrd.availableKernelModules = [ "xhci_pci" "ahci" "usbhid" "usb_storage" "sd_mod" ];
@@ -20,12 +21,14 @@
   boot.extraModulePackages = [ ];
 
   fileSystems."/" =
-    { device = "/dev/disk/by-uuid/c37bc5bc-b416-48aa-877f-0c1c511f8c92";
+    {
+      device = "/dev/disk/by-uuid/c37bc5bc-b416-48aa-877f-0c1c511f8c92";
       fsType = "ext4";
     };
 
   fileSystems."/boot" =
-    { device = "/dev/disk/by-uuid/DAF8-1BA9";
+    {
+      device = "/dev/disk/by-uuid/DAF8-1BA9";
       fsType = "vfat";
     };
 
@@ -53,7 +56,7 @@
       modesetting.enable = true;
       powerManagement = {
         enable = false;
-	finegrained = false;
+        finegrained = false;
       };
       open = false;
       nvidiaSettings = true;
