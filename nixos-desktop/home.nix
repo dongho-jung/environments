@@ -121,7 +121,7 @@
         size = 10.0;
       };
       gaps.inner = 5;
-      modes = {};
+      modes = { };
 
       keybindings =
         let
@@ -130,10 +130,12 @@
           confirm-and-do = { command, commandAbbr ? command }:
             "exec --no-startup-id \"i3-nagbar -t warning -m 'You pressed ${commandAbbr} shorcut. Do you really want it?' -B 'Yes, ${commandAbbr}' '${command}'\"";
           bind-generator = bindPrefix: commandPrefix: list: builtins.listToAttrs (
-            builtins.map (i: {
-              name = "${bindPrefix}+${toString i}";
-              value = "${commandPrefix} ${toString i}";
-            }) list);
+            builtins.map
+              (i: {
+                name = "${bindPrefix}+${toString i}";
+                value = "${commandPrefix} ${toString i}";
+              })
+              list);
         in
         {
           "${mod}+space" = "focus mode_toggle";
@@ -168,8 +170,8 @@
         } //
         bind-generator "${mod}" "workspace number" (pkgs.lib.lists.range 1 9) //
         bind-generator "${mod}+Shift" "move container to workspace number" (pkgs.lib.lists.range 1 9) //
-        bind-generator "${mod}" "focus" ["Left" "Down" "Up" "Right"] //
-        bind-generator "${mod}+Shift" "move container" ["Left" "Down" "Up" "Right"];
+        bind-generator "${mod}" "focus" [ "Left" "Down" "Up" "Right" ] //
+        bind-generator "${mod}+Shift" "move container" [ "Left" "Down" "Up" "Right" ];
     };
   };
 
