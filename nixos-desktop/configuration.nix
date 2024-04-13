@@ -111,9 +111,23 @@ in
   programs = {
     fish = {
       enable = true;
+      shellAliases = rec {
+        vi="nvim";
+        cat="bat";
+        ls="eza"; l="${ls} -lh"; ll="${ls} -alh";
+        ga="git add"; gc="git commit -v"; gl="git pull"; gp="git push"; gg="git gui"; gst="git status";
+        gd="git diff"; gds="git diff --staged"; gco="git checkout";
+        tf="terraform"; tfp="${tf} plan"; tfa="${tf} apply"; tfi="${tf} init";
+        y="xclip -selection clipboard"; yi="${y} -t image/png -i"; p="xclip -selection clipboard -o";
+        open="xdg-open";
+        np="nix-shell -p";
+      };
     };
     autojump.enable = true;
     command-not-found.enable = true;
+    starship = {
+      enable = true;
+    };
   };
 
   users.users.dongho = {
@@ -186,6 +200,7 @@ in
     wget
     xclip
     xdotool
+    xidlehook
     xfce.tumbler
     xorg.xev
     xorg.xmodmap
