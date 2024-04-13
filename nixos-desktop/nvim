@@ -1,0 +1,42 @@
+" Specify the runtime path
+set runtimepath^=~/.local/share/nvim/site
+
+" Begin plugin section
+call plug#begin('~/.local/share/nvim/site/plugged')
+
+" Your plugins
+Plug 'junegunn/goyo.vim'
+Plug 'mhinz/vim-startify'
+Plug 'vim-airline/vim-airline'
+Plug 'lnl7/vim-nix'
+
+" End plugin section
+call plug#end()
+
+" Disable all bell sounds
+set belloff=all
+
+" Convert tabs to spaces
+set expandtab
+
+" Show line numbers
+set number
+
+" Indentation settings
+set shiftwidth=4
+set tabstop=4
+
+" Enable auto-indentation
+set autoindent
+
+" Enable filetype plugins and indenting
+filetype plugin indent on
+
+" Enable true color support
+set termguicolors
+
+" Map Ctrl+g to Goyo
+noremap <C-g> :Goyo<CR>
+
+set mouse=
+set clipboard+=unnamedplus
