@@ -8,7 +8,6 @@ let
       }
     )
     { };
-  unstable = import <nixos-unstable> { config = { allowUnfree = true; }; };
 in
 {
   imports =
@@ -20,21 +19,8 @@ in
 
   services.xserver = {
     enable = true;
-    displayManager = {
-      defaultSession = "none+i3";
-      sessionCommands = ''
-        ${pkgs.xorg.xmodmap}/bin/xmodmap -e 'keycode 66 = Hangul' &
-      '';
-    };
-    windowManager.i3 = {
-      enable = true;
-      extraPackages = with pkgs; [
-        i3lock
-        i3status
-      ];
-    };
     xkbOptions = "caps:none";
-    videoDrivers = ["nvidia"];
+    videoDrivers = [ "nvidia" ];
   };
 
   boot = {
@@ -109,102 +95,31 @@ in
   };
 
   programs = {
-    fish = {
-      enable = true;
-      shellAliases = rec {
-        vi="nvim";
-        cat="bat";
-        ls="eza"; l="${ls} -lh"; ll="${ls} -alh";
-        ga="git add"; gc="git commit -v"; gl="git pull"; gp="git push"; gg="git gui"; gst="git status";
-        gd="git diff"; gds="git diff --staged"; gco="git checkout";
-        tf="terraform"; tfp="${tf} plan"; tfa="${tf} apply"; tfi="${tf} init";
-        y="xclip -selection clipboard"; yi="${y} -t image/png -i"; p="xclip -selection clipboard -o";
-        open="xdg-open";
-        np="nix-shell -p";
-      };
-    };
     autojump.enable = true;
     command-not-found.enable = true;
-    starship = {
-      enable = true;
-    };
   };
 
   users.users.dongho = {
     isNormalUser = true;
     extraGroups = [ "wheel" "nordvpn" ];
     shell = pkgs.fish;
+    ignoreShellProgramCheck = true;
   };
 
   environment.systemPackages = with pkgs; [
-    atop
-    awscli2
-    bat
-    bc
-    bcc
-    bpftrace
-    cairo
-    cairomm
-    cool-retro-term
     dhcpcd
-    docker
-    dunst
-    eza
     fcron
-    fd
-    feh
     ffmpeg_5-full
-    flameshot
-    fzf
-    gcc
-    git
-    gnome.gnome-terminal
-    google-chrome
-    gtk4
-    gtk4-layer-shell
-    gtkmm4
-    helm
-    htop
-    ibus
-    imagemagick
     inetutils
     inotify-tools
-    jetbrains.pycharm-community
-    jq
-    killall
-    kubectl
     libnotify
     libwebp
     moreutils
-    ncdu
-    neofetch
-    neovim
-    nix-index
-    nixpkgs-fmt
-    pamixer
-    peek
+    nodejs_21
     pipewire
-    powertop
     python3
-    python311Packages.ipython
-    ripgrep
-    rofi
-    scrot
-    terraform
-    tldr
-    trash-cli
-    unstable.ffmpeg
-    unstable.alacritty
-    virtualenv
-    vscode
-    wget
-    xclip
-    xdotool
-    xidlehook
-    xfce.tumbler
     xorg.xev
     xorg.xmodmap
-    xfce.thunar
   ];
 
   environment.pathsToLink = [ "/libexec" ];
@@ -215,6 +130,6 @@ in
   };
 
   system.copySystemConfiguration = true;
-  system.stateVersion = "23.11"; 
+  system.stateVersion = "23.11";
 }
 
