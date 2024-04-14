@@ -19,6 +19,14 @@ in
 
   services.xserver = {
     enable = true;
+    displayManager.lightdm.enable = true;
+    displayManager.autoLogin = { enable = true; user = "dongho"; };
+    displayManager.defaultSession = "xsession";
+    displayManager.session = [{
+      manage = "desktop";
+      name = "xsession";
+      start = ''exec i3 &>> $HOME/.logs/i3'';
+    }];
     xkbOptions = "caps:none";
     videoDrivers = [ "nvidia" ];
   };
@@ -110,12 +118,14 @@ in
     dhcpcd
     fcron
     ffmpeg_5-full
+    git
     inetutils
     inotify-tools
     libnotify
     libwebp
     moreutils
     nodejs_21
+    neovim
     pipewire
     python3
     xorg.xev

@@ -19,7 +19,6 @@
     fzf
     i3lock
     gcc
-    git
     gnome.gnome-terminal
     google-chrome
     helm
@@ -111,6 +110,59 @@
 
   programs.i3status = {
     enable = true;
+    enableDefault = false;
+    general = {
+      interval = 1;
+      colors = true;
+      output_format = "i3bar";
+    };
+    modules = {
+      "ethernet eno1" = {
+        position = 1;
+        settings = {
+          format_up = "eth: %speed";
+          format_down = "eth: down";
+        };
+      };
+      "disk /" = {
+        position = 2;
+        settings = {
+          format = "/ %percentage_used used";
+        };
+      };
+      "cpu_usage" = {
+        position = 3;
+        settings = {
+          format = "cpu: %usage";
+        };
+      };
+      "cpu_temperature 0" = {
+        position = 4;
+        settings = {
+          format = "temp: %degrees °C";
+        };
+      };
+      "memory" = {
+        position = 5;
+        settings = {
+          format = "mem: %percentage_used used";
+        };
+      };
+      "volume master" = {
+        position = 6;
+        settings = {
+          format = "vol: %volume";
+          format_muted = "vol: %volume (muted)";
+          device = "pulse";
+        };
+      };
+      "time" = {
+        position = 7;
+        settings = {
+          format = "%Y/%m/%d %a %H:%M:%S";
+        };
+      };
+    };
   };
 
   xsession.windowManager.i3 = {
@@ -121,7 +173,45 @@
         size = 10.0;
       };
       gaps.inner = 5;
+      window.titlebar = false;
       modes = { };
+      floating = {
+        modifier = "Mod4";
+      };
+      window.commands = [
+        {
+          criteria = {
+            class = ".*";
+          };
+          command = "border pixel 3";
+        }
+        {
+          criteria = {
+            class = "Picture in picture";
+          };
+          command = "border none";
+        }
+      ];
+      startup = [
+        {
+          command = "xsetroot -solid \"#666666\"";
+          always = true;
+          notification = false;
+        }
+      ];
+      bars = [
+        {
+          fonts = {
+            names = [ "NanumGothicCoding" ];
+            size = 10.0;
+          };
+          statusCommand = "${pkgs.i3status}/bin/i3status";
+          extraConfig = ''
+            wheel_up_cmd exec --no-startup-id i3status-wheel up
+            wheel_down_cmd exec --no-startup-id i3status-wheel down
+          '';
+        }
+      ];
 
       keybindings =
         let
@@ -138,32 +228,42 @@
               list);
         in
         {
+          # focus
           "${mod}+space" = "focus mode_toggle";
           "${mod}+a" = "focus parent";
           "${mod}+Escape" = "focus child";
 
+          # floating
           "${mod}+Shift+space" = "floating toggle";
 
+          # resize
           "${mod}+Ctrl+Left" = "resize shrink width 10 px or 10 ppt";
           "${mod}+Ctrl+Down" = "resize grow height 10 px or 10 ppt";
           "${mod}+Ctrl+Up" = "resize shrink height 10 px or 10 ppt";
           "${mod}+Ctrl+Right" = "resize grow width 10 px or 10 ppt";
           "${mod}+f" = "fullscreen toggle";
 
+          # layouts & splits
           "${mod}+t" = "layout tabbed";
           "${mod}+e" = "layout toggle split";
+          "${mod}+h" = "split h";
+          "${mod}+v" = "split v";
 
+          # i3
           "${mod}+Shift+q" = "kill";
-          "${mod}+Shift+r" = "reload";
+          "${mod}+Shift+r" = "restart";
           "${mod}+Shift+e" = confirm-and-do { command = "i3-msg exit"; commandAbbr = "exit"; };
-          "${mod}+l" = "exec --no-startup-id i3lock -u -c 000000";
 
+          # power
+          "${mod}+l" = "exec --no-startup-id i3lock -u -c 000000";
           "${mod}+Shift+s" = confirm-and-do { command = "systemctl suspend"; commandAbbr = "suspend"; };
           "${mod}+Shift+h" = confirm-and-do { command = "systemctl hibernate"; commandAbbr = "hibernate"; };
 
+          # shortcuts
           "${mod}+Return" = "exec --no-startup-id alacritty --config-file=$(find ${alacritty-theme-location} -type f| shuf -n1)";
           "${mod}+d" = "exec --no-startup-id rofi -show d -no-tokenize";
 
+          # for yuha top-right corner
           "--release Shift+KP_Left" = "exec --no-startup-id xdotool mousemove 1130 280 click 1 sleep 0.01 mousemove restore";
           "--release Shift+KP_Begin" = "exec --no-startup-id xdotool mousemove 1460 280 click 1 sleep 0.01 mousemove restore";
           "--release Shift+KP_Right" = "exec --no-startup-id xdotool mousemove 1790 280 click 1 sleep 0.01 mousemove restore";
@@ -173,6 +273,10 @@
         bind-generator "${mod}" "focus" [ "Left" "Down" "Up" "Right" ] //
         bind-generator "${mod}+Shift" "move container" [ "Left" "Down" "Up" "Right" ];
     };
+  };
+
+  programs.autojump = {
+    enable = true;
   };
 
   services.xidlehook = {
