@@ -17,15 +17,29 @@ in
     ];
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
+  services.keyd = {
+    enable = true;
+    keyboards.default.settings = {
+      main = {
+        capslock = "hangeul";
+      };
+    };
+  };
+
   services.xserver = {
     enable = true;
     displayManager.lightdm.enable = true;
     displayManager.autoLogin = { enable = true; user = "dongho"; };
-    displayManager.defaultSession = "xsession";
+    displayManager.defaultSession = "i3";
     displayManager.session = [{
       manage = "desktop";
-      name = "xsession";
-      start = ''exec i3 &>> $HOME/.logs/i3'';
+      name = "i3";
+      start = ''
+        export GTK_IM_MODULE="fcitx"
+        export QT_IM_MODULE="fcitx"
+        export XMODIFIERS="@im=fcitx"
+        exec i3 &>> $HOME/.logs/i3
+      '';
     }];
     xkbOptions = "caps:none";
     videoDrivers = [ "nvidia" ];
@@ -42,12 +56,10 @@ in
   time.timeZone = "Asia/Seoul";
 
   i18n = {
-    inputMethod = {
-      enabled = "uim";
-    };
     supportedLocales = [
       "en_US.UTF-8/UTF-8"
       "ko_KR.UTF-8/UTF-8"
+      "ja_JP.UTF-8/UTF-8"
     ];
   };
   fonts = {
@@ -124,7 +136,7 @@ in
     libnotify
     libwebp
     moreutils
-    nodejs_21
+    nodejs_21  # for copilot vim
     neovim
     pipewire
     python3
