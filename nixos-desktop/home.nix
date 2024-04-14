@@ -5,6 +5,7 @@
 
   home.packages = with pkgs; [
     atop
+    btop
     awscli2
     bat
     bc
@@ -106,6 +107,36 @@
   programs.neovim = {
     enable = true;
     defaultEditor = true;
+    viAlias = true;
+    vimAlias = true;
+    plugins = with pkgs.vimPlugins; [
+      vim-airline
+      vim-startify
+      vim-nix
+    ];
+    extraConfig = ''
+      " Disable all bell sounds
+      set belloff=all
+
+      " Convert tabs to spaces
+      set expandtab
+
+      " Show line numbers
+      set number
+
+      " Indentation settings
+      set shiftwidth=4
+      set tabstop=4
+
+      " Enable auto-indentation
+      set autoindent
+
+      " Enable true color support
+      set termguicolors
+
+      set mouse=
+      set clipboard+=unnamedplus
+    '';
   };
 
   programs.i3status = {
@@ -191,6 +222,12 @@
           };
           command = "border none";
         }
+        {
+          criteria = {
+            class = "__text_scratchpad";
+          };
+          command = "floating enable";
+        }
       ];
       startup = [
         {
@@ -256,12 +293,13 @@
 
           # power
           "${mod}+l" = "exec --no-startup-id i3lock -u -c 000000";
-          "${mod}+Shift+s" = confirm-and-do { command = "systemctl suspend"; commandAbbr = "suspend"; };
+          "${mod}+Shift+s" = "exec --no-startup-id systemctl suspend";
           "${mod}+Shift+h" = confirm-and-do { command = "systemctl hibernate"; commandAbbr = "hibernate"; };
 
           # shortcuts
           "${mod}+Return" = "exec --no-startup-id alacritty --config-file=$(find ${alacritty-theme-location} -type f| shuf -n1)";
           "${mod}+d" = "exec --no-startup-id rofi -show d -no-tokenize";
+          "${mod}+s" = "exec --no-startup-id scratch_pad";
 
           # for yuha top-right corner
           "--release Shift+KP_Left" = "exec --no-startup-id xdotool mousemove 1130 280 click 1 sleep 0.01 mousemove restore";
@@ -292,6 +330,11 @@
         delay = 7200;
       }
     ];
+  };
+
+  i18n.inputMethod = {
+    enabled = "fcitx5";
+    fcitx5.addons = with pkgs; [ fcitx5-mozc fcitx5-hangul ];
   };
 
   home.stateVersion = "23.11";
