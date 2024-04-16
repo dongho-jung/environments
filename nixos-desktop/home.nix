@@ -113,6 +113,7 @@
       vim-airline
       vim-startify
       vim-nix
+      fcitx-vim
     ];
     extraConfig = ''
       " Disable all bell sounds
