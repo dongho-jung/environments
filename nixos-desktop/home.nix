@@ -1,4 +1,15 @@
 { config, pkgs, unstablePkgs, ... }:
+let
+  fcitx-vim-server = pkgs.vimUtils.buildVimPlugin {
+    name = "fcitx-vim";
+    src = pkgs.fetchFromGitHub {
+      owner = "lilydjwg";
+      repo = "fcitx.vim";
+      rev = "fcitx5-server";
+      sha256 = "sha256-0FcgOuM+T3C47BqVl1/kk+tedFfkRF+tFa66uDXbJ3o=";
+    };
+  };
+in
 {
   home.username = "dongho";
   home.homeDirectory = "/home/dongho";
@@ -113,7 +124,7 @@
       vim-airline
       vim-startify
       vim-nix
-      fcitx-vim
+      fcitx-vim-server
     ];
     extraConfig = ''
       " Disable all bell sounds
@@ -137,6 +148,8 @@
 
       set mouse=
       set clipboard+=unnamedplus
+
+      let g:fcitx5_remote=1
     '';
   };
 
