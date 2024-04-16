@@ -136,7 +136,7 @@ in
     libnotify
     libwebp
     moreutils
-    nodejs_21  # for copilot vim
+    nodejs_21 # for copilot vim
     neovim
     pipewire
     python3
