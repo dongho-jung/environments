@@ -149,7 +149,7 @@ in
       set mouse=
       set clipboard+=unnamedplus
 
-      let g:fcitx5_remote=1
+      " let g:fcitx5_remote=1
     '';
   };
 

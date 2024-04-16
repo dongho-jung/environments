@@ -8,6 +8,11 @@ let
       }
     )
     { };
+  fcitx-status-script = pkgs.fetchurl {
+    url="https://raw.githubusercontent.com/lilydjwg/fcitx.vim/fcitx5-server/fcitx-status";
+    sha256="1hgcyb0gsmlj8n1kz0dw0s48zsbykvm5r5k92jrxx8np2fg0gh5i";
+  };
+  fcitx-status-python = pkgs.python311.withPackages (ps: with ps; [ dbus-python]);
 in
 {
   imports =
@@ -143,6 +148,15 @@ in
     xorg.xev
     xorg.xmodmap
   ];
+
+  systemd.user.services.fcitx-status-server = {
+    wantedBy = [ "default.target" ];
+    after = [ "dbus.service" ];
+    serviceConfig = {
+      ExecStart = "${fcitx-status-python}/bin/python ${fcitx-status-script}";
+      Restart = "always";
+    };
+  };
 
   environment.pathsToLink = [ "/libexec" ];
   environment.sessionVariables = rec {
