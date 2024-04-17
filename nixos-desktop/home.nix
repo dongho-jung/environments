@@ -211,6 +211,9 @@ in
 
   xsession.windowManager.i3 = {
     enable = true;
+    extraConfig = ''
+      set $refresh_i3status killall -SIGUSR1 i3status
+    '';
     config = {
       fonts = {
         names = [ "NanumGothicCoding" ];
@@ -262,7 +265,6 @@ in
           '';
         }
       ];
-
       keybindings =
         let
           mod = "Mod4";
@@ -309,10 +311,32 @@ in
           "${mod}+Shift+s" = "exec --no-startup-id systemctl suspend";
           "${mod}+Shift+h" = confirm-and-do { command = "systemctl hibernate"; commandAbbr = "hibernate"; };
 
+          # workspaces
+          "${mod}+Tab" = "workspace next";
+          "${mod}+Shift+Tab" = "workspace prev";
+
           # shortcuts
           "${mod}+Return" = "exec --no-startup-id alacritty --config-file=$(find ${alacritty-theme-location} -type f| shuf -n1)";
           "${mod}+d" = "exec --no-startup-id rofi -show d -no-tokenize";
           "${mod}+s" = "exec --no-startup-id scratch_pad";
+
+          # volume
+          "Control+KP_Up" = "exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +5% && $refresh_i3status";
+          "Control+KP_Down" = "exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -5% && $refresh_i3status";
+          "Control+KP_Begin" = "exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3status";
+
+          # sendkey
+          "Pause" = ''exec --no-startup-id "ID=`xdotool getwindowfocus`; echo $ID>/tmp/focused-window; notify-send \\"$ID[$(xdotool getwindowname $ID)] is focused\\"; paplay ${pkgs.pop-gtk-theme}/share/sounds/Pop/stereo/action/bell.oga"'';
+          "--release KP_Left" = "exec --no-startup-id send_key `cat /tmp/focused-window` Left";
+          "--release KP_Begin" = "exec --no-startup-id send_key `cat /tmp/focused-window` space";
+          "--release KP_Right" = "exec --no-startup-id send_key `cat /tmp/focused-window` Right";
+          "--release KP_Up" = "exec --no-startup-id send_key `cat /tmp/focused-window` Up";
+          "--release KP_Down" = "exec --no-startup-id send_key `cat /tmp/focused-window` Down";
+          "--release KP_Home" = "exec --no-startup-id send_key `cat /tmp/focused-window` Shift+P";
+          "--release KP_Prior" = "exec --no-startup-id send_key `cat /tmp/focused-window` Shift+N";
+
+          # misc
+          "Print" = "exec --no-startup-id flameshot gui";
 
           # for yuha top-right corner
           "--release Shift+KP_Left" = "exec --no-startup-id xdotool mousemove 1130 280 click 1 sleep 0.01 mousemove restore";
