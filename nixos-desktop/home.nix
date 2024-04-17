@@ -98,7 +98,7 @@ in
       gc = "git commit -v";
       gl = "git pull";
       gp = "git push";
-      gg = "git gui";
+      gg = "gitg";
       gst = "git status";
       gd = "git diff";
       gds = "git diff --staged";
