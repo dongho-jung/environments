@@ -124,6 +124,7 @@ in
       vim-airline
       vim-startify
       vim-nix
+      copilot-vim
       fcitx-vim-server
     ];
     extraConfig = ''
