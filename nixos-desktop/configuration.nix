@@ -136,6 +136,7 @@ in
     fcron
     ffmpeg_5-full
     git
+    gitg
     inetutils
     inotify-tools
     libnotify
