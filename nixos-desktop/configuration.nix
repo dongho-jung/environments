@@ -130,6 +130,7 @@ in
   programs = {
     autojump.enable = true;
     command-not-found.enable = true;
+    dconf.enable = true;  # for easyeffects
   };
 
   users.users.dongho = {
