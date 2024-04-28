@@ -30,6 +30,7 @@ in
     flameshot
     fzf
     i3lock
+    imagemagick
     gcc
     gnome.gnome-terminal
     google-chrome
@@ -39,6 +40,7 @@ in
     jq
     killall
     kubectl
+    manim
     ncdu
     neofetch
     nix-index
@@ -50,6 +52,7 @@ in
     ripgrep
     rofi
     scrot
+    sqlite
     terraform
     tldr
     trash-cli
