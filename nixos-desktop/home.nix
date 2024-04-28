@@ -43,8 +43,9 @@ in
     neofetch
     nix-index
     nixpkgs-fmt
-    pamixer
     peek
+    pulseaudio
+    pulsemixer
     python311Packages.ipython
     ripgrep
     rofi
@@ -321,9 +322,10 @@ in
           "${mod}+s" = "exec --no-startup-id scratch_pad";
 
           # volume
-          "Control+KP_Up" = "exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +5% && $refresh_i3status";
-          "Control+KP_Down" = "exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -5% && $refresh_i3status";
-          "Control+KP_Begin" = "exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3status";
+          "Control+KP_Up" = "exec --no-startup-id pulsemixer --change-volume +5 --max-volume 100 && $refresh_i3status";
+          "Control+KP_Down" = "exec --no-startup-id pulsemixer --change-volume -5 && $refresh_i3status";
+          "Control+KP_Begin" = "exec --no-startup-id pulsemixer --toggle-mute && $refresh_i3status";
+          "Menu" = "exec --no-startup-id pulsemixer --toggle-mute && $refresh_i3status";
 
           # sendkey
           "Pause" = ''exec --no-startup-id "ID=`xdotool getwindowfocus`; echo $ID>/tmp/focused-window; notify-send \\"$ID[$(xdotool getwindowname $ID)] is focused\\"; paplay ${pkgs.pop-gtk-theme}/share/sounds/Pop/stereo/action/bell.oga"'';

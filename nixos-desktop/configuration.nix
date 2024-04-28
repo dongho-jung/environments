@@ -108,11 +108,19 @@ in
     allowedUDPPorts = [ 1194 ];
   };
 
-  services.pipewire.enable = true;
+  services.pipewire = {
+    enable = true;
+    audio.enable = true;
+    pulse.enable = true;
+    alsa = {
+      enable = true;
+      support32Bit = true;
+    };
+  };
   services.nordvpn.enable = true;
 
   sound.enable = true;
-  hardware.pulseaudio.enable = true;
+  # hardware.pulseaudio.enable = true;
 
   hardware = {
     opengl.enable = true;
@@ -144,7 +152,6 @@ in
     moreutils
     nodejs_21 # for copilot vim
     neovim
-    pipewire
     python3
     xorg.xev
     xorg.xmodmap
