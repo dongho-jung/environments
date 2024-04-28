@@ -69,6 +69,10 @@ in
     enable = true;
     userName = "Dongho Jung";
     userEmail = "dongho971220@gmail.com";
+    extraConfig = {
+      init.defaultBranch = "main";
+      core.quotePath = "false";
+    };
   };
 
   programs.starship = {
