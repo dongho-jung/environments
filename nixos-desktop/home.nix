@@ -111,6 +111,8 @@ in
       gd = "git diff";
       gds = "git diff --staged";
       gco = "git checkout";
+      gr = "git restore";
+      grs = "git restore --staged";
       tf = "terraform";
       tfp = "${tf} plan";
       tfa = "${tf} apply";
@@ -120,6 +122,7 @@ in
       p = "xclip -selection clipboard -o";
       open = "xdg-open";
       np = "nix-shell -p";
+      ns = "nix-shell";
     };
   };
 
