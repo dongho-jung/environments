@@ -16,53 +16,62 @@ in
 
   home.packages = with pkgs; [
     atop
-    btop
     awscli2
     bat
     bc
+    python311Packages.litellm
     bcc
     bpftrace
+    btop
     docker
     dunst
     eza
     fd
     feh
+    file
     flameshot
     fzf
-    i3lock
-    imagemagick
     gcc
     gnome.gnome-terminal
     google-chrome
     helm
     htop
+    i3lock
+    imagemagick
     jetbrains.pycharm-community
     jq
+    unzip
     killall
     kubectl
     manim
+    memento
     ncdu
     neofetch
     nix-index
     nixpkgs-fmt
+    (pkgs.ollama.override { acceleration = "cuda"; })
     peek
+    piper-tts
     pulseaudio
     pulsemixer
     python311Packages.ipython
     ripgrep
     rofi
+    rounded-mgenplus
     scrot
     sqlite
     terraform
     tldr
     trash-cli
+    unrar-wrapper
+    unzip
     vscode
     wget
     xclip
     xdotool
-    xidlehook
-    xfce.tumbler
     xfce.thunar
+    xfce.tumbler
+    xidlehook
   ];
 
   programs.git = {
