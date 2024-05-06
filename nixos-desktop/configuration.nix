@@ -9,10 +9,10 @@ let
     )
     { };
   fcitx-status-script = pkgs.fetchurl {
-    url="https://raw.githubusercontent.com/lilydjwg/fcitx.vim/fcitx5-server/fcitx-status";
-    sha256="1hgcyb0gsmlj8n1kz0dw0s48zsbykvm5r5k92jrxx8np2fg0gh5i";
+    url = "https://raw.githubusercontent.com/lilydjwg/fcitx.vim/fcitx5-server/fcitx-status";
+    sha256 = "1hgcyb0gsmlj8n1kz0dw0s48zsbykvm5r5k92jrxx8np2fg0gh5i";
   };
-  fcitx-status-python = pkgs.python311.withPackages (ps: with ps; [ dbus-python]);
+  fcitx-status-python = pkgs.python311.withPackages (ps: with ps; [ dbus-python ]);
 in
 {
   imports =
@@ -130,7 +130,6 @@ in
   programs = {
     autojump.enable = true;
     command-not-found.enable = true;
-    dconf.enable = true;  # for easyeffects
   };
 
   users.users.dongho = {
