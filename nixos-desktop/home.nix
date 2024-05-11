@@ -356,6 +356,10 @@ in
           "--release KP_Home" = "exec --no-startup-id send_key `cat /tmp/focused-window` Shift+P";
           "--release KP_Prior" = "exec --no-startup-id send_key `cat /tmp/focused-window` Shift+N";
 
+          # transparency
+          "${mod}+Prior" = "exec --no-startup-id picom-trans -c +10";
+          "${mod}+Next" = "exec --no-startup-id picom-trans -c -10";
+
           # misc
           "Print" = "exec --no-startup-id flameshot gui";
 
@@ -372,6 +376,10 @@ in
   };
 
   programs.autojump = {
+    enable = true;
+  };
+
+  services.picom = {
     enable = true;
   };
 
