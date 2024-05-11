@@ -32,13 +32,14 @@ in
     flameshot
     fzf
     gcc
+    unstablePkgs.github-copilot-intellij-agent
     gnome.gnome-terminal
     google-chrome
     helm
     htop
     i3lock
     imagemagick
-    jetbrains.pycharm-community
+    unstablePkgs.jetbrains.pycharm-community-bin
     jq
     unzip
     killall
@@ -52,6 +53,7 @@ in
     (pkgs.ollama.override { acceleration = "cuda"; })
     peek
     piper-tts
+    poetry
     pulseaudio
     pulsemixer
     python311Packages.ipython

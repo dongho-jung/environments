@@ -22,7 +22,9 @@
           home-manager.useUserPackages = true;
 
           home-manager.users.dongho = import ./home.nix;
-          home-manager.extraSpecialArgs = { unstablePkgs = inputs.nixpkgs-unstable.legacyPackages.x86_64-linux; };
+          home-manager.extraSpecialArgs = {
+            unstablePkgs = import inputs.nixpkgs-unstable { config.allowUnfree = true; };
+          };
         }
       ];
     };
