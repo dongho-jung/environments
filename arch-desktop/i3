@@ -4,37 +4,37 @@ set $alt Mod1
 font pango:NanumGothicCoding 10
 
 set $refresh_i3status killall -SIGUSR1 i3status
-bindsym Control+KP_Up       exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +5% && $refresh_i3status
-bindsym Control+KP_Down     exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -5% && $refresh_i3status
-bindsym Control+KP_Begin    exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3status
+set $execn exec --no-startup-id
+bindsym Control+KP_Up       $execn pulsemixer --change-volume +5 --max-volume 100 && $refresh_i3status
+bindsym Control+KP_Down     $execn pulsemixer --change-volume -5 && $refresh_i3status
+bindsym Control+KP_Begin    $execn pulsemixer --toggle-mute && $refresh_i3status
 
 floating_modifier $mod
 
 bindsym $mod+Tab        workspace next
 bindsym $mod+Shift+Tab  workspace prev
 
-bindsym $mod+Return     exec --no-startup-id alacritty --config-file=$(find ~/projects/alacritty-theme/computed-themes -type f| shuf -n1)
+bindsym $mod+Return     $execn alacritty --config-file=$(find ~/projects/alacritty-theme/computed-themes -type f| shuf -n1)
 bindsym $mod+Shift+q    kill
-bindsym $mod+d          exec --no-startup-id "rofi -show d -no-tokenize"
-bindsym $mod+r          exec --no-startup-id "rofi -show r -no-tokenize"
+bindsym $mod+d          $execn "rofi -show d -no-tokenize"
 
-bindsym Pause exec --no-startup-id "ID=`xdotool getwindowfocus`; echo $ID>/tmp/focused-window; notify-send \\"$ID[$(xdotool getwindowname $ID)] is focused\\"; paplay /usr/share/sounds/freedesktop/stereo/bell.oga"
-bindsym --release Control+bracketleft   exec --no-startup-id send_key `cat /tmp/focused-window` Left
-bindsym --release KP_Left               exec --no-startup-id send_key `cat /tmp/focused-window` Left
-bindsym --release Control+bracketright  exec --no-startup-id send_key `cat /tmp/focused-window` space
-bindsym --release KP_Begin              exec --no-startup-id send_key `cat /tmp/focused-window` space
-bindsym --release Control+backslash     exec --no-startup-id send_key `cat /tmp/focused-window` Right
-bindsym --release KP_Right              exec --no-startup-id send_key `cat /tmp/focused-window` Right
-bindsym --release KP_Up                 exec --no-startup-id send_key `cat /tmp/focused-window` Up
-bindsym --release KP_Down               exec --no-startup-id send_key `cat /tmp/focused-window` Down
-bindsym --release KP_Home               exec --no-startup-id send_key `cat /tmp/focused-window` Shift+P
-bindsym --release KP_Prior              exec --no-startup-id send_key `cat /tmp/focused-window` Shit+N
+bindsym Pause $execn "ID=`xdotool getwindowfocus`; echo $ID>/tmp/focused-window; notify-send \\"$ID[$(xdotool getwindowname $ID)] is focused\\"; paplay /usr/share/sounds/freedesktop/stereo/bell.oga"
+bindsym --release Control+bracketleft   $execn send_key `cat /tmp/focused-window` Left
+bindsym --release KP_Left               $execn send_key `cat /tmp/focused-window` Left
+bindsym --release Control+bracketright  $execn send_key `cat /tmp/focused-window` space
+bindsym --release KP_Begin              $execn send_key `cat /tmp/focused-window` space
+bindsym --release Control+backslash     $execn send_key `cat /tmp/focused-window` Right
+bindsym --release KP_Right              $execn send_key `cat /tmp/focused-window` Right
+bindsym --release KP_Up                 $execn send_key `cat /tmp/focused-window` Up
+bindsym --release KP_Down               $execn send_key `cat /tmp/focused-window` Down
+bindsym --release KP_Home               $execn send_key `cat /tmp/focused-window` Shift+P
+bindsym --release KP_Prior              $execn send_key `cat /tmp/focused-window` Shit+N
 
-bindsym --release Control+Menu exec --no-startup-id "xdotool type --delay 0 --clearmodifiers `random_name`' '"
+bindsym --release Control+Menu $execn "xdotool type --delay 0 --clearmodifiers `random_name`' '"
 
-bindsym $mod+Prior     exec --no-startup-id picom-trans -c -10
-bindsym $mod+Next      exec --no-startup-id picom-trans -c +10
-bindsym $mod+KP_Insert exec --no-startup-id [ "$(picom-trans -g -c)" -ne 100 ] && picom-trans -c 100 || picom-trans 80 -c
+bindsym $mod+Prior     $execn picom-trans -c -10
+bindsym $mod+Next      $execn picom-trans -c +10
+bindsym $mod+KP_Insert $execn [ "$(picom-trans -g -c)" -ne 100 ] && picom-trans -c 100 || picom-trans 80 -c
 
 bindsym $mod+Left   focus left
 bindsym $mod+Down   focus down
@@ -101,8 +101,8 @@ bindsym $mod+Ctrl+Right resize grow width 10 px or 10 ppt
 bar {
         status_command i3status
         bindsym button3 workspace desktop
-        wheel_up_cmd exec --no-startup-id i3status-wheel up
-        wheel_down_cmd exec --no-startup-id i3status-wheel down
+        wheel_up_cmd $execn i3status-wheel up
+        wheel_down_cmd $execn i3status-wheel down
 }
 
 for_window [class=".*"] border pixel 3

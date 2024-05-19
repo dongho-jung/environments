@@ -8,6 +8,6 @@
 [init]
 	defaultBranch = main
 [pull]
-    rebase = false
+	rebase = false
 [push]
-    autoSetupRemote = true
+	autoSetupRemote = true
