@@ -13,10 +13,10 @@ dotfiles:
   zshrc: ~/.zshrc
 
 etc:
-  fcitx5-status-server.service: /etc/systemd/user/fcitx5-status-server.service
-  fonts_local.conf: /etc/fonts/local.conf
+  fcitx5-status-server: /etc/systemd/user/fcitx5-status-server.service
+  fonts-local: /etc/fonts/local.conf
   fstab: /etc/fstab
   grub: /etc/default/grub
   hostname: /etc/hostname
-  lighdm.conf: /etc/lightdm/lightdm.conf
-  mkinitcpio.conf: /etc/mkinitcpio.conf
+  lighdm: /etc/lightdm/lightdm.conf
+  mkinitcpio: /etc/mkinitcpio.conf
