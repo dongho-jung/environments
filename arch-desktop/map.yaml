@@ -5,9 +5,9 @@ configs:
   fcitx5: ~/.config/fcitx5
 
 dotfiles:
+  xmodmap: ~/.Xmodmap
   gitconfig: ~/.gitconfig
   xinitrc: ~/.xinitrc
-  Xmodmap: ~/.Xmodmap
   zprofile: ~/.zprofile
   zshrc: ~/.zshrc
 
