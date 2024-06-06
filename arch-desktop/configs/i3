@@ -32,8 +32,8 @@ bindsym --release KP_Prior              $execn send_key `cat /tmp/focused-window
 
 bindsym --release Control+Menu $execn "xdotool type --delay 0 --clearmodifiers `random_name`' '"
 
-bindsym $mod+Prior     $execn picom-trans -c -10
-bindsym $mod+Next      $execn picom-trans -c +10
+bindsym $mod+Prior     $execn picom-trans -c +10
+bindsym $mod+Next      $execn picom-trans -c -10
 bindsym $mod+KP_Insert $execn [ "$(picom-trans -g -c)" -ne 100 ] && picom-trans -c 100 || picom-trans 80 -c
 
 bindsym $mod+Left   focus left
