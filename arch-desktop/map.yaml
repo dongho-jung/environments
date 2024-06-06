@@ -1,0 +1,21 @@
+configs:
+  i3: ~/.config/i3/config
+  i3status: ~/.config/i3status/config
+  rofi: ~/.config/rofi/config.rasi
+  fcitx5: ~/.config/fcitx5
+
+dotfiles:
+  gitconfig: ~/.gitconfig
+  xinitrc: ~/.xinitrc
+  Xmodmap: ~/.Xmodmap
+  zprofile: ~/.zprofile
+  zshrc: ~/.zshrc
+
+etc:
+  fcitx5-status-server.service: /etc/systemd/user/fcitx5-status-server.service
+  fonts_local.conf: /etc/fonts/local.conf
+  fstab: /etc/fstab
+  grub: /etc/default/grub
+  hostname: /etc/hostname
+  lighdm.conf: /etc/lightdm/lightdm.conf
+  mkinitcpio.conf: /etc/mkinitcpio.conf
