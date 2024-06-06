@@ -3,6 +3,7 @@ configs:
   i3: ~/.config/i3/config
   i3status: ~/.config/i3status/config
   mozc: ~/.config/mozc
+  nvim: ~/.config/nvim
   rofi: ~/.config/rofi/config.rasi
 
 dotfiles:
