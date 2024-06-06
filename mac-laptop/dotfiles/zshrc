@@ -1,0 +1,64 @@
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+export EDITOR=nvim
+export LESSHISTFILE=/dev/null
+export PATH="$HOME/.local/bin:$HOME/.pyenv/bin:$HOME/go/bin:$PATH"
+export PYTHONPATH="$HOME/projects/cq:$PYTHONPATH"
+export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+export WORDCHARTS="*?_[]~!$^(){}<>"
+
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
+alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
+alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'    
+alias cat='bat'
+alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq" tfw='tf workspace' tfws='tfw select' tfwl='tfw list' tfwn='tfw new'
+alias vi="nvim" vim="vi"
+alias k='kubectl' kdev='k --context dev' kmain='k --context main' kdb='k --context db'
+alias sp='steampipe' pp='powerpipe' fp='flowpipe'
+alias sk='source ~/.key'
+alias y='pbcopy' p='pbpaste'
+
+autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
+
+. /opt/homebrew/Cellar/autojump/22.5.3_3/share/autojump/autojump.zsh
+. pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
+. pack ohmyzsh/ohmyzsh lib/history.zsh
+. pack ohmyzsh/ohmyzsh plugins/dirhistory/dirhistory.plugin.zsh
+# fzf key-bindings should be after omz
+. pack ohmyzsh/ohmyzsh lib/key-bindings.zsh
+. pack junegunn/fzf shell/key-bindings.zsh
+
+setopt autopushd
+setopt extended_glob
+setopt interactive_comments
+setopt share_history
+stty -ixon  # for using ^S, ^Q keybindings
+
+zstyle ':completion:*:*:docker:*' option-stacking yes
+zstyle ':completion:*:*:docker-*:*' option-stacking yes
+zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/share/git-core/git-completion.zsh
+source <(helm completion zsh)
+steampipe completion zsh > "${fpath[1]}/_steampipe" && compinit
+
+setup_env() {
+    eval "$(pyenv init --path)"
+    eval "$(pyenv init -)"
+    eval "$(pyenv virtualenv-init -)"
+    eval "$(direnv hook zsh)"
+}
+t() { export PURE_PROMPT_SYMBOL="$1 ❯"; }
+tmp() { TMP=~/tmp/$(date +%F); mkdir -p $TMP; cd $TMP }
+yy() {
+	local tmp="$(mktemp -t "yazi-cwd.XXXXX")"
+	yazi "$@" --cwd-file="$tmp"
+	if cwd="$(cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+		cd "$cwd"
+	fi
+	rm -f -- "$tmp"
+}
+bindkey -s '^E' 'yy\n'
+bindkey -s '^S' 'vi\n'
+
+fpath+=(/opt/homebrew/share/zsh/site-functions)
+autoload -U promptinit; promptinit
+prompt pure
+RPROMPT='%F{white}%* '
