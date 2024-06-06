@@ -1,10 +1,5 @@
 #!/bin/bash
 
-if [ "$EUID" -ne 0 ]; then
-	echo "Please run as root"
-	exit 1
-fi
-
 yaml_file='map.yaml'
 home_dir=$HOME
 
@@ -17,9 +12,10 @@ yq -r 'keys | .[]' "$yaml_file" | while read -r top_key; do
 		dst=${value/\~/$home_dir}
 		if [ -e "$dst" ] || [ -L "$dst" ]; then
 			echo "Backing up existing file: $dst. check /tmp/environment_install_*"
-			mv "$dst" "/tmp/environment_install_${top_key}_${key}"
+			sudo mv "$dst" "/tmp/environment_install_${top_key}_${key}"
 		fi
-		mkdir -p $(dirname $dst)
-		ln -s "$src" "$dst" 2>&1
+		sudo mkdir -p $(dirname $dst)
+		sudo ln -s "$src" "$dst" 2>&1
+		echo "$src -> $dst"
 	done
 done
