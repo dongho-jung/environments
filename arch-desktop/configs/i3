@@ -109,6 +109,7 @@ for_window [class=".*"] border pixel 3
 for_window [title="Picture in picture"] border pixel 0
 gaps inner 5
 
+bindsym --release $mod+x exec "xprop | grep -E '^WM_NAME' | cut -d= -f2 | xclip -selection clipboard"
 bindsym Print exec flameshot gui
 bindsym Shift+Print exec "scrot ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
 bindsym Ctrl+Print exec "scrot --focused ~/pics/screenshots/'%Y%m%d_'`random_name`'_$wx$h.png' -q 100 -e 'echo $f | xclip -selection clipboard'"
