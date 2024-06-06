@@ -1,0 +1,6 @@
+configs:
+  nvim: ~/.config/nvim
+
+dotfiles:
+  gitconfig: ~/.gitconfig
+  zshrc: ~/.zshrc
