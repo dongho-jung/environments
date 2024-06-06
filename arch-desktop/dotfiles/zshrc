@@ -43,7 +43,10 @@ function yy() {
 		cd -- "$cwd"
 	fi
 	rm -f -- "$tmp"
+	zle accept-line
 }
+zle -N yy
+bindkey '^E' yy
 
 fpath+=($HOME/.local/share/zsh/pure)
 autoload -U promptinit; promptinit
