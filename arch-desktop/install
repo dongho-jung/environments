@@ -15,7 +15,7 @@ yq -r 'keys | .[]' "$yaml_file" | while read -r top_key; do
 		value=$(yq -r ".${top_key}[\"$key\"]" "$yaml_file")
 		src="$(pwd)/${top_key}/${key}"
 		dst=${value/\~/$home_dir}
-		if [ -e "$dst" ]; then
+		if [ -e "$dst" ] || [ -L "$dst" ]; then
 			echo "Backing up existing file: $dst. check /tmp/environment_install_*"
 			mv "$dst" "/tmp/environment_install_${top_key}_${key}"
 		fi
