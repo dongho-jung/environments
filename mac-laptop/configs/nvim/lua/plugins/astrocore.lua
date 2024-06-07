@@ -66,6 +66,10 @@ return {
           function() require("telescope.builtin").find_files { find_command = { "fd", "--type", "d" } } end,
           desc = "Find directories",
         },
+        ["<C-G>"] = {
+          function() require("gitsigns").preview_hunk() end,
+          desc = "Preview hunk",
+        },
 
         -- tables with just a `desc` key will be registered with which-key if it's installed
         -- this is useful for naming menus
