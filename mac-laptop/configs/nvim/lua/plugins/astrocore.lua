@@ -58,10 +58,6 @@ return {
           desc = "Close buffer from tabline",
         },
 
-        ["<Leader>ux"] = {
-          function() require("random").set_random_colorscheme() end,
-          desc = "Random colorscheme",
-        },
         ["<Leader>x"] = {
           function() require("projectmgr").open_window() end,
           desc = "Projects",
