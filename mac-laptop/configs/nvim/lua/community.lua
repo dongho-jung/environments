@@ -64,5 +64,7 @@ return {
   { import = "astrocommunity.colorscheme.vscode-nvim" },
 
   { import = "astrocommunity.completion.copilot-lua-cmp" },
+
+  { import = "astrocommunity.project.nvim-spectre" },
   -- import/override with your plugins folder
 }
