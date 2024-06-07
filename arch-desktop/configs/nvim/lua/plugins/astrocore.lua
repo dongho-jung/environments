@@ -58,6 +58,13 @@ return {
           desc = "Close buffer from tabline",
         },
 
+        ["<Leader>fx"] = {
+          function() require("diff").diff_find_files() end,
+          desc = "Diff find file",
+        },
+        ["<Leader>fX"] = {
+          function() require("diff").diff_old_files() end,
+          desc = "Diff old file",
         },
 
         -- tables with just a `desc` key will be registered with which-key if it's installed
