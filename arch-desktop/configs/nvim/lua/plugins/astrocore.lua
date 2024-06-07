@@ -58,6 +58,18 @@ return {
           desc = "Close buffer from tabline",
         },
 
+        ["<Leader>a"] = {
+          function() require("projectmgr").open_window() end,
+          desc = "Projects",
+        },
+        ["<Leader>fd"] = {
+          function() require("telescope.builtin").find_files { find_command = { "fd", "--type", "d" } } end,
+          desc = "Find directories",
+        },
+        ["<C-G>"] = {
+          function() require("gitsigns").preview_hunk() end,
+          desc = "Preview hunk",
+        },
         ["<Leader>fx"] = {
           function() require("diff").diff_find_files() end,
           desc = "Diff find file",
@@ -66,7 +78,6 @@ return {
           function() require("diff").diff_old_files() end,
           desc = "Diff old file",
         },
-
         -- tables with just a `desc` key will be registered with which-key if it's installed
         -- this is useful for naming menus
         -- ["<Leader>b"] = { desc = "Buffers" },
