@@ -25,4 +25,12 @@ return {
       },
     },
   },
+  {
+    "keaising/im-select.nvim",
+    opts = {
+      default_im_select = "com.apple.keylayout.ABC",
+      set_default_events = { "VimEnter", "FocusGained", "InsertLeave", "CmdlineLeave" },
+      set_previous_events = { "InsertEnter", "CmdlineEnter" },
+    },
+  },
 }
