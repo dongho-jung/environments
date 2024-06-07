@@ -58,9 +58,6 @@ return {
           desc = "Close buffer from tabline",
         },
 
-        ["<Leader>ux"] = {
-          function() require("random").set_random_colorscheme() end,
-          desc = "Random colorscheme",
         },
 
         -- tables with just a `desc` key will be registered with which-key if it's installed
