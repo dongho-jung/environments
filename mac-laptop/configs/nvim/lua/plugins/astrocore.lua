@@ -58,7 +58,7 @@ return {
           desc = "Close buffer from tabline",
         },
 
-        ["<Leader>x"] = {
+        ["<Leader>a"] = {
           function() require("projectmgr").open_window() end,
           desc = "Projects",
         },
