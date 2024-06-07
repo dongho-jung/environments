@@ -3,7 +3,6 @@
 
 ---@type LazySpec
 return {
-  "lilydjwg/fcitx.vim",
   {
     "zbirenbaum/copilot.lua",
     opts = {
@@ -13,10 +12,25 @@ return {
       },
     },
   },
-  config = function()
-    vim.cmd [[
-      command! DiffOrig vert new | set buftype=nofile | read ++edit # | 0d_
-      \ | diffthis | wincmd p | diffthis
-    ]]
-  end,
+  {
+    "goolord/alpha-nvim",
+    enabled = false,
+  },
+  {
+    "charludo/projectmgr.nvim",
+    lazy = false, -- important!
+    opts = {
+      session = {
+        enabled = false,
+      },
+    },
+  },
+  {
+    "keaising/im-select.nvim",
+    opts = {
+      default_im_select = "com.apple.keylayout.ABC",
+      set_default_events = { "VimEnter", "FocusGained", "InsertLeave", "CmdlineLeave" },
+      set_previous_events = { "InsertEnter", "CmdlineEnter" },
+    },
+  },
 }
