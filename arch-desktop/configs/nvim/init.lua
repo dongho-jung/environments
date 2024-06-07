@@ -17,6 +17,3 @@ end
 
 require "lazy_setup"
 require "polish"
-
-local random = require "random"
-random.set_random_colorscheme()
