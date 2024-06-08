@@ -28,7 +28,7 @@ return {
   {
     "keaising/im-select.nvim",
     opts = {
-      default_im_select = "com.apple.keylayout.ABC",
+      default_im_select = "keyboard-us",
       set_default_events = { "VimEnter", "FocusGained", "InsertLeave", "CmdlineLeave" },
       set_previous_events = { "InsertEnter", "CmdlineEnter" },
     },
