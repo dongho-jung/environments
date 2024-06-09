@@ -77,6 +77,10 @@ return {
 
         -- setting a mapping to false will disable it
         -- ["<C-S>"] = false,
+        ["<Leader>j"] = {
+          function() require("telescope_autojump").autojump() end,
+          desc = "Autojump",
+        },
       },
     },
   },

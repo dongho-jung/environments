@@ -33,4 +33,5 @@ return {
       set_previous_events = { "InsertEnter", "CmdlineEnter" },
     },
   },
+  "dongho-jung/telescope-autojump.nvim",
 }
