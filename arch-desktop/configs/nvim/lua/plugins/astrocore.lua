@@ -78,6 +78,10 @@ return {
           function() require("diff").diff_old_files() end,
           desc = "Diff old file",
         },
+        ["<Leader>j"] = {
+          function() require("telescope_autojump").autojump() end,
+          desc = "Autojump",
+        },
         -- tables with just a `desc` key will be registered with which-key if it's installed
         -- this is useful for naming menus
         -- ["<Leader>b"] = { desc = "Buffers" },
