@@ -42,13 +42,8 @@ return {
     mappings = {
       -- first key is the mode
       n = {
-        -- second key is the lefthand side of the map
-
-        -- navigate buffer tabs
         ["]b"] = { function() require("astrocore.buffer").nav(vim.v.count1) end, desc = "Next buffer" },
         ["[b"] = { function() require("astrocore.buffer").nav(-vim.v.count1) end, desc = "Previous buffer" },
-
-        -- mappings seen under group name "Buffer"
         ["<Leader>bd"] = {
           function()
             require("astroui.status.heirline").buffer_picker(
@@ -57,7 +52,6 @@ return {
           end,
           desc = "Close buffer from tabline",
         },
-
         ["<Leader>a"] = {
           function() require("projectmgr").open_window() end,
           desc = "Projects",
@@ -70,13 +64,6 @@ return {
           function() require("gitsigns").preview_hunk() end,
           desc = "Preview hunk",
         },
-
-        -- tables with just a `desc` key will be registered with which-key if it's installed
-        -- this is useful for naming menus
-        -- ["<Leader>b"] = { desc = "Buffers" },
-
-        -- setting a mapping to false will disable it
-        -- ["<C-S>"] = false,
         ["<Leader>fx"] = {
           function() require("diff").diff_find_files() end,
           desc = "Diff find file",
