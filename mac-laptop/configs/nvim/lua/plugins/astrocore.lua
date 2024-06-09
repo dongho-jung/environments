@@ -77,6 +77,14 @@ return {
 
         -- setting a mapping to false will disable it
         -- ["<C-S>"] = false,
+        ["<Leader>fx"] = {
+          function() require("diff").diff_find_files() end,
+          desc = "Diff find file",
+        },
+        ["<Leader>fX"] = {
+          function() require("diff").diff_old_files() end,
+          desc = "Diff old file",
+        },
         ["<Leader>j"] = {
           function() require("telescope_autojump").autojump() end,
           desc = "Autojump",
