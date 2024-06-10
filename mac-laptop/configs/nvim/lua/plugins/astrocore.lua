@@ -60,7 +60,7 @@ return {
           function() require("telescope.builtin").find_files { find_command = { "fd", "--type", "d" } } end,
           desc = "Find directories",
         },
-        ["<C-G>"] = {
+        ["<C-g>"] = {
           function() require("gitsigns").preview_hunk() end,
           desc = "Preview hunk",
         },
@@ -76,6 +76,10 @@ return {
           function() require("telescope_autojump").autojump() end,
           desc = "Autojump",
         },
+        ["<C-e>"] = { "<Cmd>Neotree toggle<CR>", desc = "Toggle Explorer" },
+
+        ["<Leader>e"] = false,
+        ["<Leader>o"] = false,
       },
     },
   },
