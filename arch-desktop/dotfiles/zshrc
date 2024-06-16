@@ -32,7 +32,6 @@ setopt auto_pushd
 setopt extended_glob
 setopt interactive_comments
 setopt share_history
-stty -ixon  # for ^S, ^Q keybindings
 
 
 change_ps() { export PURE_PROMPT_SYMBOL="$1 ❯"; }
@@ -46,7 +45,6 @@ function yy() {
 	rm -f -- "$tmp"
 }
 bindkey -s '^E' 'yy\n'
-bindkey -s '^S' 'vi\n'
 
 fpath+=($HOME/.local/share/zsh/pure)
 autoload -U promptinit; promptinit
