@@ -14,7 +14,7 @@ floating_modifier $mod
 bindsym $mod+Tab        workspace next
 bindsym $mod+Shift+Tab  workspace prev
 
-bindsym $mod+Return     $execn alacritty --config-file=$(find ~/projects/alacritty-theme/computed-themes -type f| shuf -n1)
+bindsym $mod+Return     $execn alacritty
 bindsym $mod+Shift+q    kill
 bindsym $mod+d          $execn "rofi -show d -no-tokenize"
 
