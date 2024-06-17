@@ -2,9 +2,10 @@ export DOCKER_DEFAULT_PLATFORM=linux/amd64
 export EDITOR=nvim
 export LESSHISTFILE=/dev/null
 export PATH="$HOME/.local/bin:$HOME/.pyenv/bin:$HOME/go/bin:$PATH"
-export PYTHONPATH="$HOME/projects/cq:$PYTHONPATH"
 export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 export WORDCHARTS="*?_[]~!$^(){}<>"
+export LANG="en_US.UTF-8"
+export LC_ALL="en_US.UTF-8"
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
