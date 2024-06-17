@@ -11,7 +11,7 @@ alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' g
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'    
 alias cat='bat'
-alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq" tfw='tf workspace' tfws='tfw select' tfwl='tfw list' tfwn='tfw new'
+alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq"
 alias vi="nvim" vim="vi"
 alias k='kubectl' kdev='k --context dev' kmain='k --context main' kdb='k --context db'
 alias sp='steampipe' pp='powerpipe' fp='flowpipe'
