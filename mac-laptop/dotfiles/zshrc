@@ -32,7 +32,6 @@ setopt autopushd
 setopt extended_glob
 setopt interactive_comments
 setopt share_history
-stty -ixon  # for using ^S, ^Q keybindings
 
 zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
@@ -57,7 +56,6 @@ yy() {
 	rm -f -- "$tmp"
 }
 bindkey -s '^E' 'yy\n'
-bindkey -s '^S' 'vi\n'
 
 fpath+=(/opt/homebrew/share/zsh/site-functions)
 autoload -U promptinit; promptinit
