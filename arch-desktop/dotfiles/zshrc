@@ -9,7 +9,7 @@ export WGETRC=$HOME/.config/wget/wgetrc
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'    
-alias open='xdg-open' cat='bat'
+alias open='xdg-open' cat='bat --theme gruvbox-light'
 alias tf='terraform' tfp='tf plan' tfa='tf apply' tfi='tf init'
 alias y='xclip -selection clipboard' yi='y -t image/png -i' p='xclip -selection clipboard -o' 
 alias rm="trash"
