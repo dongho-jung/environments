@@ -12,8 +12,9 @@ alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltr
 alias open='xdg-open' cat='bat --theme gruvbox-light'
 alias tf='terraform' tfp='tf plan' tfa='tf apply' tfi='tf init'
 alias y='xclip -selection clipboard' yi='y -t image/png -i' p='xclip -selection clipboard -o' 
-alias rm="trash"
-alias vi="nvim" vim="vi"
+alias rm='trash'
+alias k='kubectl'
+alias vi='nvim' vim='vi'
 
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 
