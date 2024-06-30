@@ -91,7 +91,7 @@ bindsym $mod+Shift+r restart
 bindsym $mod+Shift+e exec "i3-nagbar -t warning -m 'You pressed the exit shortcut. Do you really want to exit i3? This will end your X session.' -B 'Yes, exit i3' 'i3-msg exit'"
 bindsym $mod+Shift+h exec "i3-nagbar -t warning -m 'You pressed the hibernate shortcut. Do you really want to hibernate?' -B 'Yes, hibernate' 'systemctl hibernate'"
 bindsym $mod+Shift+s exec "systemctl suspend"
-bindsym $mod+l exec i3lock -u -c 000000
+bindsym $mod+Shift+l exec i3lock -u -c 000000
 
 bindsym $mod+Ctrl+Left resize shrink width 10 px or 10 ppt
 bindsym $mod+Ctrl+Down resize grow height 10 px or 10 ppt
