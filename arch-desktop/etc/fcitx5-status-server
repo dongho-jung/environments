@@ -1,0 +1,10 @@
+[Unit]
+Wants=default.target
+After=dbus.service
+
+[Service]
+ExecStart=python3 /home/dongho/projects/fcitx.vim/fcitx-status
+Restart=always
+
+[Install]
+WantedBy=default.target
