@@ -1,7 +1,7 @@
 call plug#begin()
 Plug 'ellisonleao/gruvbox.nvim'
 Plug 'mhinz/vim-startify'
-Plug 'brglng/vim-im-select'
+Plug 'lilydjwg/fcitx.vim'
 call plug#end()
 
 syntax enable
