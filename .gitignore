@@ -7,3 +7,4 @@ arch-desktop/configs/mozc/boundary.db
 arch-desktop/configs/mozc/cform.db
 arch-desktop/configs/mozc/segment.db
 arch-desktop/configs/mozc/fcitx_mozc.log
+automatic_backups/
