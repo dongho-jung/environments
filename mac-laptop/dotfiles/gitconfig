@@ -3,6 +3,7 @@
 	name = dongho-jung
 [core]
 	editor = vim
+	autocrlf = input
 [commit]
 	verbose = true
 [init]
