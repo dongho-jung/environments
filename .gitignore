@@ -1,8 +1,4 @@
-arch-desktop/configs/mozc/mozc_server.log
-arch-desktop/configs/mozc/.session.ipc
-arch-desktop/configs/mozc/.server.lock
-arch-desktop/configs/mozc/.history.db
-arch-desktop/configs/fcitx5/profile
-arch-desktop/configs/mozc/boundary.db
-arch-desktop/configs/mozc/cform.db
-arch-desktop/configs/mozc/segment.db
+arch-desktop/configs/mozc/*.log
+arch-desktop/configs/mozc/.*
+arch-desktop/configs/mozc/*.db
+automatic_backups/

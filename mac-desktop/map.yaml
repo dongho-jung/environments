@@ -1,0 +1,8 @@
+configs:
+  nvim: ~/.config/nvim
+  karabiner: ~/.config/karabiner
+
+dotfiles:
+  gitconfig: ~/.gitconfig
+  hammerspoon: ~/.hammerspoon
+  zshrc: ~/.zshrc

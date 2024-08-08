@@ -9,20 +9,21 @@ AltTriggerKeys=
 EnumerateBackwardKeys=
 # Skip first input method while enumerating
 EnumerateSkipFirst=False
-# Enumerate Input Method Group Backward
-EnumerateGroupBackwardKeys=
-# Activate Input Method
-ActivateKeys=
-# Deactivate Input Method
-DeactivateKeys=
-# Toggle embedded preedit
-TogglePreedit=
 
 [Hotkey/EnumerateForwardKeys]
 0=Hangul
 
 [Hotkey/EnumerateGroupForwardKeys]
+0=Super+space
+
+[Hotkey/EnumerateGroupBackwardKeys]
+0=Shift+Super+space
+
+[Hotkey/ActivateKeys]
 0=Hangul_Hanja
+
+[Hotkey/DeactivateKeys]
+0=Hangul_Romaja
 
 [Hotkey/PrevPage]
 0=Up
@@ -35,6 +36,9 @@ TogglePreedit=
 
 [Hotkey/NextCandidate]
 0=Tab
+
+[Hotkey/TogglePreedit]
+0=Control+Alt+P
 
 [Behavior]
 # Active By Default
@@ -54,7 +58,7 @@ CompactInputMethodInformation=True
 # Show first input method information
 ShowFirstInputMethodInformation=True
 # Default page size
-DefaultPageSize=10
+DefaultPageSize=5
 # Override Xkb Option
 OverrideXkbOption=False
 # Custom Xkb Option
@@ -70,5 +74,5 @@ AllowInputMethodForPassword=False
 # Show preedit text when typing password
 ShowPreeditForPassword=False
 # Interval of saving user data in minutes
-AutoSavePeriod=30
+AutoSavePeriod=31
 
