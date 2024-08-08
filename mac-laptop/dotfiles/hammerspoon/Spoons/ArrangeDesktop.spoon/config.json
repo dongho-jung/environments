@@ -1,0 +1,55 @@
+{
+  "three-monitors" : {
+    "0307CD85-256A-4C52-8790-E7715A8E0DEE" : {
+      "apps" : {
+        "Google Chrome" : {
+          "y" : -1055,
+          "w" : 1920,
+          "x" : -0,
+          "h" : 1055
+        },
+        "Hammerspoon" : {
+          "y" : -785,
+          "w" : 606,
+          "x" : 822,
+          "h" : 581
+        }
+      },
+      "Monitor Name" : "lg"
+    },
+    "7D5FCFCC-6F62-4B30-A11B-F491129EDF95" : {
+      "apps" : {
+        "Slack" : {
+          "y" : -1259,
+          "w" : 1440,
+          "x" : -1440,
+          "h" : 2535
+        }
+      },
+      "Monitor Name" : "dell"
+    },
+    "37D8832A-2D66-02CA-B9F7-8F30A301B230" : {
+      "apps" : {
+        "DataGrip" : {
+          "y" : 38,
+          "w" : 1728,
+          "x" : 0,
+          "h" : 1079
+        },
+        "PyCharm" : {
+          "y" : 38,
+          "w" : 1728,
+          "x" : 0,
+          "h" : 1079
+        },
+        "Notification Center" : {
+          "y" : 0,
+          "w" : 1728,
+          "x" : 0,
+          "h" : 1117
+        }
+      },
+      "Monitor Name" : "mac"
+    }
+  }
+}

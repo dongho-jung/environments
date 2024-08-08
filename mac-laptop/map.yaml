@@ -4,3 +4,4 @@ configs:
 dotfiles:
   gitconfig: ~/.gitconfig
   zshrc: ~/.zshrc
+  hammerspoon: ~/.hammerspoon
