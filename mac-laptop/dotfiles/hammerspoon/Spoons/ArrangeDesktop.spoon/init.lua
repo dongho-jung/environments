@@ -85,27 +85,34 @@ function obj:_buildArrangement()
 
         arrangement[monitorUUID] = {}
         arrangement[monitorUUID]['Monitor Name'] = v:name()
-        arrangement[monitorUUID]['apps'] = {}
+        arrangement[monitorUUID]['spaces'] = {}
 
-        local windows = hs.window.filter.new(true):setScreens(v:getUUID()):getWindows()
-        for k, wv in pairs(windows) do
-            arrangement[monitorUUID]['apps'][wv:application():title()] = {}
+        for _, sv in pairs(hs.spaces.spacesForScreen(monitorUUID)) do
+            screenKey = tostring(sv)
+            arrangement[monitorUUID]['spaces'][screenKey] = {}
+            arrangement[monitorUUID]['spaces'][screenKey]['apps'] = {}
 
-            wv:focus()
-
-            if k == 1 then
-                local buttonPressed, name = hs.dialog.textPrompt("Name this monitor", "", "e.g., " .. v:name(), "OK", "Cancel")
-                if buttonPressed == "OK" and name ~= "" then
-                    arrangement[monitorUUID]['Monitor Name'] = name
+            local windows = hs.window.filter.new(true):setScreens(v:getUUID()):getWindows()
+            for _, wv in pairs(windows) do
+                if hs.spaces.windowSpaces(wv)[1] ~= sv then
+                    goto continue
                 end
-            end
 
-            for i, t in pairs(wv:frame()) do
-                local attribute = string.gsub(i, '_', '')
-                arrangement[monitorUUID]['apps'][wv:application():title()][attribute] = t
+                arrangement[monitorUUID]['spaces'][screenKey]['apps'][wv:application():title()] = {}
+
+                wv:focus()
+
+                for i, t in pairs(wv:frame()) do
+                    local attribute = string.gsub(i, '_', '')
+                    arrangement[monitorUUID]['spaces'][screenKey]['apps'][wv:application():title()][attribute] = t
+                end
+
+                :: continue ::
             end
         end
     end
+
+    print(hs.inspect.inspect(arrangement))
 
     return arrangement
 end
@@ -117,9 +124,9 @@ end
 --- Parameters:
 ---  * app - A table of the application instance
 ---  * appTitle - The name of the application, e.g., Slack, Firefox, etc.
----  * screen - A table of the position of the screen (x, y integer pair) to place the application window into
+---  * spaceID - The ID of the space to place the application window into
 ---  * frame - A table of the frame details for the application window, e.g., {w=12, h=12, x=12, y=12}
-function obj:_positionApp(app, appTitle, screen, frame)
+function obj:_positionApp(app, appTitle, screen, spaceID, frame)
     obj.logger.d('Positioning ' .. appTitle)
 
     app:activate()
@@ -127,7 +134,8 @@ function obj:_positionApp(app, appTitle, screen, frame)
 
     for _, v in pairs(windows) do
         obj.logger.d('Positioning window ' .. v:id() .. ' of app ' .. appTitle)
-        v:moveToScreen(screen)
+
+        hs.spaces.moveWindowToSpace(v, tonumber(spaceID))
         v:setFrame(frame, 0)
     end
 end
@@ -141,10 +149,29 @@ end
 function obj:arrange(arrangement)
     for monitorUUID, monitorDetails in pairs(obj.arrangements[arrangement]) do
         if hs.screen.find(monitorUUID) ~= nil then
-            for appName, position in pairs(monitorDetails['apps']) do
-                app = hs.application.get(appName)
-                if app ~= nil then
-                    obj:_positionApp(app, appName, monitorUUID, position)
+            local validSpaces = {}
+            for spaceID, _ in pairs(monitorDetails['spaces']) do
+                table.insert(validSpaces, tonumber(spaceID))
+            end
+
+            print('Valid Spaces ' .. hs.inspect.inspect(validSpaces))
+
+            for _, spaces in pairs(hs.spaces.allSpaces()) do
+                for _, space in ipairs(spaces) do
+                    print('Checking space ' .. space)
+                    if hs.fnutils.contains(validSpaces, space) == false then
+                        print('Removing space ' .. space)
+                        hs.spaces.removeSpace(space)
+                    end
+                end
+            end
+
+            for spaceID, spaceDetails in pairs(monitorDetails['spaces']) do
+                for appName, position in pairs(spaceDetails['apps']) do
+                    app = hs.application.get(appName)
+                    if app ~= nil then
+                        obj:_positionApp(app, appName, monitorUUID, spaceID, position)
+                    end
                 end
             end
         end
@@ -165,7 +192,9 @@ function obj:addMenuItems(menuItems)
         menuItems = {}
     end
 
-    table.insert(menuItems, { title = "Create Desktop Arrangement", fn = function() obj:createArrangement() end })
+    table.insert(menuItems, { title = "Create Desktop Arrangement", fn = function()
+        obj:createArrangement()
+    end })
 
     local next = next
     local subMenu = {}
@@ -173,7 +202,9 @@ function obj:addMenuItems(menuItems)
     --obj.arrangements = {}
     if next(obj.arrangements) ~= nil then
         for k, _ in pairs(obj.arrangements) do
-            table.insert(subMenu, { title = k, fn = function() obj:arrange(k) end })
+            table.insert(subMenu, { title = k, fn = function()
+                obj:arrange(k)
+            end })
         end
 
         table.insert(menuItems, { title = "-" })
