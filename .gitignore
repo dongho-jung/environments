@@ -1,4 +1,4 @@
-arch-desktop/configs/mozc/*.log
-arch-desktop/configs/mozc/.*
-arch-desktop/configs/mozc/*.db
+*.log
+.*
+*.db
 automatic_backups/
