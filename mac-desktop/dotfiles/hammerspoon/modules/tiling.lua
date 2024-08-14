@@ -18,7 +18,7 @@ local function moveFocus(direction)
     end
 end
 
-hs.hotkey.bind({"alt"}, "up", function() moveFocus("up") end)
-hs.hotkey.bind({"alt"}, "down", function() moveFocus("down") end)
-hs.hotkey.bind({"alt"}, "left", function() moveFocus("left") end)
-hs.hotkey.bind({"alt"}, "right", function() moveFocus("right") end)
+hs.hotkey.bind({"cmd"}, "up", function() moveFocus("up") end)
+hs.hotkey.bind({"cmd"}, "down", function() moveFocus("down") end)
+hs.hotkey.bind({"cmd"}, "left", function() moveFocus("left") end)
+hs.hotkey.bind({"cmd"}, "right", function() moveFocus("right") end)
