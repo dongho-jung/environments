@@ -17,6 +17,9 @@ alias k='kubectl' kdev='k --context dev' kmain='k --context main' kdb='k --conte
 alias sp='steampipe' pp='powerpipe' fp='flowpipe'
 alias sk='source ~/.key'
 alias y='pbcopy' p='pbpaste'
+alias vv='source ./.venv/bin/activate'
+alias -g ...='../..'
+alias -g ....='../../..'
 
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 
@@ -39,23 +42,9 @@ zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/sh
 source <(helm completion zsh)
 steampipe completion zsh > "${fpath[1]}/_steampipe" && compinit
 
-setup_env() {
-    eval "$(pyenv init --path)"
-    eval "$(pyenv init -)"
-    eval "$(pyenv virtualenv-init -)"
-    eval "$(direnv hook zsh)"
-}
 t() { export PURE_PROMPT_SYMBOL="$1 ❯"; }
 tmp() { TMP=~/tmp/$(date +%F); mkdir -p $TMP; cd $TMP }
-yy() {
-	local tmp="$(mktemp -t "yazi-cwd.XXXXX")"
-	yazi "$@" --cwd-file="$tmp"
-	if cwd="$(cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
-		cd "$cwd"
-	fi
-	rm -f -- "$tmp"
-}
-bindkey -s '^E' 'yy\n'
+eval "$(direnv hook zsh)"
 
 fpath+=(/opt/homebrew/share/zsh/site-functions)
 autoload -U promptinit; promptinit
