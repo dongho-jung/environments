@@ -12,11 +12,3 @@ function temp_eng()
 end
 
 hs.hotkey.bind({}, 'f19', temp_eng)
-
-hs.hotkey.bind({'ctrl'}, '[', function() hs.eventtap.keyStrokes("[") end)
-hs.hotkey.bind({'ctrl'}, ']', function() hs.eventtap.keyStrokes("]") end)
-hs.hotkey.bind({'ctrl'}, "'", function() hs.eventtap.keyStrokes("'") end)
-hs.hotkey.bind({'ctrl', 'shift'}, "'", function() hs.eventtap.keyStrokes('"') end)
-hs.hotkey.bind({'ctrl'}, "/", function() hs.eventtap.keyStrokes("/") end)
-hs.hotkey.bind({'ctrl', 'shift'}, "/", function() hs.eventtap.keyStrokes("?") end)
-hs.hotkey.bind({'ctrl', 'shift'}, "3", function() hs.eventtap.keyStrokes("#") end)
