@@ -1,12 +1,19 @@
 export EDITOR=nvim
 export LANG='en_US.UTF-8'
 export LC_ALL='en_US.UTF-8'
+export HISTSIZE=99999999999
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
 alias vi='nvim' vim='vi'
 alias cat='bat' ls='eza' sl='ls' l='ls -l' ll='ls -al' tree='ls --tree' ltree='l --tree' lltree='ll --tree'
 alias y='pbcopy' p='pbpaste'
+alias k='kubectl'
+alias sk='source ~/.key'
+alias rr='. ~/.zshrc'
+alias vv='source ./.venv/bin/activate'
+alias yy='p | yt-dlp -o "~/archive/%(uploader)s/%(title)s.mp4" -a - --embed-thumbnail -f bestvideo+bestaudio --merge-output-format mp4'
+alias -g ...='../..' ....='../../..'
 
 autoload -U edit-command-line 
 zle -N edit-command-line
@@ -16,11 +23,28 @@ bindkey  '^[[H'   beginning-of-line
 bindkey  '^[[1;2C'   end-of-line
 bindkey  '^[[F'   end-of-line
 
-autoload -Uz compinit; compinit -C
-eval "$(fzf --zsh)"
-. /opt/homebrew/etc/profile.d/autojump.sh
+setopt HIST_IGNORE_ALL_DUPS
+setopt extended_glob
+setopt interactive_comments
+setopt share_history
+
+FPATH="$HOME/.docker/completions:$FPATH"
+autoload -Uz compinit; compinit -C  # may have to rebuild with `rm ~/.zcompdump*; compinit`
+source <(fzf --zsh)
+eval "$(zoxide init zsh)"
+eval "$(smartthings autocomplete:script zsh)"
+
+tmp() { 
+    TMP=~/tmp/$(date +%F)
+    if [ "$#" -gt 0 ]; then
+        TMP="${TMP}-$(echo "$@" | tr ' ' '-')"
+    fi
+    mkdir -p "$TMP"
+    cd "$TMP"
+}
+video_to_gif() { ffmpeg -i $1 -vf "fps=$2" output.gif && gifsicle -O3 output.gif -o output.gif }
 
 fpath+=('/opt/homebrew/share/zsh/site-functions')
-
 autoload -U promptinit; promptinit
 prompt pure
+RPROMPT='%F{gray}%* '
