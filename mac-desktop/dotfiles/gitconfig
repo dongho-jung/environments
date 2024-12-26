@@ -4,6 +4,8 @@
 [core]
 	editor = vim
 	autocrlf = input
+	ignorecase = false
+	quotepath = false
 [commit]
 	verbose = true
 [init]
