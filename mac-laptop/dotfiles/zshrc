@@ -49,8 +49,14 @@ zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/sh
 source <(helm completion zsh)
 steampipe completion zsh > "${fpath[1]}/_steampipe" && compinit
 
-t() { export PURE_PROMPT_SYMBOL="$1 ❯"; }
-tmp() { TMP=~/tmp/$(date +%F); mkdir -p $TMP; cd $TMP }
+tmp() { 
+    TMP=~/tmp/$(date +%F)
+    if [ "$#" -gt 0 ]; then
+        TMP="${TMP}-$(echo "$@" | tr ' ' '-')"
+    fi
+    mkdir -p "$TMP"
+    cd "$TMP"
+}
 video_to_gif() { ffmpeg -i $1 -vf "fps=$2" output.gif && gifsicle -O3 output.gif -o output.gif }
 eval "$(zoxide init zsh)"
 
