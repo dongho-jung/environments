@@ -1,11 +1,14 @@
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 export EDITOR=nvim
 export LESSHISTFILE=/dev/null
-export PATH="$HOME/.local/bin:$HOME/.pyenv/bin:$HOME/go/bin:$PATH"
+export PYTHONPATH="$HOME/projects/cq"
 export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 export WORDCHARTS="*?_[]~!$^(){}<>"
 export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
+
+export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH:/opt/homebrew/opt/mysql-client@8.4/bin"
+export PATH="/Users/dongho/.codeium/windsurf/bin:$PATH"
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
@@ -13,17 +16,21 @@ alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltr
 alias cat='bat'
 alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq"
 alias vi="nvim" vim="vi"
-alias k='kubectl' kdev='k --context dev' kmain='k --context main' kdb='k --context db'
-alias sp='steampipe' pp='powerpipe' fp='flowpipe'
+alias k='kubectl' kdev='k --context temp-dev' kmain='k --context eks-main' kdb='k --context database'
 alias sk='source ~/.key'
 alias y='pbcopy' p='pbpaste'
+alias rr='source ~/.zshrc'
 alias vv='source ./.venv/bin/activate'
+alias dam='aws sts decode-authorization-message --encoded-message "$(pbpaste)" | jq ".DecodedMessage" -r | jq'
 alias -g ...='../..'
 alias -g ....='../../..'
 
+alias pycharm='/Applications/PyCharm.app/Contents/MacOS/pycharm'
+alias sp='steampipe' pp='powerpipe' fp='flowpipe'
+
+
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 
-. /opt/homebrew/Cellar/autojump/22.5.3_3/share/autojump/autojump.zsh
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
 . pack ohmyzsh/ohmyzsh lib/history.zsh
 . pack ohmyzsh/ohmyzsh plugins/dirhistory/dirhistory.plugin.zsh
@@ -44,7 +51,8 @@ steampipe completion zsh > "${fpath[1]}/_steampipe" && compinit
 
 t() { export PURE_PROMPT_SYMBOL="$1 ❯"; }
 tmp() { TMP=~/tmp/$(date +%F); mkdir -p $TMP; cd $TMP }
-eval "$(direnv hook zsh)"
+video_to_gif() { ffmpeg -i $1 -vf "fps=$2" output.gif && gifsicle -O3 output.gif -o output.gif }
+eval "$(zoxide init zsh)"
 
 fpath+=(/opt/homebrew/share/zsh/site-functions)
 autoload -U promptinit; promptinit
