@@ -9,7 +9,7 @@ colorscheme solarized
 
 set autoindent
 set expandtab
-set mouse=a
+set mouse+=a
 set number
 set shiftwidth=4
 set softtabstop=4
