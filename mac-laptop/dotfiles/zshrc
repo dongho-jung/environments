@@ -1,4 +1,3 @@
-export DOCKER_DEFAULT_PLATFORM=linux/amd64
 export EDITOR=nvim
 export LESSHISTFILE=/dev/null
 export PYTHONPATH="$HOME/projects/cq"
@@ -6,6 +5,8 @@ export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 export WORDCHARTS="*?_[]~!$^(){}<>"
 export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
+export HISTSIZE=10000000
+export SAVEHIST=10000000
 
 export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH:/opt/homebrew/opt/mysql-client@8.4/bin"
 export PATH="/Users/dongho/.codeium/windsurf/bin:$PATH"
@@ -42,6 +43,8 @@ setopt autopushd
 setopt extended_glob
 setopt interactive_comments
 setopt share_history
+setopt append_history
+setopt inc_append_history
 
 zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
