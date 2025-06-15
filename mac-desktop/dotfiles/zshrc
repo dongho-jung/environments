@@ -3,17 +3,21 @@ export LANG='en_US.UTF-8'
 export LC_ALL='en_US.UTF-8'
 export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 export HISTSIZE=99999999999
+export PYENV_ROOT="$HOME/.pyenv"
+
+export PATH="$PYENV_ROOT/bin:$PATH"
+export PATH="/Users/donghojung/.local/bin:$PATH"
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
 alias vi='nvim' vim='vi'
 alias cat='bat' ls='eza' sl='ls' l='ls -l' ll='ls -al' tree='ls --tree' ltree='l --tree' lltree='ll --tree'
+alias tf='terraform' tfa='tf apply' tfi='tf init' tfp='tf plan'
 alias y='pbcopy' p='pbpaste'
 alias k='kubectl'
 alias sk='source ~/.key'
 alias rr='. ~/.zshrc'
 alias vv='source ./.venv/bin/activate'
-alias yy='p | yt-dlp -o "~/archive/%(uploader)s/%(title)s.mp4" -a - --embed-thumbnail -f bestvideo+bestaudio --merge-output-format mp4'
 alias -g ...='../..' ....='../../..'
 
 autoload -U edit-command-line 
@@ -25,6 +29,7 @@ bindkey  '^[[1;2C'   end-of-line
 bindkey  '^[[F'   end-of-line
 
 setopt HIST_IGNORE_ALL_DUPS
+setopt EXTENDED_HISTORY
 setopt extended_glob
 setopt interactive_comments
 setopt share_history
@@ -33,8 +38,14 @@ FPATH="$HOME/.docker/completions:$FPATH"
 autoload -Uz compinit; compinit -C  # may have to rebuild with `rm ~/.zcompdump*; compinit`
 source <(fzf --zsh)
 eval "$(zoxide init zsh)"
-eval "$(smartthings autocomplete:script zsh)"
+# eval "$(smartthings autocomplete:script zsh)"
+eval "$(pyenv init - zsh)"
+autoload -U +X bashcompinit && bashcompinit
+complete -o nospace -C /opt/homebrew/bin/terraform terraform
 
+yy() {
+    p | yt-dlp -o "~/archive/%(uploader)s/%(title)s.mp4" -a - --embed-thumbnail -f "bv*[vcodec^=avc1]+ba" --merge-output-format mp4 -4 "$@"
+}
 tmp() { 
     TMP=~/tmp/$(date +%F)
     if [ "$#" -gt 0 ]; then
@@ -44,6 +55,40 @@ tmp() {
     cd "$TMP"
 }
 video_to_gif() { ffmpeg -i $1 -vf "fps=$2" output.gif && gifsicle -O3 output.gif -o output.gif }
+# zz: 경로 선택 후 이동하는 함수
+zz() {
+    local ZZ_FILE="$HOME/.zz"
+
+    # 경로 추가 기능
+    if [[ "$1" == "--add" ]]; then
+        local path_to_add="${2:-$PWD}"
+        grep -qxF "$path_to_add" "$ZZ_FILE" 2>/dev/null || echo "$path_to_add" >> "$ZZ_FILE"
+        echo "📌 경로 추가됨: $path_to_add"
+        return
+    fi
+
+    # 경로 목록이 없으면 안내
+    if [[ ! -s "$ZZ_FILE" ]]; then
+        echo "❌ 저장된 경로가 없습니다. 'zz --add <path>'로 추가하세요!"
+        return
+    fi
+
+    # fzf 사용 가능 여부 확인
+    if command -v fzf &> /dev/null; then
+        local selected_dir=$(cat "$ZZ_FILE" | fzf --prompt="📂 선택할 경로: " --height=15 --border --reverse)
+    else
+        # fzf가 없을 경우 기본 select 사용
+        echo "🔽 이동할 경로를 선택하세요:"
+        select selected_dir in $(cat "$ZZ_FILE"); do
+            break
+        done
+    fi
+
+    # 선택된 경로로 이동
+    if [[ -n "$selected_dir" ]]; then
+        cd "$selected_dir" || echo "❌ 해당 경로로 이동할 수 없습니다."
+    fi
+}
 
 fpath+=('/opt/homebrew/share/zsh/site-functions')
 autoload -U promptinit; promptinit
