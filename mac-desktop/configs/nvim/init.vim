@@ -17,3 +17,7 @@ set softtabstop=4
 set tabstop=4
 
 let g:im_select_enable_cmd_line = 0
+
+imap <silent><script><expr> <C-E> copilot#Accept("<End>")
+let g:copilot_no_tab_map = v:true
+let g:copilot_assume_mapped = v:true
