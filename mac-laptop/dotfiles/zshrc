@@ -5,8 +5,9 @@ export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 export WORDCHARTS="*?_[]~!$^(){}<>"
 export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
-export HISTSIZE=10000000
-export SAVEHIST=10000000
+export HISTFILE="$HOME/projects/shell-history/mac-laptop"
+export HISTSIZE=1000000000
+export SAVEHIST=1000000000
 export AWS_PROFILE=DEV
 
 export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
@@ -42,6 +43,8 @@ setopt interactive_comments
 setopt share_history
 setopt append_history
 setopt inc_append_history
+setopt hist_save_no_dups
+setopt hist_ignore_all_dups
 
 zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
