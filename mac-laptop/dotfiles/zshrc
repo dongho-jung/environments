@@ -58,9 +58,13 @@ tmp() {
     cd "$TMP"
 }
 video_to_gif() { ffmpeg -i $1 -vf "fps=$2" output.gif && gifsicle -O3 output.gif -o output.gif }
-eval "$(zoxide init zsh)"
+cc() {
+    local selected_dir=$(zoxide query -i)
+    if [[ -n "$selected_dir" ]]; then
+        cd "$selected_dir" && claude
+    fi
+}
 
 fpath+=(/opt/homebrew/share/zsh/site-functions)
-autoload -U promptinit; promptinit
-prompt pure
-RPROMPT='%F{white}%* '
+eval "$(zoxide init zsh)"
+eval "$(starship init zsh)"
