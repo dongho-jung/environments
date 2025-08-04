@@ -11,13 +11,14 @@ export AWS_PROFILE=DEV
 
 export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
 
+alias c=claude
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
-alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
+alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'    
 alias cat='bat'
 alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq"
 alias vi="nvim" vim="vi"
-alias k='kubectl' kdev='k --context temp-dev' kmain='k --context eks-main' kdb='k --context database'
+alias k='kubectl'
 alias sk='source ~/.key'
 alias y='pbcopy' p='pbpaste'
 alias rr='source ~/.zshrc'
@@ -25,10 +26,6 @@ alias vv='source ./.venv/bin/activate'
 alias dam='aws sts decode-authorization-message --encoded-message "$(pbpaste)" | jq ".DecodedMessage" -r | jq'
 alias -g ...='../..'
 alias -g ....='../../..'
-
-alias pycharm='/Applications/PyCharm.app/Contents/MacOS/pycharm'
-alias sp='steampipe' pp='powerpipe' fp='flowpipe'
-
 
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 
