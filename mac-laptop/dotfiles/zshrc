@@ -9,8 +9,7 @@ export HISTSIZE=10000000
 export SAVEHIST=10000000
 export AWS_PROFILE=DEV
 
-export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH:/opt/homebrew/opt/mysql-client@8.4/bin"
-export PATH="/Users/dongho/.codeium/windsurf/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
 
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
