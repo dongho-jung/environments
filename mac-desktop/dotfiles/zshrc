@@ -8,6 +8,7 @@ export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
 export PATH="/Users/donghojung/.local/bin:$PATH"
 
+alias c='claude --dangerously-skip-permissions'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' 
 alias vi='nvim' vim='vi'
