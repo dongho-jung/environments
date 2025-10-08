@@ -1,0 +1,54 @@
+export EDITOR=nvim
+export HISTFILE="$HOME/projects/shell-history/mac-desktop"
+export HISTSIZE=100000000000000
+export LANG='en_US.UTF-8'
+export LC_ALL='en_US.UTF-8'
+export LESSHISTFILE=/dev/null
+export SAVEHIST=100000000000000
+
+alias -g ....='../../..'
+alias -g ...='../..'
+alias cat='bat'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gst='git status' gco='git checkout' gd='git diff' gds='git diff --staged' gg='gitui'
+alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'
+alias rr='. ~/.zshrc'
+alias vi='nvim'
+alias y='pbcopy' p='pbpaste'
+
+setopt append_history
+setopt autopushd
+setopt extended_glob
+setopt hist_find_no_dups
+setopt hist_ignore_all_dups
+setopt hist_ignore_space
+setopt hist_reduce_blanks
+setopt hist_save_no_dups
+setopt inc_append_history
+setopt interactive_comments
+setopt share_history
+
+source /opt/homebrew/opt/zinit/zinit.zsh
+FPATH="/opt/homebrew/share/zsh/site-functions:$FPATH"
+zi wait lucid light-mode for \
+    djui/alias-tips Aloxaf/fzf-tab
+zi atload"zicompinit; zicdreplay" blockf lucid wait for \
+    zsh-users/zsh-completions
+
+zstyle ':completion:*:descriptions' format '[%d]'
+zstyle ':completion:*' list-colors ''
+zstyle ':fzf-tab:*' switch-group '<' '>'
+zstyle ':fzf-tab:*' fzf-flags --layout=reverse-list --height=80%
+
+source /opt/homebrew/opt/fzf/shell/key-bindings.zsh
+
+tmp() { 
+    TMP=~/tmp/$(date +%F)
+    if [ "$#" -gt 0 ]; then
+        TMP="${TMP}-$(echo "$@" | tr ' ' '-')"
+    fi
+    mkdir -p "$TMP"
+    cd "$TMP"
+}
+
+eval "$(zoxide init zsh)"
+eval "$(starship init zsh)"
