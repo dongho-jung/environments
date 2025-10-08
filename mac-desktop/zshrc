@@ -10,6 +10,7 @@ alias -g ....='../../..'
 alias -g ...='../..'
 alias cat='bat'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gst='git status' gco='git checkout' gd='git diff' gds='git diff --staged' gg='gitui'
+alias history='fc -lt "%Y-%m-%d %H:%M:%S"'
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'
 alias rr='. ~/.zshrc'
 alias vi='nvim'
@@ -29,17 +30,10 @@ setopt share_history
 
 source /opt/homebrew/opt/zinit/zinit.zsh
 FPATH="/opt/homebrew/share/zsh/site-functions:$FPATH"
-zi wait lucid light-mode for \
-    djui/alias-tips Aloxaf/fzf-tab
+zi wait lucid for \
+    djui/alias-tips Aloxaf/fzf-tab junegunn/fzf 
 zi atload"zicompinit; zicdreplay" blockf lucid wait for \
     zsh-users/zsh-completions
-
-zstyle ':completion:*:descriptions' format '[%d]'
-zstyle ':completion:*' list-colors ''
-zstyle ':fzf-tab:*' switch-group '<' '>'
-zstyle ':fzf-tab:*' fzf-flags --layout=reverse-list --height=80%
-
-source /opt/homebrew/opt/fzf/shell/key-bindings.zsh
 
 tmp() { 
     TMP=~/tmp/$(date +%F)
