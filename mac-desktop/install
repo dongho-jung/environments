@@ -1,21 +1,7 @@
 #!/bin/bash
 
-yaml_file='map.yaml'
-home_dir=$HOME
-
-# Loop through each top-level key (e.g., configs, dotfiles, services)
-yq -r 'keys | .[]' "$yaml_file" | while read -r top_key; do
-	# Loop through each second-level key and its value
-	yq -r ".${top_key} | keys | .[]" "$yaml_file" | while read -r key; do
-		value=$(yq -r ".${top_key}[\"$key\"]" "$yaml_file")
-		src="$(pwd)/${top_key}/${key}"
-		dst=${value/\~/$home_dir}
-		if [ -e "$dst" ] || [ -L "$dst" ]; then
-			echo "Backing up existing file: $dst. check /tmp/environment_install_*"
-			sudo mv "$dst" "/tmp/environment_install_${top_key}_${key}"
-		fi
-		sudo mkdir -p $(dirname $dst)
-		sudo ln -s "$src" "$dst" 2>&1
-		echo "$src -> $dst"
-	done
-done
+ln -sh $(realpath gitconfig) ~/.gitconfig
+ln -sh $(realpath hammerspoon) ~/.hammerspoon
+ln -sh $(realpath zshrc) ~/.zshrc
+ln -sh $(realpath nvim) ~/.config/nvim
+ln -sh $(realpath starship.toml) ~/.config/starship.toml
