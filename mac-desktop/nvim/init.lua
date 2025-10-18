@@ -34,6 +34,12 @@ vim.keymap.set("i", "<C-.>", "<Plug>(copilot-next)", { silent = true, desc = "Co
 
 require('im_select').setup {}
 
+vim.api.nvim_create_autocmd("VimEnter", {
+  callback = function()
+    vim.fn.system("macism com.apple.keylayout.ABC")
+  end,
+})
+
 local opts = { noremap = true, silent = true }
 
 -- Normal mode: line / word navigation
