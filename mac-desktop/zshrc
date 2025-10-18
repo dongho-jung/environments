@@ -9,12 +9,13 @@ export SAVEHIST=100000000000000
 alias -g ....='../../..'
 alias -g ...='../..'
 alias cat='bat'
-alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gst='git status' gco='git checkout' gd='git diff' gds='git diff --staged' gg='gitui'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gst='git status' gco='git checkout' gd='git diff' gds='git diff --staged' gg='lazygit' gr='git restore' grs='git restore --staged'
 alias history='fc -lt "%Y-%m-%d %H:%M:%S"'
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'
 alias rr='. ~/.zshrc'
 alias vi='nvim'
 alias y='pbcopy' p='pbpaste'
+alias e='nvim' f='br'
 
 setopt append_history
 setopt autopushd
@@ -31,9 +32,12 @@ setopt share_history
 source /opt/homebrew/opt/zinit/zinit.zsh
 FPATH="/opt/homebrew/share/zsh/site-functions:$FPATH"
 zi wait lucid for \
-    djui/alias-tips Aloxaf/fzf-tab junegunn/fzf 
+    djui/alias-tips Aloxaf/fzf-tab
 zi atload"zicompinit; zicdreplay" blockf lucid wait for \
     zsh-users/zsh-completions
+
+source <(fzf --zsh)
+source /Users/donghojung/.config/broot/launcher/bash/br
 
 tmp() { 
     TMP=~/tmp/$(date +%F)
