@@ -5,6 +5,7 @@ vim.call('plug#begin')
 Plug('github/copilot.vim')
 Plug('ericbn/vim-solarized')
 Plug('mhinz/vim-startify')
+Plug('keaising/im-select.nvim')
 vim.call('plug#end')
 
 vim.g.mapleader = ' '
@@ -30,6 +31,8 @@ vim.g.copilot_filetypes = {
 }
 vim.keymap.set("i", "<C-,>", "<Plug>(copilot-previous)", { silent = true, desc = "Copilot Previous" })
 vim.keymap.set("i", "<C-.>", "<Plug>(copilot-next)", { silent = true, desc = "Copilot Next" })
+
+require('im_select').setup {}
 
 local opts = { noremap = true, silent = true }
 
