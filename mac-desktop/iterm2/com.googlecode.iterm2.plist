@@ -40,6 +40,32 @@
 	<string>7BF05AC2-5A21-400F-BD23-EB617D94AA87</string>
 	<key>GlobalKeyMap</key>
 	<dict>
+		<key>0x19-0x60000-0x30</key>
+		<dict>
+			<key>Action</key>
+			<integer>2</integer>
+			<key>Apply Mode</key>
+			<integer>0</integer>
+			<key>Escaping</key>
+			<integer>2</integer>
+			<key>Text</key>
+			<string></string>
+			<key>Version</key>
+			<integer>2</integer>
+		</dict>
+		<key>0x9-0x40000-0x30</key>
+		<dict>
+			<key>Action</key>
+			<integer>0</integer>
+			<key>Apply Mode</key>
+			<integer>0</integer>
+			<key>Escaping</key>
+			<integer>2</integer>
+			<key>Text</key>
+			<string></string>
+			<key>Version</key>
+			<integer>2</integer>
+		</dict>
 		<key>0xf700-0x1200000-0x7e</key>
 		<dict>
 			<key>Action</key>
@@ -49,7 +75,7 @@
 			<key>Escaping</key>
 			<integer>2</integer>
 			<key>Text</key>
-			<string>[{"Version":2,"Apply Mode":0,"Action":28,"Text":"30431346-23C8-42BA-A9B9-403F4295BB06","Escaping":2},{"Version":2,"Apply Mode":0,"Action":20,"Text":"","Escaping":2}]</string>
+			<string>[{"Version":2,"Apply Mode":0,"Action":28,"Text":"30431346-23C8-42BA-A9B9-403F4295BB06","Escaping":2},{"Version":2,"Apply Mode":0,"Action":55,"Text":"","Escaping":2}]</string>
 			<key>Version</key>
 			<integer>2</integer>
 		</dict>
@@ -101,7 +127,7 @@
 			<key>Escaping</key>
 			<integer>2</integer>
 			<key>Text</key>
-			<string>[{"Version":2,"Apply Mode":0,"Action":29,"Text":"30431346-23C8-42BA-A9B9-403F4295BB06","Escaping":2},{"Version":2,"Apply Mode":0,"Action":18,"Text":"","Escaping":2}]</string>
+			<string>[{"Version":2,"Apply Mode":0,"Action":29,"Text":"30431346-23C8-42BA-A9B9-403F4295BB06","Escaping":2},{"Version":2,"Apply Mode":0,"Action":53,"Text":"","Escaping":2}]</string>
 			<key>Version</key>
 			<integer>2</integer>
 		</dict>
@@ -135,19 +161,6 @@
 		<dict>
 			<key>Action</key>
 			<integer>18</integer>
-			<key>Apply Mode</key>
-			<integer>0</integer>
-			<key>Escaping</key>
-			<integer>2</integer>
-			<key>Text</key>
-			<string></string>
-			<key>Version</key>
-			<integer>2</integer>
-		</dict>
-		<key>0xf702-0x320000-0x7b</key>
-		<dict>
-			<key>Action</key>
-			<integer>2</integer>
 			<key>Apply Mode</key>
 			<integer>0</integer>
 			<key>Escaping</key>
@@ -209,19 +222,6 @@
 			<key>Version</key>
 			<integer>2</integer>
 		</dict>
-		<key>0xf703-0x320000-0x7c</key>
-		<dict>
-			<key>Action</key>
-			<integer>0</integer>
-			<key>Apply Mode</key>
-			<integer>0</integer>
-			<key>Escaping</key>
-			<integer>2</integer>
-			<key>Text</key>
-			<string></string>
-			<key>Version</key>
-			<integer>2</integer>
-		</dict>
 		<key>0xf729-0x0-0x73</key>
 		<dict>
 			<key>Action</key>
@@ -251,12 +251,18 @@
 	</dict>
 	<key>HapticFeedbackForEsc</key>
 	<false/>
+	<key>HideActivityIndicator</key>
+	<false/>
+	<key>HideTabNumber</key>
+	<true/>
 	<key>HotkeyMigratedFromSingleToMulti</key>
 	<true/>
 	<key>HotkeyWindowFloatsAboveOtherWindows</key>
 	<true/>
 	<key>Leader</key>
 	<string>0x61-0x40000-0x0</string>
+	<key>LeftTabBarWidth</key>
+	<real>114</real>
 	<key>NeverWarnAboutOverrides</key>
 	<true/>
 	<key>NeverWarnAboutOverrides_selection</key>
@@ -1337,6 +1343,8 @@
 			<string>xterm-256color</string>
 			<key>Timestamps Visible</key>
 			<false/>
+			<key>Title Components</key>
+			<integer>512</integer>
 			<key>Transparency</key>
 			<real>0.0</real>
 			<key>Unlimited Scrollback</key>
@@ -2426,6 +2434,8 @@
 			<string>xterm-256color</string>
 			<key>Timestamps Visible</key>
 			<false/>
+			<key>Title Components</key>
+			<integer>512</integer>
 			<key>Transparency</key>
 			<real>0.0</real>
 			<key>Unlimited Scrollback</key>
@@ -2455,6 +2465,8 @@
 		</dict>
 	</array>
 	<key>OpenBookmark</key>
+	<false/>
+	<key>PerPaneBackgroundImage</key>
 	<false/>
 	<key>PointerActions</key>
 	<dict>
@@ -2489,9 +2501,27 @@
 			<string>kNextWindowPointerAction</string>
 		</dict>
 	</dict>
+	<key>SeparateWindowTitlePerTab</key>
+	<false/>
+	<key>ShowNewOutputIndicator</key>
+	<true/>
 	<key>ShowPaneTitles</key>
 	<false/>
 	<key>SoundForEsc</key>
+	<false/>
+	<key>StatusBarPosition</key>
+	<integer>0</integer>
+	<key>StretchTabsToFillBar</key>
+	<false/>
+	<key>SwitchTabModifier</key>
+	<integer>9</integer>
+	<key>SwitchWindowModifier</key>
+	<integer>9</integer>
+	<key>TabStyleWithAutomaticOption</key>
+	<integer>6</integer>
+	<key>TabViewType</key>
+	<integer>0</integer>
+	<key>TabsHaveCloseButton</key>
 	<false/>
 	<key>VisualIndicatorForEsc</key>
 	<false/>
