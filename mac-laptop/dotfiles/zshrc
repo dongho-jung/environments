@@ -2,32 +2,41 @@ export EDITOR=nvim
 export LESSHISTFILE=/dev/null
 export PYTHONPATH="$HOME/projects/cq"
 export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
-export WORDCHARTS="*?_[]~!$^(){}<>"
+export WORDCHARS=""
 export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
 export HISTFILE="$HOME/projects/shell-history/mac-laptop"
 export HISTSIZE=1000000000
 export SAVEHIST=1000000000
+export MCP_TIMEOUT=120000
 export AWS_PROFILE=DEV
 
 export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
+export PATH="/opt/homebrew/opt/mysql-client@9.4/bin/:$PATH"
+export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+export PATH="/Applications/PyCharm.app/Contents/MacOS/:$PATH"
 
-alias c=claude
+alias e='nvim' f='br'
+alias c='claude' o='opencode'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'    
 alias cat='bat'
 alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq"
 alias vi="nvim" vim="vi"
-alias k='kubectl'
+alias k='kubectl' ktempdev='k --context temp-dev' kdev='k --context abr-dev-tokyo' kmain='k --context main' kdb='k --context database' kprodseoul='k --context abr-prod-seoul' \
+    kprodseouldb='k --context database-prod-seoul'
 alias sk='source ~/.key'
 alias y='pbcopy' p='pbpaste'
+alias zz='zi'
 alias rr='source ~/.zshrc'
 alias vv='source ./.venv/bin/activate'
 alias dam='aws sts decode-authorization-message --encoded-message "$(pbpaste)" | jq ".DecodedMessage" -r | jq'
+alias rm='echo "rm is disabled. use \`trash\` command instead."'
 alias -g ...='../..'
 alias -g ....='../../..'
 
+fpath=("$HOME/.zsh/completions" $fpath)
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
@@ -50,6 +59,7 @@ zstyle ':completion:*:*:docker:*' option-stacking yes
 zstyle ':completion:*:*:docker-*:*' option-stacking yes
 zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/share/git-core/git-completion.zsh
 source <(helm completion zsh)
+source /Users/dongho/.config/broot/launcher/bash/br
 steampipe completion zsh > "${fpath[1]}/_steampipe" && compinit
 
 tmp() { 
@@ -66,6 +76,58 @@ cc() {
     if [[ -n "$selected_dir" ]]; then
         cd "$selected_dir" && claude
     fi
+}
+set-secret() {
+  if [ -z "$1" ]; then
+    echo "Usage: set-secret <ENV_VAR_NAME>"
+    return 1
+  fi
+
+  local varname="$1"
+  local val
+
+  read -s "val?Enter value for $varname: "
+  echo
+  export "$varname"="$val"
+}
+delete-argocd-app() {
+  local app="$1"
+
+  if [[ -z "$app" ]]; then
+    echo "Usage: delete-argocd-app <app-name>"
+    return 1
+  fi
+
+  echo "[$app] 을(를) 정말 지우시겠습니까?"
+  echo "정말 지우시려면 \"$app\" 을 입력하세요 : "
+  read -r confirm
+
+  if [[ "$confirm" == "$app" ]]; then
+    echo "삭제 진행 중..."
+    kmain -n argocd patch app "$app" \
+      -p '{"metadata": {"finalizers": ["resources-finalizer.argocd.argoproj.io"]}}' \
+      --type merge && \
+    kmain -n argocd delete app "$app"
+  else
+    echo "입력값이 일치하지 않아 취소되었습니다."
+    return 1
+  fi
+}
+wz() {
+  local dir="${1:-$(pwd)}"
+  local name
+  name="$(basename "$dir")"
+
+  nohup open -a wezterm --args start --workspace="$name" --cwd="$dir" >/tmp/wezterm.log 2>&1 &
+}
+w() {
+  if [[ "$1" == "cd" ]]; then
+    local dir
+    dir="$(command w cd "${2:?branch required}")" || return $?
+    builtin cd "$dir"
+  else
+    command w "$@"
+  fi
 }
 
 fpath+=(/opt/homebrew/share/zsh/site-functions)
