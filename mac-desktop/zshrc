@@ -5,6 +5,7 @@ export LANG='en_US.UTF-8'
 export LC_ALL='en_US.UTF-8'
 export LESSHISTFILE=/dev/null
 export SAVEHIST=100000000000000
+export FZF_CTRL_R_OPTS='--tiebreak=index'
 
 alias -g ....='../../..'
 alias -g ...='../..'
