@@ -6,6 +6,7 @@ export LC_ALL='en_US.UTF-8'
 export LESSHISTFILE=/dev/null
 export SAVEHIST=100000000000000
 export FZF_CTRL_R_OPTS='--tiebreak=index'
+export PATH="$HOME/.local/bin:$PATH"
 
 alias -g ....='../../..'
 alias -g ...='../..'
@@ -17,7 +18,7 @@ alias rr='. ~/.zshrc'
 alias vi='nvim'
 alias y='pbcopy' p='pbpaste'
 alias e='nvim' f='br'
-alias c='claude'
+alias c='claude --dangerously-skip-permissions'
 
 setopt append_history
 setopt autopushd
@@ -30,6 +31,14 @@ setopt hist_save_no_dups
 setopt inc_append_history
 setopt interactive_comments
 setopt share_history
+
+bindkey -e
+bindkey '^[[1;5D' beginning-of-line
+bindkey '^[[1;5C' end-of-line
+bindkey '^[b' beginning-of-line
+bindkey '^[f' end-of-line
+bindkey '^[[1;3C' forward-word
+bindkey '^[[1;3D' backward-word
 
 source /opt/homebrew/opt/zinit/zinit.zsh
 FPATH="/opt/homebrew/share/zsh/site-functions:$FPATH"
@@ -53,8 +62,3 @@ video_to_gif() { ffmpeg -i $1 -vf "fps=$2" output.gif && gifsicle -O3 output.gif
 
 eval "$(zoxide init zsh)"
 eval "$(starship init zsh)"
-
-. "$HOME/.local/bin/env"
-
-# Added by Antigravity
-export PATH="/Users/donghojung/.antigravity/antigravity/bin:$PATH"
