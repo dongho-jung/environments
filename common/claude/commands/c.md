@@ -43,7 +43,7 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git c
 - 하나의 기능을 위해 여러 파일을 함께 수정해야 할 때 (예: 컴포넌트 + 스타일 + 테스트)
 - 단순 오타 수정, 포맷팅 등 사소한 변경일 때
 
-**의도(intent) 분류 예시:**
+**의도(intent) 분류 예시 + 선택 규칙:**
 - `feat`: 새 기능 추가
 - `fix`: 버그 수정
 - `refactor`: 동작 변경 없는 코드 개선
@@ -52,7 +52,30 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git c
 - `chore`: 설정, 빌드 등
 - `test`: 테스트 추가/수정
 
+**Breaking Change 표시 (필수):**
+하위 호환성을 깨는 변경이 있으면 반드시 표시해라:
+- API 시그니처 변경 (파라미터 추가/제거/타입 변경)
+- 기존 기능 제거 또는 동작 방식 변경
+- 설정/환경 변수 형식 변경
+- 필수 의존성 변경
+
+표시 방법 (둘 중 하나 선택):
+- 제목 타입 뒤에 느낌표 추가: `feat!: remove deprecated login API`
+- 본문에 `BREAKING CHANGE:` 추가:
+   ```
+   BREAKING CHANGE: login() 함수의 파라미터가 변경됨
+   ```
+
 → **의도가 다르면 무조건 분리!**
+
+feat vs fix 판단 체크리스트 (헷갈릴 때 이 순서로 결정):
+- 기존 동작이 깨졌거나 잘못된 로직을 바로잡는가? → `fix`
+- 새로운 기능/옵션/플로우가 추가되어 사용 범위가 넓어지는가? → `feat`
+- 동작은 같고 구조만 개선/정리했는가? → `refactor`
+- 설정/CI/빌드/의존성만 건드렸는가? → `chore`
+- 코드 없이 문서만 수정했는가? → `docs`
+- 테스트 코드만 추가/수정이고 제품 동작은 그대로인가? → `test`
+- 위에 명확히 안 맞으면 AskUserQuestion으로 용도(버그 수정인지, 기능 추가인지) 확인 후 타입 결정. 모호할 때 `feat` 대신 `fix`/`refactor`/`chore` 중 해당하는 것을 우선 검토.
 
 ### 2단계: 커밋 메시지 제안
 
@@ -61,15 +84,21 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git c
 **커밋 N:**
 - 포함할 파일들: `file1.ts`, `file2.ts`
 - 의도: (feat/fix/refactor 등)
-- 제목 (영어, 50자 이내): `feat: add user authentication flow`
+- Breaking Change 여부: 있음/없음 (있으면 무엇이 깨지는지 명시)
+- 제목 (영어, 50자 이내): `feat: add user authentication flow` (breaking change면 `feat!:` 사용)
 - 본문 (한글, 2 depth bullet list):
   - 주요 변경사항
     - 세부 내용 1
     - 세부 내용 2
+  - (breaking change가 있으면) BREAKING CHANGE: 설명
 
 (모든 커밋에 대해 반복)
 
 **단일 커밋인 경우에도 위 형식을 따르되, "커밋 1"만 제안하면 됨.**
+
+메시지 제안 시 타입 자가 검증:
+- 제안한 타입이 체크리스트와 일치하는지 다시 확인하고, 기능 추가가 아닌 단순 버그 수정이면 `feat`가 아닌 `fix`로 수정.
+- 변경 요약에 테스트/문서 반영 여부를 함께 적어 빠진 부분이 없는지 점검.
 
 ### 3단계: 유저 컨펌
 AskUserQuestion 도구를 사용해서 유저에게 다음을 물어봐:
