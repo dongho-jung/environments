@@ -1193,7 +1193,7 @@
 			<key>Timestamps Visible</key>
 			<false/>
 			<key>Title Components</key>
-			<integer>512</integer>
+			<integer>1</integer>
 			<key>Transparency</key>
 			<real>0.0</real>
 			<key>Unlimited Scrollback</key>
@@ -2288,7 +2288,7 @@
 			<key>Timestamps Visible</key>
 			<false/>
 			<key>Title Components</key>
-			<integer>512</integer>
+			<integer>1</integer>
 			<key>Transparency</key>
 			<real>0.0</real>
 			<key>Unlimited Scrollback</key>
@@ -2354,6 +2354,8 @@
 			<string>kNextWindowPointerAction</string>
 		</dict>
 	</dict>
+	<key>Print In Black And White</key>
+	<true/>
 	<key>SeparateWindowTitlePerTab</key>
 	<false/>
 	<key>ShowNewOutputIndicator</key>
