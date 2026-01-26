@@ -9,7 +9,7 @@ export HISTFILE="$HOME/projects/shell-history/mac-laptop"
 export HISTSIZE=1000000000
 export SAVEHIST=1000000000
 export MCP_TIMEOUT=120000
-export AWS_PROFILE=DEV
+export AWS_PROFILE=DO-LEAD
 
 export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
 export PATH="/opt/homebrew/opt/mysql-client@9.4/bin/:$PATH"
@@ -17,12 +17,12 @@ export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 export PATH="/Applications/PyCharm.app/Contents/MacOS/:$PATH"
 
 alias e='nvim' f='br'
-alias c='claude' o='opencode'
+alias c='claude --dangerously-skip-permissions'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'    
 alias cat='bat'
-alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq"
+alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfaa='tfa -auto-approve' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq"
 alias vi="nvim" vim="vi"
 alias k='kubectl' ktempdev='k --context temp-dev' kdev='k --context abr-dev-tokyo' kmain='k --context main' kdb='k --context database' kprodseoul='k --context abr-prod-seoul' \
     kprodseouldb='k --context database-prod-seoul'
@@ -133,3 +133,12 @@ w() {
 fpath+=(/opt/homebrew/share/zsh/site-functions)
 eval "$(zoxide init zsh)"
 eval "$(starship init zsh)"
+
+# bun completions
+[ -s "/Users/dongho/.bun/_bun" ] && source "/Users/dongho/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
+alias claude-mem='/Users/dongho/.bun/bin/bun "/Users/dongho/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs"'
