@@ -2,10 +2,10 @@ local vim = vim
 local Plug = vim.fn['plug#']
 
 vim.call('plug#begin')
-Plug 'ericbn/vim-solarized'
-Plug 'mhinz/vim-startify'
-Plug 'keaising/im-select.nvim'
-Plug 'm4xshen/hardtime.nvim'
+Plug('ericbn/vim-solarized')
+Plug('mhinz/vim-startify')
+Plug('keaising/im-select.nvim')
+Plug('m4xshen/hardtime.nvim')
 vim.call('plug#end')
 
 vim.cmd('syntax enable')
@@ -24,8 +24,8 @@ vim.opt.showcmd = true
 vim.opt.showcmdloc = "statusline"
 vim.opt.statusline = "%S %f %=%l:%c"
 
-require('im_select').setup {}
-require('hardtime').setup {
+require('im_select').setup({})
+require('hardtime').setup({
     disabled_keys = {
         ["<Up>"]    = false,
         ["<Down>"]  = false,
@@ -39,7 +39,7 @@ require('hardtime').setup {
         ["<Left>"]  = { "n", "x" },
         ["<Right>"] = { "n", "x" },
     },
-}
+})
 
 local augroup = vim.api.nvim_create_augroup("RelNumToggle", { clear = true })
 
