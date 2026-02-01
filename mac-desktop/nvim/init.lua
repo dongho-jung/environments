@@ -6,6 +6,7 @@ Plug('ericbn/vim-solarized')
 Plug('mhinz/vim-startify')
 Plug('keaising/im-select.nvim')
 Plug('m4xshen/hardtime.nvim')
+Plug('folke/which-key.nvim')
 vim.call('plug#end')
 
 vim.cmd('syntax enable')
@@ -23,6 +24,7 @@ vim.opt.tabstop = 4
 vim.opt.showcmd = true
 vim.opt.showcmdloc = "statusline"
 vim.opt.statusline = "%S %f %=%l:%c"
+vim.opt.clipboard = "unnamedplus"
 
 require('im_select').setup({})
 require('hardtime').setup({
@@ -38,6 +40,11 @@ require('hardtime').setup({
         ["<Down>"]  = { "n", "x" },
         ["<Left>"]  = { "n", "x" },
         ["<Right>"] = { "n", "x" },
+    },
+})
+require('which-key').setup({
+    icons = {
+        mappings = false,
     },
 })
 
