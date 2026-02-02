@@ -16,7 +16,7 @@ export PATH="/opt/homebrew/opt/mysql-client@9.4/bin/:$PATH"
 export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 export PATH="/Applications/PyCharm.app/Contents/MacOS/:$PATH"
 
-alias e='nvim' f='br'
+alias e='emacs'
 alias c='claude --dangerously-skip-permissions'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'
