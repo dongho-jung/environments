@@ -4,7 +4,7 @@ local Plug = vim.fn['plug#']
 vim.call('plug#begin')
 Plug('ericbn/vim-solarized')
 Plug('mhinz/vim-startify')
-Plug('keaising/im-select.nvim')
+Plug('riodelphino/macime.nvim')
 Plug('m4xshen/hardtime.nvim')
 Plug('folke/which-key.nvim')
 vim.call('plug#end')
@@ -26,7 +26,6 @@ vim.opt.showcmdloc = "statusline"
 vim.opt.statusline = "%S %f %=%l:%c"
 vim.opt.clipboard = "unnamedplus"
 
-require('im_select').setup({})
 require('hardtime').setup({
     disabled_keys = {
         ["<Up>"]    = false,
@@ -47,28 +46,9 @@ require('which-key').setup({
         mappings = false,
     },
 })
+require('macime').setup({})
 
-local augroup = vim.api.nvim_create_augroup("RelNumToggle", { clear = true })
-
-vim.api.nvim_create_autocmd("InsertEnter", {
-	group = augroup,
-	callback = function()
-		vim.opt.relativenumber = false
-	end,
-})
-
-vim.api.nvim_create_autocmd("InsertLeave", {
-	group = augroup,
-	callback = function()
-		vim.opt.relativenumber = true
-	end,
-})
-
-vim.api.nvim_create_autocmd("VimEnter", {
-	callback = function()
-		vim.fn.system("macism com.apple.keylayout.ABC")
-	end,
-})
+local augroup = vim.api.nvim_create_augroup("myGroup", { clear = true })
 
 vim.api.nvim_create_autocmd("InsertEnter", {
 	group = augroup,
