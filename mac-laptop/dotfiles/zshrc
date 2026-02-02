@@ -8,21 +8,17 @@ export LC_ALL="en_US.UTF-8"
 export HISTFILE="$HOME/projects/shell-history/mac-laptop"
 export HISTSIZE=1000000000
 export SAVEHIST=1000000000
-export MCP_TIMEOUT=120000
 export AWS_PROFILE=DO-LEAD
 
 export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
 export PATH="/opt/homebrew/opt/mysql-client@9.4/bin/:$PATH"
-export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
-export PATH="/Applications/PyCharm.app/Contents/MacOS/:$PATH"
 
-alias e='emacs'
-alias c='claude --dangerously-skip-permissions'
+alias c='IS_DEMO=1 claude --dangerously-skip-permissions'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'    
 alias cat='bat'
-alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfaa='tfa -auto-approve' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq"
+alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfaa='tfa -auto-approve'
 alias vi="nvim" vim="vi"
 alias k='kubectl' ktempdev='k --context temp-dev' kdev='k --context abr-dev-tokyo' kmain='k --context main' kdb='k --context database' kprodseoul='k --context abr-prod-seoul' \
     kprodseouldb='k --context database-prod-seoul'
@@ -55,13 +51,6 @@ setopt inc_append_history
 setopt hist_save_no_dups
 setopt hist_ignore_all_dups
 
-zstyle ':completion:*:*:docker:*' option-stacking yes
-zstyle ':completion:*:*:docker-*:*' option-stacking yes
-zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/share/git-core/git-completion.zsh
-source <(helm completion zsh)
-source /Users/dongho/.config/broot/launcher/bash/br
-steampipe completion zsh > "${fpath[1]}/_steampipe" && compinit
-
 tmp() { 
     TMP=~/tmp/$(date +%F)
     if [ "$#" -gt 0 ]; then
@@ -69,26 +58,6 @@ tmp() {
     fi
     mkdir -p "$TMP"
     cd "$TMP"
-}
-video_to_gif() { ffmpeg -i $1 -vf "fps=$2" output.gif && gifsicle -O3 output.gif -o output.gif }
-cc() {
-    local selected_dir=$(zoxide query -i)
-    if [[ -n "$selected_dir" ]]; then
-        cd "$selected_dir" && claude
-    fi
-}
-set-secret() {
-  if [ -z "$1" ]; then
-    echo "Usage: set-secret <ENV_VAR_NAME>"
-    return 1
-  fi
-
-  local varname="$1"
-  local val
-
-  read -s "val?Enter value for $varname: "
-  echo
-  export "$varname"="$val"
 }
 delete-argocd-app() {
   local app="$1"
@@ -113,32 +82,7 @@ delete-argocd-app() {
     return 1
   fi
 }
-wz() {
-  local dir="${1:-$(pwd)}"
-  local name
-  name="$(basename "$dir")"
-
-  nohup open -a wezterm --args start --workspace="$name" --cwd="$dir" >/tmp/wezterm.log 2>&1 &
-}
-w() {
-  if [[ "$1" == "cd" ]]; then
-    local dir
-    dir="$(command w cd "${2:?branch required}")" || return $?
-    builtin cd "$dir"
-  else
-    command w "$@"
-  fi
-}
 
 fpath+=(/opt/homebrew/share/zsh/site-functions)
 eval "$(zoxide init zsh)"
 eval "$(starship init zsh)"
-
-# bun completions
-[ -s "/Users/dongho/.bun/_bun" ] && source "/Users/dongho/.bun/_bun"
-
-# bun
-export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
-
-alias claude-mem='/Users/dongho/.bun/bin/bun "/Users/dongho/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs"'
