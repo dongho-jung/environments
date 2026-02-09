@@ -1,0 +1,12 @@
+<application>
+  <component name="IgnoredPluginSuggestions">
+    <option name="pluginIds">
+      <list>
+        <option value="com.intellij.tailwindcss" />
+        <option value="intellij.nextjs" />
+        <option value="intellij.webpack" />
+        <option value="intellij.prettierJS" />
+      </list>
+    </option>
+  </component>
+</application>

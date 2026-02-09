@@ -1,0 +1,8 @@
+<application>
+  <component name="download-consent">
+    <option name="consentItems">
+      <item download="ALLOWED" kind="python" url="https://index-cdn.jetbrains.com/v2" />
+      <item download="ALLOWED" kind="python" url="https://index-cdn.jetbrains.com/v2/py_pkg" />
+    </option>
+  </component>
+</application>
