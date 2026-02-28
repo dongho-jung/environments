@@ -1,4 +1,5 @@
 export EDITOR=nvim
+export FZF_CTRL_R_OPTS="--scheme=history"
 export LESSHISTFILE=/dev/null
 export PYTHONPATH="$HOME/projects/cq"
 export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
@@ -9,11 +10,14 @@ export HISTFILE="$HOME/projects/shell-history/mac-laptop"
 export HISTSIZE=1000000000
 export SAVEHIST=1000000000
 export AWS_PROFILE=DO-LEAD
+export BASH_DEFAULT_TIMEOUT_MS=900000
+export BASH_MAX_TIMEOUT_MS=900000
 
 export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
-export PATH="/opt/homebrew/opt/mysql-client@9.4/bin/:$PATH"
+export PATH="/opt/homebrew/opt/mysql-client@9.4/bin:$PATH"
+export PATH="/Applications/PyCharm.app/Contents/MacOS:$PATH"
 
-alias c='IS_DEMO=1 claude --dangerously-skip-permissions'
+alias c='IS_DEMO=1 claude --dangerously-skip-permissions --ide'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'    

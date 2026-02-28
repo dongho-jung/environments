@@ -1,0 +1,85 @@
+<application>
+  <component name="Trusted.Paths">
+    <option name="TRUSTED_PROJECT_PATHS">
+      <map>
+        <entry key="$USER_HOME$/.aws" value="true" />
+        <entry key="$USER_HOME$/.hammerspoon" value="true" />
+        <entry key="$USER_HOME$/PycharmProjects/pythonProject" value="true" />
+        <entry key="$USER_HOME$/notebooks/monitoring-matrix" value="true" />
+        <entry key="$USER_HOME$/projects" value="true" />
+        <entry key="$USER_HOME$/projects/TaaB" value="true" />
+        <entry key="$USER_HOME$/projects/actions-common" value="true" />
+        <entry key="$USER_HOME$/projects/actions-local-cache" value="true" />
+        <entry key="$USER_HOME$/projects/actions-runner-controller" value="true" />
+        <entry key="$USER_HOME$/projects/airbridge-api" value="true" />
+        <entry key="$USER_HOME$/projects/airbridge-devops-streamlit" value="true" />
+        <entry key="$USER_HOME$/projects/airbridge-dms-history" value="true" />
+        <entry key="$USER_HOME$/projects/airbridge-platform-api" value="true" />
+        <entry key="$USER_HOME$/projects/airbridge-publisher-integration-worker" value="true" />
+        <entry key="$USER_HOME$/projects/airbridge-report-api" value="true" />
+        <entry key="$USER_HOME$/projects/airbridge-web-sdk-canary" value="true" />
+        <entry key="$USER_HOME$/projects/airflow" value="true" />
+        <entry key="$USER_HOME$/projects/alerts" value="true" />
+        <entry key="$USER_HOME$/projects/aws-trigger-to-slack-lambda" value="true" />
+        <entry key="$USER_HOME$/projects/backoffice-api" value="true" />
+        <entry key="$USER_HOME$/projects/chat-ops" value="true" />
+        <entry key="$USER_HOME$/projects/cq" value="true" />
+        <entry key="$USER_HOME$/projects/create-checkly" value="true" />
+        <entry key="$USER_HOME$/projects/dev-ops" value="true" />
+        <entry key="$USER_HOME$/projects/dev-ops-rdb" value="true" />
+        <entry key="$USER_HOME$/projects/dev-ops-service-admin" value="true" />
+        <entry key="$USER_HOME$/projects/dev-ops-sg" value="true" />
+        <entry key="$USER_HOME$/projects/devops" value="true" />
+        <entry key="$USER_HOME$/projects/devops-agents" value="true" />
+        <entry key="$USER_HOME$/projects/devops-backoffice" value="true" />
+        <entry key="$USER_HOME$/projects/devops/actions-common" value="true" />
+        <entry key="$USER_HOME$/projects/devops/airbridge-test-env" value="true" />
+        <entry key="$USER_HOME$/projects/devops/dev-ops" value="true" />
+        <entry key="$USER_HOME$/projects/devops/dev-ops/services/monitoring/exit-code/production" value="true" />
+        <entry key="$USER_HOME$/projects/devops/scripts" value="true" />
+        <entry key="$USER_HOME$/projects/devops/terraform-aws-iam" value="true" />
+        <entry key="$USER_HOME$/projects/environments" value="true" />
+        <entry key="$USER_HOME$/projects/finops" value="true" />
+        <entry key="$USER_HOME$/projects/finops-streamlit" value="true" />
+        <entry key="$USER_HOME$/projects/finops/tag-bot" value="true" />
+        <entry key="$USER_HOME$/projects/grafana-dashboards" value="true" />
+        <entry key="$USER_HOME$/projects/helm-charts" value="true" />
+        <entry key="$USER_HOME$/projects/info-asset-crawler" value="true" />
+        <entry key="$USER_HOME$/projects/infraquery" value="true" />
+        <entry key="$USER_HOME$/projects/k8s-event-exporter" value="true" />
+        <entry key="$USER_HOME$/projects/kafka-lag-exporter" value="true" />
+        <entry key="$USER_HOME$/projects/keyboard-navigator" value="true" />
+        <entry key="$USER_HOME$/projects/local-cache" value="true" />
+        <entry key="$USER_HOME$/projects/monitoring" value="true" />
+        <entry key="$USER_HOME$/projects/org-action" value="true" />
+        <entry key="$USER_HOME$/projects/report-mmm" value="true" />
+        <entry key="$USER_HOME$/projects/runbook" value="true" />
+        <entry key="$USER_HOME$/projects/runner" value="true" />
+        <entry key="$USER_HOME$/projects/runner-container-hooks" value="true" />
+        <entry key="$USER_HOME$/projects/simple-lambda" value="true" />
+        <entry key="$USER_HOME$/projects/slack-bots" value="true" />
+        <entry key="$USER_HOME$/projects/snp-lambda-functions" value="true" />
+        <entry key="$USER_HOME$/projects/sre" value="true" />
+        <entry key="$USER_HOME$/projects/steampipe-plugin-kubernetes" value="true" />
+        <entry key="$USER_HOME$/projects/steampipe-server" value="true" />
+        <entry key="$USER_HOME$/projects/tacit" value="true" />
+        <entry key="$USER_HOME$/projects/temp-role-generator" value="true" />
+        <entry key="$USER_HOME$/projects/terraform-ab180-monitoring" value="true" />
+        <entry key="$USER_HOME$/projects/terraform-aws-ecs-fargate" value="true" />
+        <entry key="$USER_HOME$/projects/terraform-aws-iam" value="true" />
+        <entry key="$USER_HOME$/projects/terraform-common" value="true" />
+        <entry key="$USER_HOME$/projects/terraform-e2e-test" value="true" />
+        <entry key="$USER_HOME$/projects/terraform-provider-grafana" value="true" />
+        <entry key="$USER_HOME$/tmp" value="true" />
+      </map>
+    </option>
+  </component>
+  <component name="Trusted.Paths.Settings">
+    <option name="TRUSTED_PATHS">
+      <list>
+        <option value="$USER_HOME$/projects" />
+        <option value="$USER_HOME$" />
+      </list>
+    </option>
+  </component>
+</application>

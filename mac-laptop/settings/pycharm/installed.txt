@@ -1,0 +1,9 @@
+ru.adelf.idea.dotenv
+com.intellij.kubernetes
+com.tylerthrailkill.intellij.solarized
+com.anthropic.code.plugin
+org.sylfra.idea.plugins.linessorter
+org.intellij.plugins.hcl
+net.ashald.envfile
+com.github.copilot
+org.jetbrains.security.package-checker
