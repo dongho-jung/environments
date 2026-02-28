@@ -1,5 +1,4 @@
 require('modules.input-switch')
-require('modules.tiling')
 require('modules.remap')
 require('modules.pad')
 
