@@ -25,6 +25,8 @@ exec-once = /usr/libexec/kf6/polkit-kde-authentication-agent-1
 #############################
 env = XCURSOR_SIZE,24
 env = HYPRCURSOR_SIZE,24
+env = XDG_DATA_DIRS,/var/lib/flatpak/exports/share:$HOME/.local/share/flatpak/exports/share:$HOME/.local/share:/root/.local/share:/usr/local/share/:/usr/share/
+env = XDG_DATA_HOME,$HOME/.local/share:/root/.local/share:/usr/local/share/:/usr/share/
 env = PATH,$HOME/projects/environments/mac-mini-asahi/bin:$PATH
 
 #####################
@@ -111,6 +113,9 @@ misc {
     key_press_enables_dpms = true
 }
 
+xwayland {
+  force_zero_scaling = true
+}
 
 #############
 ### INPUT ###
