@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE="$HOME/images"
+
+YEAR=$(date +%Y)
+DAY=$(date +%F)          # YYYY-MM-DD
+
+DIR="$BASE/$YEAR/$DAY"
+mkdir -p "$DIR"
+
+n=1
+while [[ -e "$DIR/$n.png" ]]; do
+  ((n++))
+done
+
+FILE="$DIR/$n.png"
+
+grim -g "$(slurp)" - | swappy -f - -o "$FILE"
+
+if [[ -f "$FILE" ]]; then
+  wl-copy < "$FILE"
+  echo "Saved (edited): $FILE"
+else
+  echo "Canceled (no file saved)"
+fi

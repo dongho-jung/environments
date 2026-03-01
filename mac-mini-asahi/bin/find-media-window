@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Finds "best guess" chrome/chromium window address:
+# choose most recently focused chrome/chromium window (highest focusHistoryID).
+# Exit 0 and print address, else exit 1.
+
+addr="$(
+  hyprctl -j clients | jq -r '
+    [ .[]
+      | select((.class|ascii_downcase) | test("chrom(e|ium)"))
+      | {address, focusHistoryID}
+    ]
+    | sort_by(.focusHistoryID)
+    | last
+    | .address // empty
+  '
+)"
+
+[[ -n "${addr:-}" ]] || exit 1
+printf '%s\n' "$addr"
