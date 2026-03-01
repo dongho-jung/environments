@@ -1,0 +1,56 @@
+export PATH="$HOME/projects/environments/mac-mini-asahi/bin:$PATH"
+export PATH="/home/dongho/.cargo/bin:$PATH"
+
+export EDITOR=nvim
+export FZF_CTRL_R_OPTS='--tiebreak=index'
+export HISTFILE="$HOME/projects/shell-history/mac-mini-asahi"
+export HISTSIZE=100000000000000
+export LANG='en_US.UTF-8'
+export LC_ALL='en_US.UTF-8'
+export LESSHISTFILE=/dev/null
+export SAVEHIST=100000000000000
+
+alias -g ....='../../..'
+alias -g ...='../..'
+alias cat='bat'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gst='git status' gco='git checkout' gd='git diff' gds='git diff --staged' gg='lazygit' gr='git restore' grs='git restore --staged'
+alias history='fc -lt "%Y-%m-%d %H:%M:%S"'
+alias o="codex --dangerously-bypass-approvals-and-sandbox"
+alias rr='. ~/.zshrc'
+alias vi='nvim'
+alias y='wl-copy' p='wl-paste --type text/plain'
+
+setopt append_history
+setopt autopushd
+setopt extended_glob
+setopt hist_find_no_dups
+setopt hist_ignore_all_dups
+setopt hist_ignore_space
+setopt hist_reduce_blanks
+setopt hist_save_no_dups
+setopt inc_append_history
+setopt interactive_comments
+setopt share_history
+
+bindkey -e
+bindkey '^[[1;3C' forward-word
+bindkey '^[[1;3D' backward-word
+bindkey '^[[1;5C' end-of-line
+bindkey '^[[1;5D' beginning-of-line
+bindkey '^[b' beginning-of-line
+bindkey '^[f' end-of-line
+
+source <(fzf --zsh)
+source ~/.zsh/plugins/alias-tips/alias-tips.plugin.zsh
+
+tmp() { 
+    TMP=~/tmp/$(date +%F)
+    if [ "$#" -gt 0 ]; then
+        TMP="${TMP}-$(echo "$@" | tr ' ' '-')"
+    fi
+    mkdir -p "$TMP"
+    cd "$TMP"
+}
+
+eval "$(starship init zsh)"
+eval "$(zoxide init zsh)"

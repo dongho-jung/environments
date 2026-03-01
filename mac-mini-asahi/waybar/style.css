@@ -1,0 +1,42 @@
+* {
+  border: none;
+  border-radius: 0;
+  font-family: "Noto Sans", monospace;
+  font-size: 12px;
+  min-height: 0;
+}
+
+window#waybar {
+  background: rgba(0, 0, 0, 0.75);
+  color: #eaeaea;
+}
+
+#workspaces {
+  margin-left: 6px;
+}
+
+#workspaces button {
+  padding: 0 8px;
+  color: #aaaaaa;
+}
+
+#workspaces button.active {
+  background: #444444;
+  color: #ffffff;
+}
+
+#workspaces button:hover {
+  background: #333333;
+}
+
+#clock {
+  font-weight: 600;
+}
+
+#network,
+#pulseaudio,
+#cpu,
+#memory,
+#language {
+  padding: 0 8px;
+}
