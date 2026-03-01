@@ -4,7 +4,7 @@ set -euo pipefail
 ENTRIES=$(
   cat <<'LIST'
 Chromium :: chromium-browser
-Obsidian :: flatpak run md.obsidian.Obsidian
+Obsidian :: flatpak run --socket=wayland md.obsidian.Obsidian
 Ghostty :: ghostty
 LIST
 )
