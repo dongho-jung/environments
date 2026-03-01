@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENTRIES=$(
+  cat <<'LIST'
+Chromium :: chromium-browser
+Obsidian :: flatpak run md.obsidian.Obsidian
+Ghostty :: ghostty
+LIST
+)
+
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+declare -A CMD_BY_NAME=()
+
+while IFS= read -r line; do
+  [[ -z "${line//[[:space:]]/}" ]] && continue
+  [[ "$line" =~ ^[[:space:]]*# ]] && continue
+
+  if [[ "$line" != *"::"* ]]; then
+    continue
+  fi
+
+  name="$(trim "${line%%::*}")"
+  cmd="$(trim "${line#*::}")"
+
+  [[ -n "${name:-}" && -n "${cmd:-}" ]] || continue
+  CMD_BY_NAME["$name"]="$cmd"
+done <<< "$ENTRIES"
+
+menu="$(printf '%s\n' "${!CMD_BY_NAME[@]}" | sort)"
+
+choice="$(
+  printf '%s\n' "$menu" | wofi --show dmenu --matching fuzzy -i --prompt "run"
+)" || exit 0
+
+[[ -n "${choice:-}" ]] || exit 0
+cmd="${CMD_BY_NAME[$choice]:-}"
+[[ -n "${cmd:-}" ]] || exit 0
+
+hyprctl dispatch exec "$cmd" >/dev/null 2>&1
