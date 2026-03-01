@@ -9,7 +9,7 @@ monitor = Unknown-1, disable
 ### MY PROGRAMS ###
 ###################
 $terminal = ghostty
-$menu = wofi --show drun
+$menu = wofi-custom
 
 
 #################
