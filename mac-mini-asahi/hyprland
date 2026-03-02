@@ -9,7 +9,7 @@ monitor = Unknown-1, disable
 ### MY PROGRAMS ###
 ###################
 $terminal = ghostty
-$menu = wofi-custom
+$menu = pkill -x wofi-custom || wofi-custom
 
 
 #################
@@ -137,6 +137,7 @@ input {
 }
 
 gestures {
+    workspace_swipe = true
 }
 
 device {
@@ -152,8 +153,10 @@ $mainMod = SUPER
 
 bind = $mainMod SHIFT, P, exec, sleep-hyprland
 bind = , Print, exec, screenshot
+bind = , Menu, exec, grim -g "$(slurp)" - | tesseract stdin stdout -l jpn --psm 6 | wl-copy -p
+bind = , Scroll_Lock, exec, hotkey-mode
 
-bindo = $mainMod, W, killactive,
+bind = $mainMod, W, killactive,
 
 bind  = , KP_Insert, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
 binde = , KP_Up, exec, wpctl set-volume --limit 1.0 @DEFAULT_AUDIO_SINK@ 5%+
@@ -179,7 +182,7 @@ bind = $mainMod CTRL, up, resizeactive, 0 -30
 bind = $mainMod CTRL, down, resizeactive, 0 30
 
 bind = $mainMod, RETURN, exec, $terminal
-bind = $mainMod, D, exec, $menu
+bind = $mainMod, D, exec, pkill -x wofi || $menu
 
 bind = $mainMod, left, movefocus, l
 bind = $mainMod, right, movefocus, r
@@ -219,3 +222,8 @@ windowrulev2 = suppressevent maximize, class:.*
 
 # Fix some dragging issues with XWayland
 windowrulev2 = nofocus,class:^$,title:^$,xwayland:1,floating:1,fullscreen:0,pinned:0
+
+windowrulev2 = float, class:^(popup-.*)$
+windowrulev2 = pin, class:^(popup-.*)$
+windowrulev2 = size 430 740, class:^(popup-.*)$
+windowrulev2 = move 20 40, class:^(popup-.*)$
