@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Finds "best guess" chrome/chromium window address:
-# choose most recently focused chrome/chromium window (highest focusHistoryID).
-# Exit 0 and print address, else exit 1.
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+target_file="$runtime/hypr-hotkey-target"
+
+if [[ -f "$target_file" ]]; then
+  target="$(cat "$target_file" 2>/dev/null || true)"
+  if [[ -n "${target:-}" ]]; then
+    if hyprctl -j clients | jq -e --arg addr "$target" '.[] | select(.address == $addr)' >/dev/null 2>&1; then
+      printf '%s\n' "$target"
+      exit 0
+    else
+      rm -f "$target_file" 2>/dev/null || true
+    fi
+  fi
+fi
 
 addr="$(
   hyprctl -j clients | jq -r '

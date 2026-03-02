@@ -12,11 +12,19 @@
   ],
 
   "modules-right": [
+    "custom/hotkey",
     "pulseaudio",
     "network",
     "cpu",
     "memory"
   ],
+
+  "custom/hotkey": {
+    "exec": "hotkey-mode status",
+    "interval": "once",
+    "signal": 8,
+    "tooltip": false
+  },
 
   "hyprland/workspaces": {
     "format": "{name}",

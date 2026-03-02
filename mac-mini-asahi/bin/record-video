@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# If already recording, stop (SIGINT = graceful stop)
+if pgrep -x wf-recorder >/dev/null; then
+  pkill -INT -x wf-recorder
+  command -v notify-send >/dev/null && notify-send -t 1000 "🎥 Recording stopped"
+  exit 0
+fi
+
+BASE="$HOME/videos"
+YEAR=$(date +%Y)
+DAY=$(date +%F)   # YYYY-MM-DD
+DIR="$BASE/$YEAR/$DAY"
+mkdir -p "$DIR"
+
+ext="mp4"
+n=1
+while [[ -e "$DIR/$n.$ext" ]]; do
+  ((n++))
+done
+FILE="$DIR/$n.$ext"
+
+args=()
+if command -v hyprctl >/dev/null && command -v jq >/dev/null; then
+  mon="$(hyprctl -j monitors | jq -r '.[] | select(.focused==true) | .name' | head -n1)"
+  if [[ -n "${mon:-}" && "$mon" != "null" ]]; then
+    args+=( -o "$mon" )
+  fi
+fi
+
+command -v notify-send >/dev/null && notify-send -t 1500 "🎥 Recording started" "$FILE"
+
+exec wf-recorder "${args[@]}" -f "$FILE"

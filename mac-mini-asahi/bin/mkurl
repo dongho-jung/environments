@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+debug=0
+from_clip=0
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  echo "text" | mkurl 'https://...{q}...'
+  mkurl 'https://...{q}...' "text"
+  mkurl --clip 'https://...{q}...'
+  mkurl --debug ...
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --debug) debug=1; shift;;
+    --clip|--clipboard) from_clip=1; shift;;
+    -h|--help) usage; exit 0;;
+    --) shift; break;;
+    *) break;;
+  esac
+done
+
+tpl="${1:-}"
+[[ -n "$tpl" ]] || { usage; exit 2; }
+shift || true
+
+# 입력 소스 결정
+if [[ -t 0 ]]; then
+  if (( from_clip )); then
+    q="$(wl-paste -p -n 2>/dev/null || wl-paste -n 2>/dev/null || true)"
+  else
+    q="$*"
+  fi
+else
+  q="$(cat)"
+fi
+
+q="$(printf '%s' "$q" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ +| +$//g')"
+[[ -n "$q" ]] || exit 0
+
+# URL 인코딩
+if command -v jq >/dev/null 2>&1; then
+  enc="$(printf '%s' "$q" | jq -sRr @uri)"
+else
+  enc="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=""))' <<<"$q")"
+fi
+
+if (( debug )); then
+  printf 'mkurl debug: q=[%s]\n' "$q" >&2
+  printf 'mkurl debug: enc=[%s]\n' "$enc" >&2
+fi
+
+[[ -n "$enc" ]] || { echo "mkurl: encoding failed" >&2; exit 1; }
+
+printf '%s\n' "${tpl//\{q\}/$enc}"
