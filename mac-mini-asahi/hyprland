@@ -223,7 +223,6 @@ windowrulev2 = suppressevent maximize, class:.*
 # Fix some dragging issues with XWayland
 windowrulev2 = nofocus,class:^$,title:^$,xwayland:1,floating:1,fullscreen:0,pinned:0
 
-windowrulev2 = float, class:^(popup-.*)$
-windowrulev2 = pin, class:^(popup-.*)$
-windowrulev2 = size 430 740, class:^(popup-.*)$
-windowrulev2 = move 20 40, class:^(popup-.*)$
+windowrulev2 = float, class:^(popup-jadict)$
+windowrulev2 = size 560 900, class:^(popup-jadict)$
+windowrulev2 = move 20 40, class:^(popup-jadict)$

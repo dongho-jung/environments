@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-t="$(wl-paste -p -n 2>/dev/null || true)"
-if [[ -z "${t:-}" ]]; then
-  t="$(wl-paste -n 2>/dev/null || true)"
-fi
-
-printf '%s' "$t" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ +| +$//g'
