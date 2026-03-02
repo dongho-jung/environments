@@ -11,5 +11,4 @@ truncate_to_repo = false
 [cmd_duration]
 format = "$duration"
 min_time = 5_000
-show_notifications = true
-min_time_to_notify = 10_000
+show_notifications = false
