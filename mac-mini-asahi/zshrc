@@ -1,5 +1,6 @@
 export PATH="$HOME/projects/environments/mac-mini-asahi/bin:$PATH"
-export PATH="/home/dongho/.cargo/bin:$PATH"
+export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
 export EDITOR=nvim
 export FZF_CTRL_R_OPTS='--tiebreak=index'
@@ -16,9 +17,10 @@ alias cat='bat'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gst='git status' gco='git checkout' gd='git diff' gds='git diff --staged' gg='lazygit' gr='git restore' grs='git restore --staged'
 alias history='fc -lt "%Y-%m-%d %H:%M:%S"'
 alias o="codex --dangerously-bypass-approvals-and-sandbox"
+alias c="claude --dangerously-skip-permissions --chrome --ide"
 alias rr='. ~/.zshrc'
 alias vi='nvim'
-alias y='wl-copy' p='wl-paste --type text/plain'
+alias y='wl-copy -p' p='wl-paste -p --type text/plain'
 
 setopt append_history
 setopt autopushd
