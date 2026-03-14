@@ -154,10 +154,10 @@ $mainMod = SUPER
 
 bind = $mainMod SHIFT, P, exec, sleep-hyprland
 bind = , Print, exec, screenshot
-bind = , Menu, exec, grim -g "$(slurp)" - | tesseract stdin stdout -l jpn --psm 6 | wl-copy -p
+bind = , Menu, exec, grim -g "$(slurp)" - | tesseract stdin stdout -l jpn --psm 6 | wl-copy
 bind = , Scroll_Lock, exec, hotkey-mode
 
-bind = $mainMod, W, killactive,
+bind = $mainMod, Q, killactive,
 
 bind  = , KP_Insert, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
 binde = , KP_Up, exec, wpctl set-volume --limit 1.0 @DEFAULT_AUDIO_SINK@ 5%+
@@ -173,9 +173,16 @@ bind = $mainMod SHIFT, down,  movewindoworgroup, d
 
 bind = $mainMod, C, sendshortcut, CTRL, INSERT,
 bind = $mainMod, V, sendshortcut, SHIFT, INSERT,
+bind = $mainMod, A, sendshortcut, CTRL, A,
+bind = $mainMod, X, sendshortcut, CTRL, X,
+bind = $mainMod, Z, sendshortcut, CTRL, Z,
+bind = $mainMod, F, sendshortcut, CTRL, F,
+bind = $mainMod, S, sendshortcut, CTRL, S,
+bind = $mainMod, R, sendshortcut, CTRL, R,
+bind = $mainMod, W, sendshortcut, CTRL, W,
 
 bind = $mainMod SHIFT, F, fullscreenstate, -1 2
-bind = $mainMod, F, fullscreen, 1
+bind = $mainMod CTRL, F, fullscreen, 1
 
 bind = $mainMod CTRL, left, resizeactive, -30 0
 bind = $mainMod CTRL, right, resizeactive, 30 0
