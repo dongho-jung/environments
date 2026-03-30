@@ -3,3 +3,4 @@
 *.db
 automatic_backups/
 mac-mini-asahi/waybar/openvpn-1password.conf
+__pycache__/

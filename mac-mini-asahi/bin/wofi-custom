@@ -8,6 +8,7 @@ Obsidian :: flatpak run --socket=wayland md.obsidian.Obsidian
 Zed :: flatpak run dev.zed.Zed
 Ghostty :: ghostty
 1password :: 1password
+nautilus :: nautilus
 LIST
 )
 
