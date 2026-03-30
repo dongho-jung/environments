@@ -16,34 +16,13 @@ if command -v openvpn3 >/dev/null 2>&1; then
   ')
 
   if [ "$connected_count" -gt 0 ]; then
-    devices=$(printf '%s\n' "$sessions" | awk '
-      /^-+$/ { device = ""; next }
-      /Device:/ {
-        for (i = 1; i <= NF; i++) {
-          if ($i == "Device:") {
-            device = $(i + 1)
-          }
-        }
-      }
-      /Status: .*Client connected/ {
-        if (device != "") {
-          list = list (list ? "," : "") device
-        }
-      }
-      END { print list }
-    ')
-
-    if [ "$connected_count" -eq 1 ] && [ -n "$devices" ]; then
-      print_json "VPN $devices" "connected"
-    else
-      print_json "VPN $connected_count" "connected"
-    fi
+    print_json "VPN On" "on"
     exit 0
   fi
 fi
 
 if [ -f "$signin_marker" ]; then
-  print_json "VPN auth" "pending"
+  print_json "VPN Off" "off"
   exit 0
 fi
 
@@ -55,7 +34,7 @@ tun_devices=$(ip -brief addr 2>/dev/null | awk '
 ')
 
 if [ -n "$tun_devices" ]; then
-  print_json "VPN $tun_devices" "connected"
+  print_json "VPN On" "on"
 else
-  print_json "VPN off" "disconnected"
+  print_json "VPN Off" "off"
 fi

@@ -12,14 +12,24 @@
   ],
 
   "modules-right": [
+    "custom/record",
     "custom/openvpn",
-    "custom/docker",
     "custom/hotkey",
+    "custom/docker",
     "pulseaudio",
     "network",
     "cpu",
     "memory"
   ],
+
+  "custom/record": {
+    "exec": "~/.config/waybar/scripts/record-status.sh",
+    "interval": "once",
+    "signal": 10,
+    "return-type": "json",
+    "format": "{text}",
+    "tooltip": false
+  },
 
   "custom/openvpn": {
     "exec": "~/.config/waybar/scripts/openvpn-status.sh",
@@ -40,9 +50,12 @@
   },
 
   "custom/hotkey": {
-    "exec": "hotkey-mode status",
+    "exec": "~/.config/waybar/scripts/hotkey-status.sh",
     "interval": "once",
     "signal": 8,
+    "return-type": "json",
+    "format": "{text}",
+    "on-click": "~/.config/waybar/scripts/hotkey-toggle.sh",
     "tooltip": false
   },
 

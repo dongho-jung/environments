@@ -13,7 +13,11 @@ fi
 
 if output=$(docker ps -q 2>&1); then
   count=$(printf '%s\n' "$output" | sed '/^$/d' | wc -l | tr -d ' ')
-  print_json "DKR $count" "running"
+  if [ "$count" -gt 0 ]; then
+    print_json "DKR $count" "running"
+  else
+    print_json "DKR 0" "idle"
+  fi
   exit 0
 fi
 
