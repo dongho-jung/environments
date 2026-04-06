@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ts="$(date +%Y%m%d-%H%M%S)"
+backup_root="/tmp/install-backup-${ts}"
+
+install_link() {
+  local name="$1"
+  local target="$2"
+
+  if [[ -z "${name:-}" || -z "${target:-}" ]]; then
+    echo "usage: install_link <name> <target>" >&2
+    return 2
+  fi
+
+  local src abs_target backup_path
+  src="$(realpath -e -- "./$name")"
+
+  if [[ -L "$target" ]]; then
+    if [[ "$(realpath -e -- "$target")" == "$src" ]]; then
+      return 0
+    fi
+  fi
+
+  if [[ -e "$target" || -L "$target" ]]; then
+    abs_target="$(realpath -m -s -- "$target")"
+    backup_path="${backup_root}${abs_target}"
+
+    mkdir -p -- "$(dirname -- "$backup_path")"
+    mv -- "$target" "$backup_path"
+  fi
+
+  mkdir -p -- "$(dirname -- "$target")"
+
+  ln -sfn -- "$src" "$target"
+}
+
+install_link zshrc     ~/.zshrc
+install_link nvim      ~/.config/nvim
+install_link hyprland  ~/.config/hypr/hyprland.conf
+install_link starship  ~/.config/starship.toml
+install_link waybar    ~/.config/waybar
