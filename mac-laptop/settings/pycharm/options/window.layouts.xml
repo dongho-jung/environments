@@ -1,0 +1,547 @@
+<application>
+  <component name="ToolWindowLayout"><![CDATA[{
+  "activeLayoutName": "dongho",
+  "layouts": {
+    "Custom": {
+      "v1": [
+        {
+          "id": "Project",
+          "order": 0,
+          "contentUiType": "COMBO",
+          "weight": 0.25
+        },
+        {
+          "id": "Notifications",
+          "order": 0,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Version Control",
+          "order": 0,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Find",
+          "order": 1,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Run",
+          "order": 2,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Debug",
+          "order": 3,
+          "anchor": "BOTTOM",
+          "weight": 0.4
+        },
+        {
+          "id": "Inspection",
+          "order": 4,
+          "anchor": "BOTTOM",
+          "weight": 0.4
+        }
+      ],
+      "v2": [
+        {
+          "id": "Project",
+          "order": 0,
+          "contentUiType": "COMBO",
+          "weight": 0.25
+        },
+        {
+          "id": "Commit",
+          "order": 1,
+          "weight": 0.25
+        },
+        {
+          "id": "Structure",
+          "order": 2,
+          "weight": 0.25,
+          "isSplit": true
+        },
+        {
+          "id": "Version Control",
+          "order": 0,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Problems",
+          "order": 1,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Problems View",
+          "order": 2,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Terminal",
+          "order": 3,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Services",
+          "order": 4,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Python Packages",
+          "order": 5,
+          "anchor": "BOTTOM",
+          "weight": 0.1
+        },
+        {
+          "id": "Python Console",
+          "order": 6,
+          "anchor": "BOTTOM",
+          "weight": 0.1
+        },
+        {
+          "id": "Notifications",
+          "order": 0,
+          "anchor": "RIGHT",
+          "contentUiType": "COMBO",
+          "weight": 0.25
+        },
+        {
+          "id": "AIAssistant",
+          "order": 1,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Database",
+          "order": 2,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Gradle",
+          "order": 3,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Maven",
+          "order": 4,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Plots",
+          "order": 5,
+          "anchor": "RIGHT",
+          "weight": 0.1
+        }
+      ]
+    },
+    "claude": {
+      "v2": [
+        {
+          "id": "Project",
+          "order": 0,
+          "contentUiType": "COMBO",
+          "isActiveOnStart": true,
+          "isVisible": true,
+          "weight": 0.3480903
+        },
+        {
+          "id": "Commit",
+          "order": 1,
+          "weight": 0.3480903
+        },
+        {
+          "id": "Welcome to GitHub Copilot",
+          "order": 2,
+          "weight": 0.3480903
+        },
+        {
+          "id": "Structure",
+          "order": 3,
+          "weight": 0.25,
+          "isSplit": true
+        },
+        {
+          "id": "Pull Requests",
+          "order": 4,
+          "weight": 0.3480903
+        },
+        {
+          "id": "Version Control",
+          "order": 0,
+          "anchor": "BOTTOM",
+          "weight": 0.21658768
+        },
+        {
+          "id": "Problems",
+          "order": 1,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Problems View",
+          "order": 2,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Services",
+          "order": 3,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Python Packages",
+          "order": 4,
+          "anchor": "BOTTOM",
+          "weight": 0.1
+        },
+        {
+          "id": "Python Console",
+          "order": 5,
+          "anchor": "BOTTOM",
+          "weight": 0.1
+        },
+        {
+          "id": "Shell Command Output",
+          "order": 6,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Find",
+          "order": 7,
+          "anchor": "BOTTOM",
+          "isVisible": true,
+          "weight": 0.21388102
+        },
+        {
+          "id": "GitHub Copilot MCP Log",
+          "order": 8,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Windsurf Console",
+          "order": 9,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Notifications",
+          "order": 0,
+          "anchor": "RIGHT",
+          "contentUiType": "COMBO",
+          "weight": 0.25
+        },
+        {
+          "id": "AIAssistant",
+          "order": 1,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Database",
+          "order": 2,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Gradle",
+          "order": 3,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Maven",
+          "order": 4,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "github.copilotToolWindow",
+          "order": 5,
+          "anchor": "RIGHT",
+          "weight": 0.32991803
+        },
+        {
+          "id": "Plots",
+          "order": 6,
+          "anchor": "RIGHT",
+          "weight": 0.1
+        },
+        {
+          "id": "Continue",
+          "order": 7,
+          "anchor": "RIGHT",
+          "isActiveOnStart": true,
+          "isVisible": true,
+          "weight": 0.33015046
+        },
+        {
+          "id": "Terminal",
+          "order": 8,
+          "anchor": "RIGHT",
+          "isVisible": true,
+          "weight": 0.29484954
+        },
+        {
+          "id": "GitHub Copilot Chat",
+          "order": 9,
+          "anchor": "RIGHT",
+          "weight": 0.32991803
+        },
+        {
+          "id": "Cascade",
+          "order": 10,
+          "anchor": "RIGHT"
+        }
+      ],
+      "unifiedWeights": {
+        "top": 0.33,
+        "left": 0.3480903,
+        "bottom": 0.21658768,
+        "right": 0.29484954
+      }
+    },
+    "dongho": {
+      "v2": [
+        {
+          "id": "Merge Requests",
+          "isShowStripeButton": false
+        },
+        {
+          "id": "AI Playground",
+          "isShowStripeButton": false,
+          "isSplit": true
+        },
+        {
+          "id": "Backup and Sync History",
+          "isShowStripeButton": false
+        },
+        {
+          "id": "Welcome to GitHub Copilot",
+          "order": 2,
+          "weight": 0.3480903
+        },
+        {
+          "id": "Structure",
+          "order": 3,
+          "isShowStripeButton": false,
+          "weight": 0.25,
+          "isSplit": true
+        },
+        {
+          "id": "Pull Requests",
+          "order": 5,
+          "isShowStripeButton": false,
+          "weight": 0.2120949
+        },
+        {
+          "id": "Commit",
+          "order": 14,
+          "floatingBounds": [
+            0,
+            607,
+            1728,
+            229
+          ],
+          "isVisible": true,
+          "weight": 0.23987268,
+          "sideWeight": 0.4057337,
+          "isSplit": true
+        },
+        {
+          "id": "Project",
+          "order": 15,
+          "contentUiType": "COMBO",
+          "isActiveOnStart": true,
+          "isVisible": true,
+          "weight": 0.23987268,
+          "sideWeight": 0.5942663
+        },
+        {
+          "id": "Bookmarks",
+          "order": 17,
+          "weight": 0.2120949,
+          "isSplit": true
+        },
+        {
+          "id": "TypeScript",
+          "anchor": "BOTTOM",
+          "isShowStripeButton": false
+        },
+        {
+          "id": "TODO",
+          "anchor": "BOTTOM",
+          "isShowStripeButton": false
+        },
+        {
+          "id": "HfCacheToolWindow",
+          "anchor": "BOTTOM",
+          "isShowStripeButton": false
+        },
+        {
+          "id": "PythonProcessOutput",
+          "anchor": "BOTTOM",
+          "isShowStripeButton": false
+        },
+        {
+          "id": "Problems",
+          "order": 1,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Problems View",
+          "order": 2,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Services",
+          "order": 3,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Python Packages",
+          "order": 4,
+          "anchor": "BOTTOM",
+          "weight": 0.1
+        },
+        {
+          "id": "Python Console",
+          "order": 5,
+          "anchor": "BOTTOM",
+          "weight": 0.1
+        },
+        {
+          "id": "Shell Command Output",
+          "order": 6,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Find",
+          "order": 7,
+          "anchor": "BOTTOM",
+          "isVisible": true,
+          "weight": 0.21388102
+        },
+        {
+          "id": "GitHub Copilot MCP Log",
+          "order": 8,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Windsurf Console",
+          "order": 9,
+          "anchor": "BOTTOM"
+        },
+        {
+          "id": "Terminal",
+          "order": 10,
+          "anchor": "BOTTOM",
+          "weight": 0.21191135
+        },
+        {
+          "id": "Version Control",
+          "order": 11,
+          "anchor": "BOTTOM",
+          "weight": 0.4242844
+        },
+        {
+          "id": "documentation.v2",
+          "anchor": "RIGHT",
+          "isShowStripeButton": false,
+          "isSplit": true
+        },
+        {
+          "id": "Coverage",
+          "anchor": "RIGHT",
+          "isShowStripeButton": false,
+          "isSplit": true
+        },
+        {
+          "id": "SciView",
+          "anchor": "RIGHT",
+          "isShowStripeButton": false
+        },
+        {
+          "id": "Jupyter Variables",
+          "anchor": "RIGHT",
+          "isShowStripeButton": false,
+          "isSplit": true
+        },
+        {
+          "id": "Notifications",
+          "order": 0,
+          "anchor": "RIGHT",
+          "contentUiType": "COMBO",
+          "weight": 0.25
+        },
+        {
+          "id": "AIAssistant",
+          "order": 1,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Database",
+          "order": 2,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Gradle",
+          "order": 3,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "Maven",
+          "order": 4,
+          "anchor": "RIGHT",
+          "weight": 0.25
+        },
+        {
+          "id": "github.copilotToolWindow",
+          "order": 5,
+          "anchor": "RIGHT",
+          "weight": 0.32991803
+        },
+        {
+          "id": "Plots",
+          "order": 6,
+          "anchor": "RIGHT",
+          "weight": 0.1
+        },
+        {
+          "id": "Continue",
+          "order": 7,
+          "anchor": "RIGHT",
+          "isActiveOnStart": true,
+          "isVisible": true,
+          "weight": 0.33015046
+        },
+        {
+          "id": "GitHub Copilot Chat",
+          "order": 9,
+          "anchor": "RIGHT",
+          "weight": 0.32991803
+        },
+        {
+          "id": "Cascade",
+          "order": 10,
+          "anchor": "RIGHT"
+        },
+        {
+          "id": "GitHub Coding Agent Jobs",
+          "order": 11,
+          "anchor": "RIGHT"
+        }
+      ],
+      "unifiedWeights": {
+        "top": 0.33,
+        "left": 0.23987268,
+        "bottom": 0.4242844,
+        "right": 0.08362269
+      }
+    }
+  }
+}]]></component>
+</application>

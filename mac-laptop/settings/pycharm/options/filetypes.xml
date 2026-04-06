@@ -1,0 +1,16 @@
+<application>
+  <component name="FileTypeManager" version="19">
+    <ignoreFiles list="*$py.class;*.pyc;*.pyo;*.rbc;*.yarb;*~;.DS_Store;.git;.hg;.idea;.ipynb_checkpoints;.mypy_cache;.pytest_cache;.ruff_cache;.svn;CVS;__pycache__;_svn;vssver.scc;vssver2.scc" />
+    <extensionMap>
+      <mapping pattern=".terraform-ci" type="AUTO_DETECTED" />
+      <mapping pattern="mcp.json" type="JSON5" />
+      <mapping ext="jsonnet" type="PLAIN_TEXT" />
+      <mapping ext="conf" type="PLAIN_TEXT" />
+      <mapping ext="md5" type="PLAIN_TEXT" />
+      <mapping ext="arm64" type="PLAIN_TEXT" />
+      <removed_mapping ext="env" approved="true" type=".env file" />
+      <removed_mapping pattern=".env" approved="true" type=".env file" />
+      <removed_mapping pattern=".env.*" approved="true" type=".env file" />
+    </extensionMap>
+  </component>
+</application>

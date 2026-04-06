@@ -1,0 +1,9 @@
+<application>
+  <component name="TerminalFontOptions">
+    <option name="COLUMN_SPACING" value="0.97" />
+    <option name="VERSION" value="1" />
+    <option name="FONT_SIZE" value="15" />
+    <option name="FONT_SIZE_2D" value="15.0" />
+    <option name="FONT_FAMILY" value="Inconsolata Nerd Font Mono" />
+  </component>
+</application>

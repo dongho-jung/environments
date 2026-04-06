@@ -1,0 +1,17 @@
+<application>
+  <component name="BlockTerminalOptions">
+    <option name="showSeparatorsBetweenBlocks" value="false" />
+  </component>
+  <component name="BlockTerminalUsage">
+    <shellToExecutedCommandsNumber>
+      <entry key="zsh" value="1" />
+    </shellToExecutedCommandsNumber>
+  </component>
+  <component name="ReworkedTerminalUsage"><![CDATA[{
+  "enterKeyPressedTimes": 44
+}]]></component>
+  <component name="TerminalOptionsProvider">
+    <option name="myTabName" value="_" />
+    <option name="useOptionAsMetaKey" value="true" />
+  </component>
+</application>

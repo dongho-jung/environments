@@ -1,33 +1,45 @@
 export EDITOR=nvim
+export FZF_CTRL_R_OPTS="--scheme=history"
 export LESSHISTFILE=/dev/null
 export PYTHONPATH="$HOME/projects/cq"
 export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
-export WORDCHARTS="*?_[]~!$^(){}<>"
+export WORDCHARS=""
 export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
 export HISTFILE="$HOME/projects/shell-history/mac-laptop"
 export HISTSIZE=1000000000
 export SAVEHIST=1000000000
-export AWS_PROFILE=DEV
+export AWS_PROFILE=DO-LEAD
+export BASH_DEFAULT_TIMEOUT_MS=900000
+export BASH_MAX_TIMEOUT_MS=900000
 
 export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
+export PATH="/opt/homebrew/opt/mysql-client@9.4/bin:$PATH"
+export PATH="/Applications/PyCharm.app/Contents/MacOS:$PATH"
 
-alias c=claude
+alias c='IS_DEMO=1 claude --dangerously-skip-permissions --ide --chrome'
+alias o='codex --dangerously-bypass-approvals-and-sandbox'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'
 alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'    
 alias cat='bat'
-alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfps='tfp | grep -E "#"' tfpu="tfp -no-color | grep -E '^\s*[\+~-]' | sort | uniq"
+alias tf='terraform' tfi='tf init' tfp='tf plan' tfa='tf apply' tfaa='tfa -auto-approve'
 alias vi="nvim" vim="vi"
-alias k='kubectl'
+alias k='kubectl' ktempdev='k --context temp-dev' kdev='k --context abr-dev-tokyo' kmain='k --context main' kdb='k --context database' kprodseoul='k --context abr-prod-seoul' \
+    kprodseouldb='k --context database-prod-seoul'
 alias sk='source ~/.key'
 alias y='pbcopy' p='pbpaste'
+alias zz='zi'
 alias rr='source ~/.zshrc'
 alias vv='source ./.venv/bin/activate'
 alias dam='aws sts decode-authorization-message --encoded-message "$(pbpaste)" | jq ".DecodedMessage" -r | jq'
+alias rm='echo "rm is disabled. use \`trash\` command instead."'
+alias digg='dig +noall +answer +authority +additional'
 alias -g ...='../..'
 alias -g ....='../../..'
 
+
+fpath=("$HOME/.zsh/completions" $fpath)
 autoload -Uz compinit; compinit -C  # to apply new completion, run `compinit`
 
 . pack djui/alias-tips alias-tips.plugin.zsh:alias-tips.py
@@ -46,12 +58,6 @@ setopt inc_append_history
 setopt hist_save_no_dups
 setopt hist_ignore_all_dups
 
-zstyle ':completion:*:*:docker:*' option-stacking yes
-zstyle ':completion:*:*:docker-*:*' option-stacking yes
-zstyle ':completion:*:*:git:*' script /Library/Developer/CommandLineTools/usr/share/git-core/git-completion.zsh
-source <(helm completion zsh)
-steampipe completion zsh > "${fpath[1]}/_steampipe" && compinit
-
 tmp() { 
     TMP=~/tmp/$(date +%F)
     if [ "$#" -gt 0 ]; then
@@ -60,12 +66,28 @@ tmp() {
     mkdir -p "$TMP"
     cd "$TMP"
 }
-video_to_gif() { ffmpeg -i $1 -vf "fps=$2" output.gif && gifsicle -O3 output.gif -o output.gif }
-cc() {
-    local selected_dir=$(zoxide query -i)
-    if [[ -n "$selected_dir" ]]; then
-        cd "$selected_dir" && claude
-    fi
+delete-argocd-app() {
+  local app="$1"
+
+  if [[ -z "$app" ]]; then
+    echo "Usage: delete-argocd-app <app-name>"
+    return 1
+  fi
+
+  echo "[$app] 을(를) 정말 지우시겠습니까?"
+  echo "정말 지우시려면 \"$app\" 을 입력하세요 : "
+  read -r confirm
+
+  if [[ "$confirm" == "$app" ]]; then
+    echo "삭제 진행 중..."
+    kmain -n argocd patch app "$app" \
+      -p '{"metadata": {"finalizers": ["resources-finalizer.argocd.argoproj.io"]}}' \
+      --type merge && \
+    kmain -n argocd delete app "$app"
+  else
+    echo "입력값이 일치하지 않아 취소되었습니다."
+    return 1
+  fi
 }
 
 fpath+=(/opt/homebrew/share/zsh/site-functions)

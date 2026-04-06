@@ -1,0 +1,10 @@
+<application>
+  <component name="AdvancedSettings">
+    <option name="settings">
+      <map>
+        <entry key="terminal.escape.moves.focus.to.editor" value="false" />
+        <entry key="welcome.screen.non.modal.enabled" value="false" />
+      </map>
+    </option>
+  </component>
+</application>
