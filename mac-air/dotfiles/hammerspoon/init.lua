@@ -1,5 +1,5 @@
 require('modules.input-switch')
-require('modules.pad')
+require('modules.tiling')
 
 hs.loadSpoon("ReloadConfiguration")
 spoon.ReloadConfiguration:start()

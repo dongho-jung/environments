@@ -31,8 +31,8 @@ end)
 ------------------------------------------------------------
 
 local input_sources = {
-  "com.apple.keylayout.ABC",
   "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese",
+  "com.apple.keylayout.ABC",
   "com.apple.inputmethod.Korean.2SetKorean"
 }
 
