@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+state_file="$runtime/hypr-hotkey-mode"
+target_file="$runtime/hypr-hotkey-target"
+waybar_signal="${WAYBAR_HOTKEY_SIGNAL:-8}"
+notify_timeout_ms="${HOTKEY_NOTIFY_TIMEOUT_MS:-1200}"
+
+find_cmd="find-media-window"
+send_cmd="send-key"
+
+is_on() {
+  [[ -f "$state_file" ]] && [[ "$(cat "$state_file" 2>/dev/null || echo 0)" == "1" ]]
+}
+
+waybar_ping() {
+  pkill -RTMIN+"$waybar_signal" waybar 2>/dev/null || true
+}
+
+notify() {
+  command -v notify-send >/dev/null 2>&1 || return 0
+  notify-send -t "$notify_timeout_ms" "HotKey Mode" "$1" 2>/dev/null || true
+}
+
+set_target_to_active() {
+  local j addr label
+  j="$(hyprctl -j activewindow 2>/dev/null || echo '{}')"
+  addr="$(jq -r '.address // empty' <<<"$j")"
+  label="$(jq -r '"\(.class // "?") — \(.title // "?")"' <<<"$j")"
+
+  if [[ -n "$addr" ]]; then
+    printf '%s\n' "$addr" > "$target_file"
+    echo "$label"
+  else
+    rm -f "$target_file" 2>/dev/null || true
+    echo "(no active window)"
+  fi
+}
+
+clear_target() {
+  rm -f "$target_file" 2>/dev/null || true
+}
+
+apply_binds() {
+  local batch="
+    keyword unbind ,comma;
+    keyword unbind ,period;
+    keyword unbind ,slash;
+    keyword unbind ,semicolon;
+    keyword unbind ,apostrophe;
+  "
+
+  if is_on; then
+    batch+="
+      keyword bindl ,comma,exec,${find_cmd} | ${send_cmd} - Left;
+      keyword bindl ,period,exec,${find_cmd} | ${send_cmd} - Space;
+      keyword bindl ,slash,exec,${find_cmd} | ${send_cmd} - Right;
+      keyword bindl ,semicolon,exec,${find_cmd} | ${send_cmd} - less;
+      keyword bindl ,apostrophe,exec,${find_cmd} | ${send_cmd} - greater;
+    "
+  fi
+
+  hyprctl --batch "$batch" >/dev/null 2>&1 || true
+}
+
+cmd="${1:-toggle}"
+case "$cmd" in
+  toggle)
+    if is_on; then
+      printf '0\n' > "$state_file"
+      clear_target
+      apply_binds
+      waybar_ping
+      notify "OFF"
+    else
+      printf '1\n' > "$state_file"
+      label="$(set_target_to_active)"
+      apply_binds
+      waybar_ping
+      notify "ON\nTarget: ${label}"
+    fi
+    ;;
+  on)
+    printf '1\n' > "$state_file"
+    label="$(set_target_to_active)"
+    apply_binds
+    waybar_ping
+    notify "ON\nTarget: ${label}"
+    ;;
+  off)
+    printf '0\n' > "$state_file"
+    clear_target
+    apply_binds
+    waybar_ping
+    notify "OFF"
+    ;;
+  sync)
+    apply_binds
+    waybar_ping
+    ;;
+  status)
+    if is_on; then
+      echo "HotKey:ON"
+    else
+      echo "HotKey:OFF"
+    fi
+    ;;
+  *)
+    echo "usage: hotkey-mode {toggle|on|off|sync|status}" >&2
+    exit 2
+    ;;
+esac

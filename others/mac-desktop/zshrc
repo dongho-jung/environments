@@ -1,0 +1,76 @@
+export EDITOR=nvim
+export HISTFILE="$HOME/projects/shell-history/mac-desktop"
+export HISTSIZE=100000000000000
+export LANG='en_US.UTF-8'
+export LC_ALL='en_US.UTF-8'
+export LESSHISTFILE=/dev/null
+export SAVEHIST=100000000000000
+export FZF_CTRL_R_OPTS='--tiebreak=index'
+export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.bun:$PATH"
+export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+
+alias -g ....='../../..'
+alias -g ...='../..'
+alias cat='bat'
+alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gst='git status' gco='git checkout' gd='git diff' gds='git diff --staged' gg='lazygit' gr='git restore' grs='git restore --staged'
+alias history='fc -lt "%Y-%m-%d %H:%M:%S"'
+alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'
+alias rr='. ~/.zshrc'
+alias vi='nvim'
+alias y='pbcopy' p='pbpaste'
+alias e='nvim' f='br'
+alias c='claude --dangerously-skip-permissions'
+alias o='codex --dangerously-bypass-approvals-and-sandbox'
+
+setopt append_history
+setopt autopushd
+setopt extended_glob
+setopt hist_find_no_dups
+setopt hist_ignore_all_dups
+setopt hist_ignore_space
+setopt hist_reduce_blanks
+setopt hist_save_no_dups
+setopt inc_append_history
+setopt interactive_comments
+setopt share_history
+
+bindkey -e
+bindkey '^[[1;5D' beginning-of-line
+bindkey '^[[1;5C' end-of-line
+bindkey '^[b' beginning-of-line
+bindkey '^[f' end-of-line
+bindkey '^[[1;3C' forward-word
+bindkey '^[[1;3D' backward-word
+
+source /opt/homebrew/opt/zinit/zinit.zsh
+FPATH="/opt/homebrew/share/zsh/site-functions:$FPATH"
+zi wait lucid for \
+    djui/alias-tips Aloxaf/fzf-tab
+zi atload"zicompinit; zicdreplay" blockf lucid wait for \
+    zsh-users/zsh-completions
+
+source <(fzf --zsh)
+source /Users/donghojung/.config/broot/launcher/bash/br
+
+tmp() { 
+    TMP=~/tmp/$(date +%F)
+    if [ "$#" -gt 0 ]; then
+        TMP="${TMP}-$(echo "$@" | tr ' ' '-')"
+    fi
+    mkdir -p "$TMP"
+    cd "$TMP"
+}
+video_to_gif() { ffmpeg -i $1 -vf "fps=$2" output.gif && gifsicle -O3 output.gif -o output.gif }
+
+eval "$(zoxide init zsh)"
+eval "$(starship init zsh)"
+
+# bun completions
+[ -s "/Users/donghojung/.bun/_bun" ] && source "/Users/donghojung/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
+alias claude-mem='/Users/donghojung/.bun/bin/bun "/Users/donghojung/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs"'
