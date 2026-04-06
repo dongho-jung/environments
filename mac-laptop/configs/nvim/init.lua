@@ -5,7 +5,6 @@ vim.call('plug#begin')
 Plug('ericbn/vim-solarized')
 Plug('mhinz/vim-startify')
 Plug('riodelphino/macime.nvim')
-Plug('m4xshen/hardtime.nvim')
 Plug('folke/which-key.nvim')
 vim.call('plug#end')
 
@@ -26,21 +25,6 @@ vim.opt.showcmdloc = "statusline"
 vim.opt.statusline = "%S %f %=%l:%c"
 vim.opt.clipboard = "unnamedplus"
 
-require('hardtime').setup({
-    disabled_keys = {
-        ["<Up>"]    = false,
-        ["<Down>"]  = false,
-        ["<Left>"]  = false,
-        ["<Right>"] = false,
-    },
-
-    restricted_keys = {
-        ["<Up>"]    = { "n", "x" },
-        ["<Down>"]  = { "n", "x" },
-        ["<Left>"]  = { "n", "x" },
-        ["<Right>"] = { "n", "x" },
-    },
-})
 require('which-key').setup({
     icons = {
         mappings = false,
