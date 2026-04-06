@@ -5,6 +5,7 @@
 	editor = vim
 	autocrlf = input
 	quotePath = false
+	hooksPath = /Users/dongho/.git-hooks
 [commit]
 	verbose = true
 [init]
