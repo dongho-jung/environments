@@ -23,7 +23,7 @@ alias o="codex --dangerously-bypass-approvals-and-sandbox"
 alias c="claude --dangerously-skip-permissions --chrome --ide"
 alias rr='. ~/.zshrc'
 alias vi='nvim'
-alias y='wl-copy' p='wl-paste --type text/plain'
+alias y='wl-copy -p' p='wl-paste -p --type text/plain'
 alias ll='ls -alh'
 
 setopt append_history

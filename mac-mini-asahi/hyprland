@@ -17,7 +17,7 @@ $menu = pkill -x wofi-custom || wofi-custom
 #################
 exec-once = waybar
 exec-once = fcitx5
-exec-once = swayidle -w timeout 300 'swaylock -f' timeout 330 'hyprctl dispatch dpms off' resume 'hyprctl dispatch dpms on' before-sleep 'swaylock -f'
+exec-once = swayidle -w timeout 1200 'swaylock -f' timeout 1230 'hyprctl dispatch dpms off' resume 'hyprctl dispatch dpms on' before-sleep 'swaylock -f'
 exec-once = /usr/libexec/kf6/polkit-kde-authentication-agent-1
 exec-once = adguard-cli start
 
@@ -157,7 +157,6 @@ bind = $mainMod SHIFT, P, exec, sleep-hyprland
 bind = , Print, exec, screenshot
 bind = CTRL, Print, exec, ~/.config/waybar/scripts/record-toggle.sh
 bind = SHIFT, Print, exec, ~/.config/waybar/scripts/record-toggle.sh window
-bind = , Menu, exec, grim -g "$(slurp)" - | tesseract stdin stdout -l jpn --psm 6 | wl-copy
 bind = , Scroll_Lock, exec, hotkey-mode
 bind = , KP_Enter, exec, /home/dongho/projects/demo/demo next
 
