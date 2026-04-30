@@ -1,9 +1,9 @@
 ---
-description: Smart commit - diff 요약, 커밋 메시지 제안 후 컨펌받아 커밋 (Codex)
+description: Smart commit - analyze diffs, propose commit messages, get confirmation, then commit (Codex, English-only)
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*), Bash(git log:*), AskUserQuestion
 ---
 
-## 현재 Git 상태
+## Current Git State
 
 **Git Status:**
 !`git status --short`
@@ -14,89 +14,120 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git c
 **Unstaged Changes:**
 !`git diff --stat`
 
-**전체 Diff (staged + unstaged):**
+**Full Diff (staged + unstaged):**
 !`git diff HEAD`
 
-**최근 커밋 스타일 참고:**
+**Recent Commit Style Reference:**
 !`git log --oneline -5 2>/dev/null || echo "No commits yet"`
 
-## 작업 지침
+## Workflow Instructions
 
-### 핵심 원칙: 하나의 커밋 = 하나의 의도
+### Core Principle: one commit = one intent
 
-**분리가 기본이다.** 여러 의도가 섞여 있으면 반드시 분리해라. 단일 커밋은 예외적인 경우에만 사용한다.
+**Splitting is the default.** If multiple intents are mixed, split them into separate commits. Use a single commit only in strict exception cases.
 
-### 1단계: Diff 분석 및 커밋 단위 분리
+### Step 1: Analyze diffs and split commit units
 
-위의 변경사항을 분석하여 **서로 다른 의도/목적**을 가진 변경들을 식별해라.
+Analyze the changes above and identify groups with **different intents/purposes**.
 
-**반드시 분리해야 하는 경우:**
-- 서로 다른 기능을 추가/수정한 경우 (예: A 기능 추가 + B 기능 수정 → 2개 커밋)
-- 버그 수정과 기능 추가가 섞인 경우
-- 리팩토링과 기능 변경이 섞인 경우
-- 설정 변경과 코드 변경이 섞인 경우
-- 서로 다른 모듈/컴포넌트를 독립적으로 수정한 경우
-- 여러 개의 독립적인 버그를 수정한 경우
+**You must split when:**
+- Different features are added/modified together (for example, feature A + feature B)
+- Bug fixes and feature additions are mixed
+- Refactoring and behavior changes are mixed
+- Configuration changes and code changes are mixed
+- Independent modules/components are changed for different reasons
+- Multiple independent bugs are fixed together
 
-**단일 커밋이 허용되는 경우 (엄격하게 적용):**
-- 변경 파일이 1-2개이고, 하나의 명확한 목적만 있을 때
-- 하나의 기능을 위해 여러 파일을 함께 수정해야 할 때 (예: 컴포넌트 + 스타일 + 테스트)
-- 단순 오타 수정, 포맷팅 등 사소한 변경일 때
+**A single commit is allowed only when (strictly):**
+- Only 1-2 files changed with one clear purpose
+- Multiple files are required for one feature (for example, component + style + test)
+- The change is minor (for example, typo fixes, formatting only)
 
-**의도(intent) 분류 예시:**
-- `feat`: 새 기능 추가
-- `fix`: 버그 수정
-- `refactor`: 동작 변경 없는 코드 개선
-- `style`: 포맷팅, 세미콜론 등
-- `docs`: 문서 변경
-- `chore`: 설정, 빌드 등
-- `test`: 테스트 추가/수정
+**Intent type examples + selection rules:**
+- `feat`: add new functionality
+- `fix`: fix broken behavior/logic
+- `refactor`: improve structure without behavior changes
+- `style`: formatting, semicolons, lint-only stylistic changes
+- `docs`: documentation-only changes
+- `chore`: config/build/dependency/tooling maintenance
+- `test`: test-only additions or modifications
 
-→ **의도가 다르면 무조건 분리!**
+**Breaking Change marking (required when applicable):**
+Mark breaking changes when backward compatibility is broken:
+- API signature changes (parameter add/remove/type change)
+- Removal of existing behavior or behavior contract changes
+- Config/environment variable format changes
+- Required dependency/runtime changes
 
-### 2단계: 커밋 메시지 제안
+Use one of these formats:
+- Add `!` after type in title: `feat!: remove deprecated login API`
+- Add a `BREAKING CHANGE:` line in the body:
+  ```
+  BREAKING CHANGE: login() parameter contract changed
+  ```
 
-각 커밋별로 다음 형식으로 제안해:
+**If intent differs, always split.**
 
-**커밋 N:**
-- 포함할 파일들: `file1.ts`, `file2.ts`
-- 의도: (feat/fix/refactor 등)
-- 제목 (영어, 50자 이내): `feat: add user authentication flow`
-- 본문 (한글, 2 depth bullet list):
-  - 주요 변경사항
-    - 세부 내용 1
-    - 세부 내용 2
+`feat` vs `fix` decision checklist (in this order):
+- Does it correct broken behavior or incorrect logic? -> `fix`
+- Does it add new capability, option, or flow? -> `feat`
+- Does behavior stay the same and only structure improve? -> `refactor`
+- Is it only config/CI/build/dependency work? -> `chore`
+- Is it docs-only with no code behavior change? -> `docs`
+- Is it test-only while product behavior stays unchanged? -> `test`
+- If still ambiguous, ask the user via AskUserQuestion and decide type based on intent. Prefer `fix`/`refactor`/`chore` over `feat` when uncertain.
 
-(모든 커밋에 대해 반복)
+### Step 2: Propose commit messages
 
-**단일 커밋인 경우에도 위 형식을 따르되, "커밋 1"만 제안하면 됨.**
+For each commit, propose using this format:
 
-### 3단계: 유저 컨펌
-AskUserQuestion 도구를 사용해서 유저에게 다음을 물어봐:
-- 제안한 커밋 분리 방식으로 진행할지
-- 커밋 메시지 수정이 필요한지
-- 커밋을 더 합치거나 나눌지
-- 취소할지
+**Commit N:**
+- Files to include: `file1.ts`, `file2.ts`
+- Intent: (`feat`/`fix`/`refactor`/...)
+- Breaking change: yes/no (if yes, specify what breaks)
+- Title (English, <= 50 chars): `feat: add user authentication flow` (use `feat!:` when breaking)
+- Body (English, 2-depth bullet list):
+  - Key changes
+    - Detail 1
+    - Detail 2
+  - If breaking, add `BREAKING CHANGE: ...`
 
-### 4단계: 커밋 실행
+(Repeat for all proposed commits)
 
-각 커밋을 순차적으로 실행:
-1. 해당 커밋에 포함할 파일만 staging (`git add <files>`)
-2. 해당 커밋 메시지로 커밋
-3. 다음 커밋으로 진행
-4. 모든 커밋이 완료될 때까지 반복
+Even for a single commit, follow the same format and propose only **Commit 1**.
 
-커밋 메시지 형식:
+Self-validate commit type before finalizing proposal:
+- Recheck whether the selected type matches the checklist
+- If it is bug fixing, do not label as `feat`
+- Include whether tests/docs were updated or intentionally skipped
+
+### Step 3: User confirmation
+
+Use AskUserQuestion to confirm:
+- Whether to proceed with the proposed split
+- Whether any commit message should be edited
+- Whether commits should be merged or split further
+- Whether to cancel
+
+### Step 4: Execute commits
+
+Execute commits sequentially:
+1. Stage only files for that commit (`git add <files>`)
+2. Commit with the approved message
+3. Move to the next commit
+4. Repeat until all commits are done
+
+Commit message format:
 ```
-제목
+Title
 
-- 주요 변경사항
-  - 세부 내용 1
-  - 세부 내용 2
+- Key changes
+  - Detail 1
+  - Detail 2
 ```
 
-**중요:**
-- 유저가 취소하면 커밋하지 마.
-- 유저가 메시지 수정을 원하면 수정된 내용으로 커밋해.
-- 여러 커밋 진행 중 문제가 생기면 즉시 멈추고 유저에게 알려.
-- 모든 커밋 완료 후 결과를 보여줘.
+**Important:**
+- If the user cancels, do not commit.
+- If message edits are requested, commit with the edited message.
+- If any error occurs during a multi-commit sequence, stop immediately and report it.
+- Show final results after all commits complete.
