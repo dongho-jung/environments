@@ -4,7 +4,6 @@ local Plug = vim.fn['plug#']
 vim.call('plug#begin')
 Plug('ericbn/vim-solarized')
 Plug('mhinz/vim-startify')
-Plug('riodelphino/macime.nvim')
 Plug('folke/which-key.nvim')
 vim.call('plug#end')
 
@@ -30,7 +29,6 @@ require('which-key').setup({
         mappings = false,
     },
 })
-require('macime').setup({})
 
 local augroup = vim.api.nvim_create_augroup("myGroup", { clear = true })
 
