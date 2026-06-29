@@ -1,5 +1,9 @@
 *.log
 .*
+!common/codex/.agents/
+!common/codex/.agents/**
+!common/codex/plugins/*/.codex-plugin/
+!common/codex/plugins/*/.codex-plugin/**
 *.db
 automatic_backups/
 mac-mini-asahi/waybar/openvpn-1password.conf

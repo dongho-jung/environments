@@ -1,0 +1,29 @@
+{
+  "name": "smart-commit",
+  "version": "0.1.0",
+  "description": "Smart commit slash command for Codex.",
+  "author": {
+    "name": "Dongho"
+  },
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "commit",
+    "pull-request"
+  ],
+  "interface": {
+    "displayName": "Smart Commit",
+    "shortDescription": "Create intentional git commits and optional PRs.",
+    "longDescription": "Adds the /c slash command for analyzing git diffs, splitting changes into conventional commits, confirming the plan, committing, and optionally pushing and creating pull requests with /c pr.",
+    "developerName": "Dongho",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Run /c to commit current changes",
+      "Run /c pr to commit and open a PR"
+    ]
+  }
+}
