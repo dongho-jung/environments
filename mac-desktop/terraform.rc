@@ -1,0 +1,7 @@
+provider_installation {
+  dev_overrides {
+    "registry.terraform.io/dongho-jung/host" = "/Users/dongho/go/bin"
+  }
+
+  direct {}
+}

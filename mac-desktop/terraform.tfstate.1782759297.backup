@@ -1,0 +1,1380 @@
+{
+  "version": 4,
+  "terraform_version": "1.15.7",
+  "serial": 75,
+  "lineage": "5263ea0d-87e5-7080-c9e8-21d70f8822ee",
+  "outputs": {},
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "host_file",
+      "name": "zshrc",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "block": {
+              "alias": {
+                "content": "alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'\nalias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'\nalias y='pbcopy' p='pbpaste'\nalias rr='source ~/.zshrc'\nalias rm='echo \"rm is disabled. use `trash` command instead.\"'\nalias -g ...='../..'\nalias -g ....='../../..'",
+                "name": "alias",
+                "path": "~/.zshrc.preview"
+              },
+              "environment": {
+                "content": "export LESSHISTFILE=/dev/null\nexport WORDCHARS=\"\"\nexport LANG=\"en_US.UTF-8\"\nexport LC_ALL=\"en_US.UTF-8\"\nexport HISTFILE=\"$HOME/projects/shell-history/mac-desktop\"\nexport HISTSIZE=1000000000\nexport SAVEHIST=1000000000",
+                "name": "environment",
+                "path": "~/.zshrc.preview"
+              },
+              "functions": {
+                "content": "tmp() {\n  TMP=~/tmp/$(date +%F)\n  if [ \"$#\" -gt 0 ]; then\n    TMP=\"${TMP}-$(echo \"$@\" | tr ' ' '-')\"\n  fi\n  mkdir -p \"$TMP\"\n  cd \"$TMP\"\n}",
+                "name": "functions",
+                "path": "~/.zshrc.preview"
+              },
+              "integrations": {
+                "content": null,
+                "name": "integrations",
+                "path": "~/.zshrc.preview"
+              },
+              "keybindings": {
+                "content": "bindkey -e\nbindkey '^[[1;3C' forward-word\nbindkey '^[[1;3D' backward-word\nbindkey '^[[1;5C' end-of-line\nbindkey '^[[1;5D' beginning-of-line\nbindkey '^[b' beginning-of-line\nbindkey '^[f' end-of-line",
+                "name": "keybindings",
+                "path": "~/.zshrc.preview"
+              },
+              "options": {
+                "content": "setopt append_history\nsetopt autopushd\nsetopt extended_glob\nsetopt hist_find_no_dups\nsetopt hist_ignore_all_dups\nsetopt hist_ignore_space\nsetopt hist_reduce_blanks\nsetopt hist_save_no_dups\nsetopt inc_append_history\nsetopt interactive_comments\nsetopt share_history",
+                "name": "options",
+                "path": "~/.zshrc.preview"
+              },
+              "path": {
+                "content": null,
+                "name": "path",
+                "path": "~/.zshrc.preview"
+              },
+              "sources": {
+                "content": null,
+                "name": "sources",
+                "path": "~/.zshrc.preview"
+              }
+            },
+            "id": "~/.zshrc.preview",
+            "path": "~/.zshrc.preview"
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "alias_tips_zsh_source",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "source ~/.zsh/alias-tips/alias-tips.plugin.zsh",
+            "file_block": {
+              "name": "sources",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-e1e5fcbd7f2aa88c2c94e0a5e9f65a4b",
+            "priority": 10
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "android_studio_zsh_path",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "export PATH=\"$PATH:$HOME/Library/Android/sdk/platform-tools/\"",
+            "file_block": {
+              "name": "path",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-405ebb7faf3fc265a61a3e1ef0d124d4",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.android_studio"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "bat_zsh_aliases",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "alias cat='bat'",
+            "file_block": {
+              "name": "alias",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-6b38655d55da9e78dea2c71b8c8a2674",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.bat"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "claude_zsh_aliases",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "alias c='IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions'",
+            "file_block": {
+              "name": "alias",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-7e50beb89baf7cb1b8dbaf8c4c64f5ec",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.claude"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "codex_zsh_aliases",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "alias o='codex --dangerously-bypass-approvals-and-sandbox'",
+            "file_block": {
+              "name": "alias",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-b624592cf3fa19e44ea5d200226455d9",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.codex"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "eza_zsh_aliases",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "alias ls='eza' l='eza -lbF --git' ll='eza -la --git' tree='eza --tree --git' ltree='tree -l'",
+            "file_block": {
+              "name": "alias",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-c22013aa2ed9de46fdffc31a68403044",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.eza"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "fzf_zsh_environment",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "export FZF_CTRL_R_OPTS=\"--scheme=history\"",
+            "file_block": {
+              "name": "environment",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-d84ae3a6288d83858da108f40857145a",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.fzf"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "fzf_zsh_source",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "source \u003c(fzf --zsh)",
+            "file_block": {
+              "name": "sources",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-a7b5b93cb5509f663e92d39a01361522",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.fzf"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "neovim_zsh_aliases",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "alias vi=\"nvim\" vim=\"vi\"",
+            "file_block": {
+              "name": "alias",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-aa6a2aebd649260b8ab7f04f0395e98f",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.neovim"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "neovim_zsh_environment",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "export EDITOR=nvim",
+            "file_block": {
+              "name": "environment",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-f973b0383b36a317dc1f8bc0afe2433e",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.neovim"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "rust_zsh_path",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "export PATH=\"$PATH:$HOME/.cargo/bin\"",
+            "file_block": {
+              "name": "path",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-3fd832ae58e2f76cee440f23dfd576b6",
+            "priority": 10
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.rust"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_file_block",
+      "name": "zoxide_zsh_integration",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "content": "eval \"$(zoxide init zsh)\"",
+            "file_block": {
+              "name": "integrations",
+              "path": "~/.zshrc.preview"
+            },
+            "id": "hfb-15eb79933be1ff4a1a7b5fa19b87fc74",
+            "priority": 0
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "dependencies": [
+            "host_file.zshrc",
+            "host_package_brew.zoxide"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "android_studio",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "2026.1.1.10,quail1-patch2",
+            "id": "cask:android-studio",
+            "installed_version": "2025.3.4.6,panda4",
+            "name": "android-studio",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "bat",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.26.1",
+            "id": "formula:bat",
+            "installed_version": "0.26.1",
+            "name": "bat",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "bettertouchtool",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "6.609,2026062603",
+            "id": "cask:bettertouchtool",
+            "installed_version": "6.609,2026062603",
+            "name": "bettertouchtool",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "blackhole_2ch",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.7.0",
+            "id": "cask:blackhole-2ch",
+            "installed_version": "0.6.1",
+            "name": "blackhole-2ch",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "claude",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.15962.1,1e236d9fa9efd21a5a0a66a7b70c028f48848604",
+            "id": "cask:claude",
+            "installed_version": "1.15962.1,1e236d9fa9efd21a5a0a66a7b70c028f48848604",
+            "name": "claude",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "claude_code",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "2.1.181",
+            "id": "cask:claude-code",
+            "installed_version": "2.1.181",
+            "name": "claude-code",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "codex",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.142.4",
+            "id": "cask:codex",
+            "installed_version": "0.142.4",
+            "name": "codex",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "codex_app",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "26.623.61825",
+            "id": "cask:codex-app",
+            "installed_version": "26.623.61825",
+            "name": "codex-app",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "docker_desktop",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "4.80.0,232116",
+            "id": "cask:docker-desktop",
+            "installed_version": "4.71.0,225177",
+            "name": "docker-desktop",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "eza",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.23.4",
+            "id": "formula:eza",
+            "installed_version": "0.23.4",
+            "name": "eza",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "font_inconsolata_nerd_font",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "3.4.0",
+            "id": "cask:font-inconsolata-nerd-font",
+            "installed_version": "3.4.0",
+            "name": "font-inconsolata-nerd-font",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "fzf",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.73.1",
+            "id": "formula:fzf",
+            "installed_version": "0.73.1",
+            "name": "fzf",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "gh",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "2.95.0",
+            "id": "formula:gh",
+            "installed_version": "2.95.0",
+            "name": "gh",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "godot",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "4.7",
+            "id": "cask:godot",
+            "installed_version": "4.7",
+            "name": "godot",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "google_chrome",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "149.0.7827.201",
+            "id": "cask:google-chrome",
+            "installed_version": "149.0.7827.201",
+            "name": "google-chrome",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "gradle",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "9.6.1",
+            "id": "formula:gradle",
+            "installed_version": "9.6.1",
+            "name": "gradle",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "hammerspoon",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.1.1",
+            "id": "cask:hammerspoon",
+            "installed_version": "1.1.1",
+            "name": "hammerspoon",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "hiddenbar",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.10",
+            "id": "cask:hiddenbar",
+            "installed_version": "1.10",
+            "name": "hiddenbar",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "iina",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.4.4",
+            "id": "cask:iina",
+            "installed_version": "1.4.4",
+            "name": "iina",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "iterm2",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "3.6.11",
+            "id": "cask:iterm2",
+            "installed_version": "3.6.11",
+            "name": "iterm2",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "itsycal",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.15.12",
+            "id": "cask:itsycal",
+            "installed_version": "0.15.12",
+            "name": "itsycal",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "karabiner_elements",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "16.0.0",
+            "id": "cask:karabiner-elements",
+            "installed_version": "15.9.0",
+            "name": "karabiner-elements",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "keycastr",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.10.5",
+            "id": "cask:keycastr",
+            "installed_version": "0.10.5",
+            "name": "keycastr",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "neovim",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.12.3",
+            "id": "formula:neovim",
+            "installed_version": "0.12.3",
+            "name": "neovim",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "obsidian",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.12.7",
+            "id": "cask:obsidian",
+            "installed_version": "1.12.7",
+            "name": "obsidian",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "onepassword",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "8.12.24",
+            "id": "cask:1password",
+            "installed_version": "8.12.21",
+            "name": "1password",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "rust",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.96.0",
+            "id": "formula:rust",
+            "installed_version": "1.96.0",
+            "name": "rust",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "scrcpy",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "4.0",
+            "id": "formula:scrcpy",
+            "installed_version": "4.0",
+            "name": "scrcpy",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "shottr",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.9.1",
+            "id": "cask:shottr",
+            "installed_version": "1.9.1",
+            "name": "shottr",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "starship",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.26.0",
+            "id": "formula:starship",
+            "installed_version": "1.25.0",
+            "name": "starship",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "temurin",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "26.0.1,8",
+            "id": "cask:temurin",
+            "installed_version": "26,35",
+            "name": "temurin",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "terraform",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.15.7",
+            "id": "formula:hashicorp/tap/terraform",
+            "installed_version": "1.15.7",
+            "name": "terraform",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": "hashicorp/tap",
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "utm",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "4.7.5",
+            "id": "cask:utm",
+            "installed_version": "4.7.5",
+            "name": "utm",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "uv",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.11.25",
+            "id": "formula:uv",
+            "installed_version": "0.11.25",
+            "name": "uv",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "vivaldi",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "8.0.4033.54",
+            "id": "cask:vivaldi",
+            "installed_version": "7.9.3970.60",
+            "name": "vivaldi",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "yq",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "4.53.3",
+            "id": "formula:yq",
+            "installed_version": "4.53.2",
+            "name": "yq",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "yt_dlp",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "2026.6.9",
+            "id": "formula:yt-dlp",
+            "installed_version": "2026.6.9",
+            "name": "yt-dlp",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "zed",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "1.8.2",
+            "id": "cask:zed",
+            "installed_version": "1.0.0",
+            "name": "zed",
+            "package_type": "cask",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "zoxide",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "0.9.9",
+            "id": "formula:zoxide",
+            "installed_version": "0.9.9",
+            "name": "zoxide",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "host_package_brew",
+      "name": "zsh",
+      "provider": "provider[\"registry.terraform.io/dongho-jung/host\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "autoremove": true,
+            "candidate_version": "5.9.1",
+            "id": "formula:zsh",
+            "installed_version": "5.9.1",
+            "name": "zsh",
+            "package_type": "formula",
+            "pinned": false,
+            "tap": null,
+            "version": "latest",
+            "zap": false
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    }
+  ],
+  "check_results": null
+}
