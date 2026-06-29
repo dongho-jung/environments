@@ -1,0 +1,20 @@
+{
+  "name": "local",
+  "interface": {
+    "displayName": "Local Plugins"
+  },
+  "plugins": [
+    {
+      "name": "smart-commit",
+      "source": {
+        "source": "local",
+        "path": "./plugins/smart-commit"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
