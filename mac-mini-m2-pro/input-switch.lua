@@ -46,7 +46,6 @@ local function switchInputSource()
   local next_source = input_sources[next_index]
 
   hs.keycodes.currentSourceID(next_source)
-  hs.alert.show("Input Source: " .. next_source:match("[^.]+$"))
 end
 
 hs.hotkey.bind({}, "f17", switchInputSource)

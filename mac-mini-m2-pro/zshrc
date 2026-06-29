@@ -8,7 +8,10 @@ export HISTFILE="$HOME/projects/shell-history/mac-mini-m2-pro"
 export HISTSIZE=1000000000
 export SAVEHIST=1000000000
 
-alias c='IS_DEMO=1 claude --dangerously-skip-permissions --ide --chrome'
+export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools/"
+export PATH="$PATH:$HOME/.cargo/bin"
+
+alias c='IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions'
 alias o='codex --dangerously-bypass-approvals-and-sandbox'
 alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
 alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'
