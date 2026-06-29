@@ -1,4 +1,4 @@
-resource "host_dnf_package" "fzf" {
+resource "host_package_dnf" "fzf" {
   name    = "fzf"
   version = "latest"
 }
