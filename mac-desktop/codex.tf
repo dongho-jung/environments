@@ -4,7 +4,6 @@ resource "host_package_brew" "codex" {
 }
 
 resource "host_file_block" "codex_aliases" {
-  file_block = host_file.zshrc.block["alias"]
-  priority   = 20
-  content    = "alias o='codex --dangerously-bypass-approvals-and-sandbox'"
+  block   = host_file.zshrc.blocks.alias
+  content = "alias o='codex --dangerously-bypass-approvals-and-sandbox'"
 }

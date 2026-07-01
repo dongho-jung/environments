@@ -3,7 +3,6 @@ resource "host_package_brew" "zoxide" {
 }
 
 resource "host_file_block" "zoxide_init" {
-  file_block = host_file.zshrc.block["init"]
-  priority   = 20
-  content    = "eval \"$(zoxide init zsh)\""
+  block   = host_file.zshrc.blocks.init
+  content = "eval \"$(zoxide init zsh)\""
 }
