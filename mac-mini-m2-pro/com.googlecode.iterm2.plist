@@ -2473,7 +2473,7 @@
 			<key>Minimum Contrast (Light)</key>
 			<real>0.0</real>
 			<key>Mouse Reporting</key>
-			<true/>
+			<false/>
 			<key>Name</key>
 			<string>default-new</string>
 			<key>Non Ascii Font</key>
