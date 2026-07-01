@@ -1,16 +1,16 @@
 [user]
-	email = dongho971220@gmail.com
-	name = dongho-jung
+  email = dongho971220@gmail.com
+  name = dongho-jung
 [core]
-	editor = vim
-	autocrlf = input
-	quotePath = false
-	hooksPath = /Users/dongho/.git-hooks
+  editor = vim
+  autocrlf = input
+  quotePath = false
+  hooksPath = /Users/dongho/.git-hooks
 [commit]
-	verbose = true
+  verbose = true
 [init]
-	defaultBranch = main
+  defaultBranch = main
 [pull]
-	rebase = false
+  rebase = false
 [push]
-	autoSetupRemote = true
+  autoSetupRemote = true
