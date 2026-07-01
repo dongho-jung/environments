@@ -2,14 +2,17 @@ resource "host_package_brew" "neovim" {
   name = "neovim"
 }
 
+resource "host_link" "neovim_config" {
+  source      = "./neovim"
+  destination = "~/.config/nvim"
+}
+
 resource "host_file_block" "neovim_environment" {
-  file_block = host_file.zshrc.block["environment"]
-  priority   = 10
-  content    = "export EDITOR=nvim"
+  block   = host_file.zshrc.blocks.environment
+  content = "export EDITOR=nvim"
 }
 
 resource "host_file_block" "neovim_aliases" {
-  file_block = host_file.zshrc.block["alias"]
-  priority   = 60
-  content    = "alias vi=\"nvim\" vim=\"vi\""
+  block   = host_file.zshrc.blocks.alias
+  content = "alias vi=\"nvim\" vim=\"vi\""
 }

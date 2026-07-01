@@ -4,7 +4,6 @@ resource "host_package_brew" "android_studio" {
 }
 
 resource "host_file_block" "android_studio_path" {
-  file_block = host_file.zshrc.block["path"]
-  priority   = 10
-  content    = "export PATH=\"$PATH:$HOME/Library/Android/sdk/platform-tools/\""
+  block   = host_file.zshrc.blocks.path
+  content = "export PATH=\"$PATH:$HOME/Library/Android/sdk/platform-tools/\""
 }

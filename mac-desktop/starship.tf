@@ -3,7 +3,6 @@ resource "host_package_brew" "starship" {
 }
 
 resource "host_file_block" "starship_init" {
-  file_block = host_file.zshrc.block["init"]
-  priority   = 10
-  content    = "eval \"$(starship init zsh)\""
+  block   = host_file.zshrc.blocks.init
+  content = "eval \"$(starship init zsh)\""
 }
