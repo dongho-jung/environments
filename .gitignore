@@ -5,6 +5,8 @@
 !common/codex/plugins/*/.codex-plugin/
 !common/codex/plugins/*/.codex-plugin/**
 *.db
+terraform.tfstate
+terraform.tfstate.*
 automatic_backups/
 mac-mini-asahi/waybar/openvpn-1password.conf
 __pycache__/
