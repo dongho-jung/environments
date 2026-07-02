@@ -2,8 +2,28 @@ resource "host_package_brew" "zsh" {
   name = "zsh"
 }
 
+resource "host_dir" "zsh" {
+  path = "~/.zsh"
+  mode = "0755"
+}
+
+resource "host_git_repo" "alias_tips" {
+  url  = "https://github.com/djui/alias-tips.git"
+  path = "~/.zsh/alias-tips"
+
+  delete_on_destroy = false
+
+  depends_on = [
+    host_dir.zsh,
+  ]
+}
+
 resource "host_file" "zshrc" {
   path = "~/.zshrc"
+
+  depends_on = [
+    host_git_repo.alias_tips,
+  ]
 
   block {
     name    = "environment"

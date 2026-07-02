@@ -3,7 +3,7 @@ resource "host_package_brew" "neovim" {
 }
 
 resource "host_link" "neovim_config" {
-  source      = "./neovim"
+  source      = "${path.module}/neovim"
   destination = "~/.config/nvim"
 }
 
