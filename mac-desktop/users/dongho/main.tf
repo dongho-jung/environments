@@ -13,3 +13,7 @@ module "packages" {
 module "directories" {
   source = "./directories"
 }
+
+module "macos" {
+  source = "./macos"
+}
