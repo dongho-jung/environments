@@ -1,15 +1,20 @@
+locals {
+  zsh_dir_path = "~/.zsh"
+  zshrc_path   = "~/.zshrc"
+}
+
 resource "host_package_brew" "zsh" {
   name = "zsh"
 }
 
 resource "host_dir" "zsh" {
-  path = "~/.zsh"
+  path = local.zsh_dir_path
   mode = "0755"
 }
 
 resource "host_git_repo" "alias_tips" {
   url  = "https://github.com/djui/alias-tips.git"
-  path = "~/.zsh/alias-tips"
+  path = "${host_dir.zsh.path}/alias-tips"
 
   delete_on_destroy = false
 
@@ -19,7 +24,7 @@ resource "host_git_repo" "alias_tips" {
 }
 
 resource "host_file" "zshrc" {
-  path = "~/.zshrc"
+  path = local.zshrc_path
 
   depends_on = [
     host_git_repo.alias_tips,
@@ -32,7 +37,7 @@ resource "host_file" "zshrc" {
       export WORDCHARS=""
       export LANG="en_US.UTF-8"
       export LC_ALL="en_US.UTF-8"
-      export HISTFILE="$HOME/projects/shell-history/mac-desktop"
+      export HISTFILE="${var.shell_history_path_resolved}/mac-desktop"
       export HISTSIZE=1000000000
       export SAVEHIST=1000000000
     EOT
@@ -46,7 +51,7 @@ resource "host_file" "zshrc" {
     name    = "alias"
     content = <<-EOT
       alias y='pbcopy' p='pbpaste'
-      alias rr='source ~/.zshrc'
+      alias rr='source ${local.zshrc_path}'
       alias rm='echo "rm is disabled. use `trash` command instead."'
       alias -g ...='../..'
       alias -g ....='../../..'
@@ -85,7 +90,7 @@ resource "host_file" "zshrc" {
 
   block {
     name    = "plugins"
-    content = "source ~/.zsh/alias-tips/alias-tips.plugin.zsh"
+    content = "source ${host_git_repo.alias_tips.path}/alias-tips.plugin.zsh"
   }
 
   block {
