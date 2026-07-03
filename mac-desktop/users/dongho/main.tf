@@ -16,6 +16,6 @@ module "packages" {
   shell_history_path_resolved = module.directories.shell_history_path_resolved
 }
 
-module "macos" {
-  source = "./macos"
+module "mac" {
+  source = "./mac"
 }
