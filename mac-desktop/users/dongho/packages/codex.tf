@@ -7,3 +7,13 @@ resource "host_file_block" "codex_aliases" {
   block   = host_file.zshrc.blocks.alias
   content = "alias o='codex --dangerously-bypass-approvals-and-sandbox'"
 }
+
+resource "host_link" "codex_keybindings" {
+  source      = "${path.module}/codex/keybindings.json"
+  destination = "~/.codex/keybindings.json"
+}
+
+resource "host_link" "codex_default_rules" {
+  source      = "${path.module}/codex/rules/default.rules"
+  destination = "~/.codex/rules/default.rules"
+}

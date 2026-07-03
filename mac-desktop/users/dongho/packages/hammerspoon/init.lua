@@ -1,0 +1,20 @@
+require('input-switch')
+require('pad')
+
+hs.hotkey.bind({}, 'pageup', function()
+  local device = hs.audiodevice.defaultOutputDevice()
+  device:setVolume(math.min(100, device:volume() + 5))
+end, nil, function()
+  local device = hs.audiodevice.defaultOutputDevice()
+  device:setVolume(math.min(100, device:volume() + 5))
+end)
+
+hs.hotkey.bind({}, 'pagedown', function()
+  local device = hs.audiodevice.defaultOutputDevice()
+  device:setVolume(math.max(0, device:volume() - 5))
+end, nil, function()
+  local device = hs.audiodevice.defaultOutputDevice()
+  device:setVolume(math.max(0, device:volume() - 5))
+end)
+
+hs.alert.show('Hammerspoon Started...')

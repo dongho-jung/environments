@@ -9,7 +9,7 @@ resource "host_file" "gitconfig" {
       editor = vim
       autocrlf = input
       quotePath = false
-      hooksPath = /Users/dongho/.git-hooks
+      hooksPath = ${pathexpand("~/.git-hooks")}
     [commit]
       verbose = true
     [init]

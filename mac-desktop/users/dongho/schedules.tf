@@ -5,7 +5,7 @@ resource "host_schedule" "shell_history_git_auto_commit" {
   command = <<-EOT
     set -euo pipefail
 
-    cd ~/projects/shell-history || exit 1
+    cd "${module.directories.shell_history_path_resolved}" || exit 1
     export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
     branch="main"
