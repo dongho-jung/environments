@@ -6,14 +6,8 @@ terraform {
   }
 }
 
-module "directories" {
-  source = "./directories"
-}
-
 module "packages" {
   source = "./packages"
-
-  shell_history_path_resolved = module.directories.shell_history_path_resolved
 }
 
 module "mac" {
