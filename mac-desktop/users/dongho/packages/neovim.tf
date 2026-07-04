@@ -2,6 +2,18 @@ resource "host_package_brew" "neovim" {
   name = "neovim"
 }
 
+resource "host_dir" "neovim_data" {
+  path = "~/.local/share/nvim"
+  mode = "0755"
+}
+
+resource "host_git_repo" "vim_plug" {
+  url  = "https://github.com/junegunn/vim-plug.git"
+  path = "${host_dir.neovim_data.path}/vim-plug"
+
+  delete_on_destroy = false
+}
+
 resource "host_link" "neovim_config" {
   source      = "${path.module}/neovim"
   destination = "~/.config/nvim"

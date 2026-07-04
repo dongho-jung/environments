@@ -1,3 +1,8 @@
+local managed_plug = vim.fn.stdpath("data") .. "/vim-plug/plug.vim"
+if vim.fn.filereadable(managed_plug) == 1 then
+    vim.cmd("source " .. vim.fn.fnameescape(managed_plug))
+end
+
 local Plug = vim.fn["plug#"]
 
 vim.call("plug#begin")
