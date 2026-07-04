@@ -4,9 +4,5 @@ resource "host_package_brew" "shottr" {
 }
 
 resource "host_mac_login_item" "shottr" {
-  path = "/Applications/Shottr.app"
-
-  depends_on = [
-    host_package_brew.shottr,
-  ]
+  path = host_package_brew.shottr.app_path
 }
