@@ -1,5 +1,6 @@
 *.log
 .*
+!**/.terraform.lock.hcl
 !common/codex/.agents/
 !common/codex/.agents/**
 !common/codex/plugins/*/.codex-plugin/
