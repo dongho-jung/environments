@@ -4,9 +4,5 @@ resource "host_package_brew" "itsycal" {
 }
 
 resource "host_mac_login_item" "itsycal" {
-  path = "/Applications/Itsycal.app"
-
-  depends_on = [
-    host_package_brew.itsycal,
-  ]
+  path = host_package_brew.itsycal.app_path
 }
