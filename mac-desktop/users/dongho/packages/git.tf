@@ -65,7 +65,6 @@ resource "host_file_block" "git_aliases" {
 
 resource "host_schedule" "shell_history_git_auto_commit" {
   schedule = "*/30 * * * *"
-  user     = "dongho"
   shell    = "/bin/zsh"
 
   command = <<-EOT
