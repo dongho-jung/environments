@@ -32,8 +32,8 @@ resource "host_mac_audio_multi_output" "default" {
   ]
 
   sample_rate_hz = 48000
-  default_output = true
-  system_output  = true
+  default_output = false
+  system_output  = false
 
   depends_on = [
     host_package_brew.blackhole_2ch,
