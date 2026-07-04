@@ -1,6 +1,6 @@
 resource "host_mac_settings" "settings" {
   groups = {
-    dock = {
+    "com.apple.dock" = {
       autohide                  = true
       "show-recents"            = false
       "minimize-to-application" = false
@@ -8,12 +8,10 @@ resource "host_mac_settings" "settings" {
       "wvous-br-corner"         = 14
     }
 
-    global = {
+    NSGlobalDomain = {
       "com.apple.springing.enabled"        = true
       "com.apple.springing.delay"          = 0.5
       "com.apple.sound.beep.flash"         = 0
-      AppleLanguages                       = ["en-JP", "ja-JP", "ko-JP"]
-      AppleLocale                          = "en_JP"
       "com.apple.keyboard.fnState"         = true
       NSAutomaticCapitalizationEnabled     = true
       NSAutomaticPeriodSubstitutionEnabled = true
@@ -22,27 +20,27 @@ resource "host_mac_settings" "settings" {
       "com.apple.trackpad.forceClick"      = true
     }
 
-    "menuextra.clock" = {
+    "com.apple.menuextra.clock" = {
       IsAnalog      = true
       ShowAMPM      = true
       ShowDate      = 2
       ShowDayOfWeek = false
     }
 
-    screenshot = {
+    "com.apple.screencapture" = {
       captureDelay = 5
       showsClicks  = true
       style        = "selection"
       video        = true
     }
 
-    AppleMultitouchTrackpad = {
+    "com.apple.AppleMultitouchTrackpad" = {
       Clicking                = true
       TrackpadThreeFingerDrag = false
       TrackpadRightClick      = true
     }
 
-    "driver.AppleBluetoothMultitouch.trackpad" = {
+    "com.apple.driver.AppleBluetoothMultitouch.trackpad" = {
       Clicking                = true
       TrackpadThreeFingerDrag = false
       TrackpadRightClick      = true
