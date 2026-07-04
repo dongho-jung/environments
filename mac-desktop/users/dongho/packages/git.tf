@@ -1,3 +1,36 @@
+resource "host_dir" "projects" {
+  path = "~/projects"
+  mode = "0755"
+}
+
+resource "host_git_repo" "environments" {
+  url  = "git@github.com:dongho-jung/environments.git"
+  path = "${host_dir.projects.path}/environments"
+
+  delete_on_destroy = false
+}
+
+resource "host_git_repo" "shell_history" {
+  url  = "git@github.com:dongho-jung/shell-history.git"
+  path = "${host_dir.projects.path}/shell-history"
+
+  delete_on_destroy = false
+}
+
+resource "host_git_repo" "terraform_provider_host" {
+  url  = "git@github.com:dongho-jung/terraform-provider-host.git"
+  path = "${host_dir.projects.path}/terraform-provider-host"
+
+  delete_on_destroy = false
+}
+
+resource "host_git_repo" "vault" {
+  url  = "git@github.com:dongho-jung/vault.git"
+  path = "${host_dir.projects.path}/vault"
+
+  delete_on_destroy = false
+}
+
 resource "host_file" "gitconfig" {
   path = "~/.gitconfig"
 
@@ -27,5 +60,31 @@ resource "host_file_block" "git_aliases" {
   content = <<-EOT
     alias ga='git add' gc='git commit -v' gl='git pull' gp='git push' gg='lazygit' gst='git status' gco='git checkout'
     alias gr='git restore' grs='git restore --staged' gd='git diff' gds='git diff --staged' glog='git log --all --decorate --oneline --graph'
+  EOT
+}
+
+resource "host_schedule" "shell_history_git_auto_commit" {
+  schedule = "*/30 * * * *"
+  shell    = "/bin/zsh"
+
+  command = <<-EOT
+    set -euo pipefail
+
+    cd "${host_git_repo.shell_history.path_resolved}" || exit 1
+    export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+    branch="main"
+    remote="origin"
+
+    git fetch "$remote" "$branch"
+    if ! git diff --quiet "HEAD..$remote/$branch"; then
+      git pull --rebase --autostash "$remote" "$branch"
+    fi
+
+    if [[ -n "$(git status --porcelain)" ]]; then
+      git add -A
+      git commit -m "Auto update: $(date '+%Y-%m-%d %H:%M:%S')"
+      git push "$remote" "$branch"
+    fi
   EOT
 }
