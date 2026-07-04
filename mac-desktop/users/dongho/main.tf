@@ -12,4 +12,8 @@ module "packages" {
 
 module "mac" {
   source = "./mac"
+
+  depends_on = [
+    module.packages,
+  ]
 }

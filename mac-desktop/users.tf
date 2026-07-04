@@ -3,7 +3,7 @@ data "host_group" "admin" {
 }
 
 resource "host_user" "dongho" {
-  username = "dongho"
+  username = local.dongho_username
 
   groups = [
     data.host_group.admin.name,
