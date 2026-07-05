@@ -15,7 +15,7 @@ resource "host_git_repo" "vim_plug" {
 }
 
 resource "host_link" "neovim_config" {
-  source      = "${path.module}/neovim"
+  source      = "neovim"
   destination = "~/.config/nvim"
 }
 
