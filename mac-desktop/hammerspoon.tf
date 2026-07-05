@@ -4,7 +4,7 @@ resource "host_package_brew" "hammerspoon" {
 }
 
 resource "host_link" "hammerspoon_config" {
-  source      = "${path.module}/hammerspoon"
+  source      = "hammerspoon"
   destination = "~/.hammerspoon"
 }
 

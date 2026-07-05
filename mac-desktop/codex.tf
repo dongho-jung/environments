@@ -9,16 +9,16 @@ resource "host_file_block" "codex_aliases" {
 }
 
 resource "host_link" "codex_keybindings" {
-  source      = "${path.module}/codex/keybindings.json"
+  source      = "codex/keybindings.json"
   destination = "~/.codex/keybindings.json"
 }
 
 resource "host_link" "codex_default_rules" {
-  source      = "${path.module}/codex/rules/default.rules"
+  source      = "codex/rules/default.rules"
   destination = "~/.codex/rules/default.rules"
 }
 
 resource "host_link" "codex_command_c" {
-  source      = "${path.module}/codex/commands/c.md"
+  source      = "codex/commands/c.md"
   destination = "~/.codex/commands/c.md"
 }

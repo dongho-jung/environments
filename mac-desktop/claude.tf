@@ -9,6 +9,6 @@ resource "host_file_block" "claude_aliases" {
 }
 
 resource "host_link" "claude_settings" {
-  source      = "${path.module}/claude/settings.json"
+  source      = "claude/settings.json"
   destination = "~/.claude/settings.json"
 }
