@@ -1,0 +1,7 @@
+require("config.plugins")
+require("config.options")
+require("config.filetypes")
+require("config.which-key")
+require("config.completion")
+require("config.lsp")
+require("config.autocmds")
