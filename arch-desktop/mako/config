@@ -1,0 +1,8 @@
+# Auto-dismiss every notification 5s after it appears.
+#
+# ignore-timeout=1 makes mako override the per-notification expire-timeout that
+# apps request and always use default-timeout instead. Claude Code and Satty send
+# expire-timeout=0 ("never expire"), which is why their notifications pile up and
+# never go away; with this they close on the 5000ms timer like everything else.
+default-timeout=5000
+ignore-timeout=1

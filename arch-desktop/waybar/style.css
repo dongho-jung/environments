@@ -1,0 +1,47 @@
+* {
+    font-family: "Inconsolata Nerd Font", "DejaVu Sans Mono", monospace;
+    font-size: 12px;
+    min-height: 0;
+}
+
+window#waybar {
+    background: rgba(30, 30, 46, 0.85);
+    color: #cdd6f4;
+    border-top: 1px solid rgba(137, 180, 250, 0.4);
+}
+
+#workspaces button {
+    padding: 0 6px;
+    margin: 0;
+    color: #a6adc8;
+    background: transparent;
+}
+#workspaces button.active {
+    color: #1e1e2e;
+    background: #89b4fa;
+}
+#workspaces button:hover {
+    background: rgba(137, 180, 250, 0.3);
+    color: #cdd6f4;
+}
+
+#window,
+#clock,
+#cpu,
+#temperature,
+#memory,
+#disk,
+#network,
+#pulseaudio,
+#tray {
+    padding: 0 8px;
+}
+
+#clock {
+    font-weight: bold;
+}
+
+#temperature.critical {
+    color: #f38ba8;
+    background: rgba(243, 139, 168, 0.15);
+}
