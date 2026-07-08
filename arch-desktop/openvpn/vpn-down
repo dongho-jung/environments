@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Tear down the OpenVPN "user-locked" tunnel. Installed to /usr/local/bin by
+# openvpn/setup-root.sh and invoked through the scoped NOPASSWD sudoers rule.
+set -uo pipefail
+
+run_dir=/run/openvpn-userlocked
+pidfile=$run_dir/openvpn.pid
+
+[[ $EUID -eq 0 ]] || { echo "vpn-down: must run as root" >&2; exit 1; }
+
+if [[ -f $pidfile ]] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null; then
+    kill -TERM "$(cat "$pidfile")" && echo "vpn-down: disconnected"
+    rm -f "$pidfile"
+elif pkill -TERM -f openvpn-userlocked; then
+    echo "vpn-down: disconnected (fallback)"
+else
+    echo "vpn-down: not connected"
+fi
