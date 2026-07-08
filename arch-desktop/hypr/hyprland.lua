@@ -204,6 +204,15 @@ hl.config({
     },
 })
 
+-- Groupbar (tab bar) appearance. See https://wiki.hypr.land/Configuring/Basics/Variables/
+hl.config({
+    group = {
+        groupbar = {
+            font_size = 10, -- default 8, +25% so tab titles are legible
+        },
+    },
+})
+
 ----------------
 ----  MISC  ----
 ----------------
@@ -321,6 +330,20 @@ hl.bind(mainMod .. " + CTRL + left",  hl.dsp.window.resize({ x = -20, y = 0, rel
 hl.bind(mainMod .. " + CTRL + right", hl.dsp.window.resize({ x =  20, y = 0, relative = true}), { repeating = true })
 hl.bind(mainMod .. " + CTRL + up",    hl.dsp.window.resize({ x = 0, y = -20, relative = true}), { repeating = true })
 hl.bind(mainMod .. " + CTRL + down",  hl.dsp.window.resize({ x = 0, y =  20, relative = true}), { repeating = true })
+
+-- Groups / tabbed windows. See https://wiki.hypr.land/Configuring/Basics/Dispatchers/#group
+-- 현재 창으로 group/tab 만들기 또는 해제
+hl.bind(mainMod .. " + G", hl.dsp.group.toggle())
+
+-- group 안에서 다음/이전 탭으로 이동
+hl.bind(mainMod .. " + TAB",         hl.dsp.group.next())
+hl.bind(mainMod .. " + SHIFT + TAB", hl.dsp.group.prev())
+
+-- group 안에서 현재 창 순서 이동
+hl.bind(mainMod .. " + CTRL + TAB", hl.dsp.group.move_window({ forward = true }))
+
+-- 현재 group 잠금: 새 창이 자동으로 group에 안 들어오게
+hl.bind(mainMod .. " + SHIFT + G", hl.dsp.group.lock())
 
 -- Switch workspaces with mainMod + [0-9]
 -- Move active window to a workspace with mainMod + SHIFT + [0-9]
