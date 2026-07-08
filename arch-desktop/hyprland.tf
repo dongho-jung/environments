@@ -20,6 +20,13 @@ resource "host_package_pacman" "hyprlock" {
   name = "hyprlock"
 }
 
+# Backlight control behind the XF86MonBrightness binds in hyprland.lua. This
+# desktop has no backlight device, so the binds are inert here; the package is
+# installed anyway to keep the shared hypr config portable to laptops.
+resource "host_package_pacman" "brightnessctl" {
+  name = "brightnessctl"
+}
+
 resource "host_link" "hypr_config" {
   source      = "hypr"
   destination = "~/.config/hypr"

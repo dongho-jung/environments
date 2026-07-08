@@ -2,6 +2,11 @@ resource "host_package_pacman" "git" {
   name = "git"
 }
 
+# TUI git client behind the `gg` alias below.
+resource "host_package_pacman" "lazygit" {
+  name = "lazygit"
+}
+
 resource "host_dir" "projects" {
   path = "~/projects"
   mode = "0755"
