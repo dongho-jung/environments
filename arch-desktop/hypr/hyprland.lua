@@ -259,13 +259,13 @@ hl.device({
 local mainMod = "SUPER" -- Sets "Windows" key as main modifier
 
 -- Example binds, see https://wiki.hypr.land/Configuring/Basics/Binds/ for more
-hl.bind(mainMod .. " + Q", hl.dsp.exec_cmd(terminal))
-local closeWindowBind = hl.bind(mainMod .. " + C", hl.dsp.window.close())
+hl.bind(mainMod .. " + return", hl.dsp.exec_cmd(terminal))
+local closeWindowBind = hl.bind(mainMod .. " + Q", hl.dsp.window.close())
 -- closeWindowBind:set_enabled(false)
 hl.bind(mainMod .. " + M", hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()'"))
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager))
-hl.bind(mainMod .. " + V", hl.dsp.window.float({ action = "toggle" }))
-hl.bind(mainMod .. " + R", hl.dsp.exec_cmd(menu))
+hl.bind(mainMod .. " + T", hl.dsp.window.float({ action = "toggle" }))
+hl.bind(mainMod .. " + D", hl.dsp.exec_cmd(menu))
 hl.bind(mainMod .. " + P", hl.dsp.window.pseudo())
 -- Fake fullscreen (SUPER+F): tell the focused app it is fullscreen (client = 2)
 -- while keeping the window's real tiled geometry (internal = 0), then toggle back
@@ -287,6 +287,24 @@ hl.bind(mainMod .. " + SHIFT + F", function()
     hl.dispatch(hl.dsp.window.fullscreen_state({ internal = state, client = state }))
 end)
 hl.bind(mainMod .. " + J", hl.dsp.layout("togglesplit"))    -- dwindle only
+
+-- macOS-style shortcuts: translate SUPER + <key> into its Linux equivalent and
+-- send that to the focused window via send_shortcut. Omitting the `window` field
+-- targets the active window (see Hyprland's dsp_sendShortcut: nil window -> pass
+-- to focused client). Copy/paste map to Ctrl/Shift+Insert so they work in both
+-- terminals (kitty) and GUI apps. { repeating = true } mirrors `binde`, so
+-- holding a combo repeats it.
+for _, sc in ipairs({
+    { on = "C", mods = "CTRL",  send = "Insert" }, -- copy
+    { on = "V", mods = "SHIFT", send = "Insert" }, -- paste
+    { on = "X", mods = "CTRL",  send = "X" },
+    { on = "R", mods = "CTRL",  send = "R" },
+    { on = "W", mods = "CTRL",  send = "W" },
+    { on = "A", mods = "CTRL",  send = "A" },
+    { on = "Z", mods = "CTRL",  send = "Z" },
+}) do
+    hl.bind(mainMod .. " + " .. sc.on, hl.dsp.send_shortcut({ mods = sc.mods, key = sc.send }), { repeating = true })
+end
 
 -- Move focus with mainMod + arrow keys
 hl.bind(mainMod .. " + left",  hl.dsp.focus({ direction = "left" }))
