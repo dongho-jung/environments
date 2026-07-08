@@ -28,3 +28,22 @@ resource "host_link" "hypr_config" {
     host_package_pacman.hyprland,
   ]
 }
+
+# Auto-launch Hyprland on tty1 login through start-hyprland, the recommended
+# launcher -- running the Hyprland binary directly triggers a "started without
+# start-hyprland" warning (Hyprland >= 0.53). Guarded so only a bare tty1 login
+# starts it; other VTs and an existing Wayland session drop to a normal shell.
+# exec replaces the login shell, so quitting Hyprland ends the session.
+resource "host_file" "zprofile" {
+  path = "~/.zprofile"
+
+  content = <<-EOT
+    if [ -z "$WAYLAND_DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
+      exec start-hyprland
+    fi
+  EOT
+
+  depends_on = [
+    host_package_pacman.hyprland,
+  ]
+}
