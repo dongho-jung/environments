@@ -1,4 +1,4 @@
-# GPU-accelerated terminal, launched by SUPER+Q in hyprland.lua (`terminal = "kitty"`).
+# GPU-accelerated terminal, launched by SUPER+return in hyprland.lua (`terminal = "kitty"`).
 # Config lives in ./kitty and is symlinked to ~/.config/kitty (same pattern as hypr):
 # kitty.conf sets the Inconsolata Nerd Font so the starship prompt glyphs render, and
 # includes the Solarized Light theme.
