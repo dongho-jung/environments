@@ -1,10 +1,8 @@
-# The `claude` CLI is provided by the AUR `claude-code` package. host_package_pacman
-# uses plain `pacman` and cannot build from the AUR, so this resource only manages
-# the already-installed package (imported below in imports.tf). To (re)install on a
-# fresh machine, build it first with `yay -S claude-code`.
-resource "host_package_pacman" "claude_code" {
-  name           = "claude-code"
-  ignore_version = true
+# The `claude` CLI is provided by the AUR `claude-code` package, managed through
+# host_package_aur (builds via yay/paru). ignore_version defaults to true, so the
+# near-daily AUR releases never plan a rebuild; upgrade manually when wanted.
+resource "host_package_aur" "claude_code" {
+  name = "claude-code"
 }
 
 resource "host_file_block" "claude_aliases" {

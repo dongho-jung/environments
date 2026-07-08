@@ -6,10 +6,11 @@
 # bisect is chained for sub-cell precision. The `click` mode is intentionally NOT
 # chained: it force-sets the button to left, which would break h/b right/middle-click.
 #
-# wl-kbptr is only in the AUR, and host_package_pacman shells out to plain
-# `pacman` (which cannot build AUR packages), so it is intentionally not declared
-# as a resource here -- install it manually with `yay -S wl-kbptr` (same reason
-# terraform-ls is omitted in terraform.tf).
+# wl-kbptr is only in the AUR, so it is managed through host_package_aur,
+# which builds and installs via yay/paru.
+resource "host_package_aur" "wl_kbptr" {
+  name = "wl-kbptr"
+}
 #
 # NOTE: "floating" mode (auto-detecting on-screen targets, like vimium hints) needs
 # wl-kbptr built with the opencv feature. The AUR package ships without it, and its
