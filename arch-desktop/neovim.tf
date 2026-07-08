@@ -17,6 +17,10 @@ resource "host_git_repo" "vim_plug" {
 resource "host_link" "neovim_config" {
   source      = "neovim"
   destination = "~/.config/nvim"
+
+  depends_on = [
+    host_package_pacman.neovim,
+  ]
 }
 
 resource "host_file_block" "neovim_environment" {
