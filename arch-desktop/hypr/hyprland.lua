@@ -315,6 +315,8 @@ for _, sc in ipairs({
     hl.bind(mainMod .. " + " .. sc.on, hl.dsp.send_shortcut({ mods = sc.mods, key = sc.send }), { repeating = true })
 end
 
+hl.bind("Hangul", hl.dsp.exec_cmd("pgrep -x wl-kbptr >/dev/null || wl-kbptr -o modes=tile,bisect"))
+
 -- Move focus with mainMod + arrow keys
 hl.bind(mainMod .. " + left",  hl.dsp.focus({ direction = "left" }))
 hl.bind(mainMod .. " + right", hl.dsp.focus({ direction = "right" }))
