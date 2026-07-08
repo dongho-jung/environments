@@ -7,7 +7,7 @@
 
     "modules-left": ["hyprland/workspaces", "hyprland/window"],
     "modules-center": ["clock"],
-    "modules-right": ["cpu", "temperature", "memory", "disk", "network", "pulseaudio", "tray"],
+    "modules-right": ["custom/vpn", "cpu", "temperature", "memory", "disk", "network", "pulseaudio", "tray"],
 
     "hyprland/workspaces": {
         "format": "{id}",
@@ -18,6 +18,17 @@
         "format": "{title}",
         "max-length": 40,
         "separate-outputs": true
+    },
+
+    // OpenVPN "user-locked" tunnel status. vpn-status.sh prints JSON; the pill is
+    // only shown (styled bright green) while connected. Left/right click toggles.
+    "custom/vpn": {
+        "interval": 2,
+        "exec": "/home/dongho/.config/waybar/vpn-status.sh",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "sudo -n /usr/local/bin/vpn-up",
+        "on-click-right": "sudo -n /usr/local/bin/vpn-down"
     },
 
     "clock": {

@@ -45,3 +45,17 @@ window#waybar {
     color: #f38ba8;
     background: rgba(243, 139, 168, 0.15);
 }
+
+/* VPN pill: always visible. Bright green when connected, muted when off. */
+#custom-vpn.connected {
+    color: #1e1e2e;
+    background: #a6e3a1;
+    font-weight: bold;
+    padding: 0 10px;
+    margin: 0 2px;
+}
+#custom-vpn.disconnected {
+    color: #6c7086;
+    padding: 0 8px;
+    margin: 0 2px;
+}
