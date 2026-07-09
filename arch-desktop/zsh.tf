@@ -94,6 +94,26 @@ resource "host_file" "zshrc" {
   }
 
   block {
+    name    = "completion"
+    content = <<-EOT
+      # Enable the completion system. This is what makes `git <tab>` (subcommands)
+      # and `git checkout <tab>` (branches) work; `_git` autoloads lazily on first
+      # use. Placed before the plugins block so fzf sees the modern completion
+      # system (compdef) already active instead of falling back to compctl.
+      autoload -Uz compinit
+      # Full rebuild (fpath scan + security audit, ~0.3s) at most once a day; every
+      # other shell fast-loads the cached ~/.zcompdump with the checks skipped (~7ms).
+      () {
+        if (( $# )); then
+          compinit
+        else
+          compinit -C
+        fi
+      } ~/.zcompdump(#qN.mh+24)
+    EOT
+  }
+
+  block {
     name    = "plugins"
     content = "source ${host_git_repo.alias_tips.path}/alias-tips.plugin.zsh"
   }
