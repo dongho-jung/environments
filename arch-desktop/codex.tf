@@ -18,7 +18,30 @@ resource "host_link" "codex_default_rules" {
   destination = "~/.codex/rules/default.rules"
 }
 
-resource "host_link" "codex_command_c" {
-  source      = "codex/commands/c.md"
-  destination = "~/.codex/commands/c.md"
+resource "host_dir" "codex_agents_plugins" {
+  path = "~/.agents/plugins"
+  mode = "0755"
+}
+
+resource "host_dir" "codex_personal_plugins" {
+  path = "~/plugins"
+  mode = "0755"
+}
+
+resource "host_link" "codex_plugins_marketplace" {
+  source      = "../common/codex/.agents/plugins/marketplace.json"
+  destination = "~/.agents/plugins/marketplace.json"
+
+  depends_on = [
+    host_dir.codex_agents_plugins,
+  ]
+}
+
+resource "host_link" "codex_smart_commit_plugin" {
+  source      = "../common/codex/plugins/smart-commit"
+  destination = "~/plugins/smart-commit"
+
+  depends_on = [
+    host_dir.codex_personal_plugins,
+  ]
 }

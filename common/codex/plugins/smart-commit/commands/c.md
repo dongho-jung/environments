@@ -152,6 +152,11 @@ type: concise English title
   - Detail 2
 ```
 
+Do not add AI attribution trailers or generated-by footers to commit messages.
+In particular, never include `Co-authored-by`, `Co-Authored-By`, `Generated-by`,
+`Generated with`, `Codex`, or OpenAI attribution lines unless the user explicitly
+asks for them.
+
 Keep commit titles in English. Body can be English or Korean, but prefer concise technical language.
 
 If multiple branches are proposed, add a branch summary:
