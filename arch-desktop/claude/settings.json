@@ -4,5 +4,6 @@
   },
   "tui": "fullscreen",
   "theme": "auto",
-  "model": "claude-fable-5[1m]"
+  "model": "claude-fable-5[1m]",
+  "includeCoAuthoredBy": false
 }
