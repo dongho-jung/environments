@@ -41,7 +41,7 @@ resource "host_file" "gitconfig" {
       email = dongho971220@gmail.com
       name = dongho-jung
     [core]
-      editor = vim
+      editor = nvim
       autocrlf = input
       quotePath = false
       hooksPath = ${pathexpand("~/.git-hooks")}
