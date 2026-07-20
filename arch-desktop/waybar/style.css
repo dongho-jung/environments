@@ -46,6 +46,15 @@ window#waybar {
     background: rgba(243, 139, 168, 0.15);
 }
 
+/* Recording pill: hidden by hide-empty-text unless our recorder is active. */
+#custom-recording.recording {
+    color: #1e1e2e;
+    background: #f38ba8;
+    font-weight: bold;
+    padding: 0 10px;
+    margin: 0 2px;
+}
+
 /* VPN pill: always visible. Bright green when connected, muted when off. */
 #custom-vpn.connected {
     color: #1e1e2e;

@@ -298,11 +298,18 @@ end)
 hl.bind(mainMod .. " + J", hl.dsp.layout("togglesplit"))    -- dwindle only
 
 -- macOS-style shortcuts: translate SUPER + <key> into its Linux equivalent and
--- send that to the focused window via send_shortcut. Omitting the `window` field
--- targets the active window (see Hyprland's dsp_sendShortcut: nil window -> pass
--- to focused client). Copy/paste map to Ctrl/Shift+Insert so they work in both
--- terminals (kitty) and GUI apps. { repeating = true } mirrors `binde`, so
--- holding a combo repeats it.
+-- send that to the focused window. Omitting the `window` field from send_key_state
+-- targets the active window. Copy/paste map to Ctrl/Shift+Insert so they work in both
+-- terminals (kitty) and GUI apps. Send an explicit down/up pair instead of a
+-- stateful send_shortcut, whose synthetic key-up can be lost during fast modifier
+-- rollover (for example SUPER+V followed immediately by Shift).
+local function sendKeyTap(mods, key)
+    return function()
+        hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "down" }))
+        hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "up" }))
+    end
+end
+
 for _, sc in ipairs({
     { on = "C", mods = "CTRL",  send = "Insert" }, -- copy
     { on = "V", mods = "SHIFT", send = "Insert" }, -- paste
@@ -312,7 +319,7 @@ for _, sc in ipairs({
     { on = "A", mods = "CTRL",  send = "A" },
     { on = "Z", mods = "CTRL",  send = "Z" },
 }) do
-    hl.bind(mainMod .. " + " .. sc.on, hl.dsp.send_shortcut({ mods = sc.mods, key = sc.send }), { repeating = true })
+    hl.bind(mainMod .. " + " .. sc.on, sendKeyTap(sc.mods, sc.send))
 end
 
 hl.bind("Hangul", hl.dsp.exec_cmd("pgrep -x wl-kbptr >/dev/null || wl-kbptr -o modes=tile,bisect"))
@@ -383,10 +390,13 @@ hl.bind("XF86AudioPrev",  hl.dsp.exec_cmd("playerctl previous"),   { locked = tr
 
 -- Screenshots: hyprshot captures (region/window/full output) and pipes the raw
 -- image to satty for annotation; satty copies the result to the clipboard on save.
+-- SHIFT+Print toggles a region recording: select on the first press, stop and save
+-- on the second.
 local satty = "satty -f - --copy-command wl-copy --early-exit"
 hl.bind("Print",                       hl.dsp.exec_cmd("hyprshot -m region --freeze --raw | " .. satty))
 hl.bind(mainMod .. " + Print",         hl.dsp.exec_cmd("hyprshot -m window --raw | " .. satty))
 hl.bind(mainMod .. " + SHIFT + Print", hl.dsp.exec_cmd("hyprshot -m output --raw | " .. satty))
+hl.bind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\""))
 
 
 --------------------------------
