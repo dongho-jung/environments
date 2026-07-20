@@ -1,18 +1,88 @@
-#!/usr/bin/env bash
-# Tear down the OpenVPN "user-locked" tunnel. Installed to /usr/local/bin by
-# openvpn/setup-root.sh and invoked through the scoped NOPASSWD sudoers rule.
-set -uo pipefail
+#!/usr/bin/bash
+# Tear down the OpenVPN "user-locked" tunnel. Installed by host_system_file and
+# invoked through a host_sudoers_rule-managed NOPASSWD grant.
+PATH=/usr/bin:/usr/sbin:/bin:/sbin
+export PATH
+set -euo pipefail
 
 run_dir=/run/openvpn-userlocked
 pidfile=$run_dir/openvpn.pid
+lockfile=$run_dir/operation.lock
+config=$run_dir/config
 
-[[ $EUID -eq 0 ]] || { echo "vpn-down: must run as root" >&2; exit 1; }
+die() { echo "vpn-down: $*" >&2; exit 1; }
 
-if [[ -f $pidfile ]] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null; then
-    kill -TERM "$(cat "$pidfile")" && echo "vpn-down: disconnected"
-    rm -f "$pidfile"
-elif pkill -TERM -f openvpn-userlocked; then
-    echo "vpn-down: disconnected (fallback)"
-else
-    echo "vpn-down: not connected"
+validate_root_directory() {
+    local path=$1 uid gid mode
+    [[ ! -L $path && -d $path ]] || die "$path must be a real directory"
+    read -r uid gid mode < <(stat -Lc '%u %g %a' -- "$path") || die "cannot inspect $path"
+    [[ $uid == 0 && $gid == 0 && $mode == 700 ]] ||
+        die "$path must be root:root mode 0700"
+}
+
+managed_openvpn_pid() {
+    local pid=$1 i
+    local has_config=1 has_daemon=1 has_pidfile=1
+    local -a args=()
+
+    [[ $pid =~ ^[1-9][0-9]*$ && -r /proc/$pid/cmdline ]] || return 1
+    mapfile -d '' -t args < "/proc/$pid/cmdline" || return 1
+    ((${#args[@]} > 0)) || return 1
+    [[ ${args[0]##*/} == openvpn ]] || return 1
+
+    for ((i = 0; i + 1 < ${#args[@]}; i += 1)); do
+        case ${args[i]} in
+            --config)   [[ ${args[i + 1]} == "$config" ]] && has_config=0 ;;
+            --daemon)   [[ ${args[i + 1]} == openvpn-userlocked ]] && has_daemon=0 ;;
+            --writepid) [[ ${args[i + 1]} == "$pidfile" ]] && has_pidfile=0 ;;
+        esac
+    done
+    (( has_config == 0 && has_daemon == 0 && has_pidfile == 0 ))
+}
+
+[[ $EUID -eq 0 ]] || die "must run as root"
+
+if [[ -L $run_dir ]] || [[ -e $run_dir && ! -d $run_dir ]]; then
+    die "$run_dir exists but is not a real directory"
 fi
+install -d -m 700 -o root -g root -- "$run_dir"
+validate_root_directory "$run_dir"
+command -v flock >/dev/null || die "flock not installed (pacman -S util-linux)"
+
+# Use the same lock as vpn-up so reconnect cannot overlap teardown.
+[[ ! -L $lockfile && (! -e $lockfile || -f $lockfile) ]] ||
+    die "$lockfile must not be a symbolic link or special file"
+umask 077
+exec 9>> "$lockfile"
+flock -x 9
+
+if [[ ! -e $pidfile && ! -L $pidfile ]]; then
+    echo "vpn-down: not connected"
+    exit 0
+fi
+[[ ! -L $pidfile && -f $pidfile ]] || die "$pidfile must be a real regular file"
+IFS= read -r pid < "$pidfile" || pid=
+
+if ! managed_openvpn_pid "$pid"; then
+    if [[ $pid =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" 2>/dev/null; then
+        die "refusing to signal unmanaged live PID $pid from stale pidfile"
+    fi
+    rm -f -- "$pidfile"
+    echo "vpn-down: removed stale pidfile; not connected"
+    exit 0
+fi
+
+kill -TERM "$pid"
+
+stopped=false
+for _ in {1..100}; do
+    if ! kill -0 "$pid" 2>/dev/null || ! managed_openvpn_pid "$pid"; then
+        stopped=true
+        break
+    fi
+    sleep 0.1
+done
+[[ $stopped == true ]] || die "managed OpenVPN PID $pid did not exit within 10 seconds"
+
+rm -f -- "$pidfile"
+echo "vpn-down: disconnected"

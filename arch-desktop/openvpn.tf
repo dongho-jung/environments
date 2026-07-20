@@ -8,12 +8,59 @@ resource "host_package_pacman" "oath_toolkit" {
   name = "oath-toolkit"
 }
 
+# Root-owned launchers are source-backed, so their bytes are checksum-tracked
+# without being copied into Terraform state.
+resource "host_system_file" "vpn_up" {
+  source      = "${path.module}/openvpn/vpn-up"
+  destination = "/usr/local/bin/vpn-up"
+
+  mode              = "0755"
+  adopt_existing    = true
+  delete_on_destroy = true
+
+  depends_on = [
+    host_package_pacman.oath_toolkit,
+    host_package_pacman.openvpn,
+    host_package_pacman.sudo,
+  ]
+}
+
+resource "host_system_file" "vpn_down" {
+  source      = "${path.module}/openvpn/vpn-down"
+  destination = "/usr/local/bin/vpn-down"
+
+  mode              = "0755"
+  adopt_existing    = true
+  delete_on_destroy = true
+
+  depends_on = [
+    host_package_pacman.openvpn,
+    host_package_pacman.sudo,
+  ]
+}
+
+# Each command is rendered with sudoers' exact no-argument marker, so this does
+# not grant arbitrary arguments to either root wrapper.
+resource "host_sudoers_rule" "vpn" {
+  name = "vpn"
+  user = "dongho"
+
+  commands = [
+    host_system_file.vpn_up.destination,
+    host_system_file.vpn_down.destination,
+  ]
+
+  run_as            = "root"
+  nopasswd          = true
+  adopt_existing    = true
+  delete_on_destroy = true
+}
+
 # hyprlauncher entries (SUPER+D -> "VPN Connect" / "VPN Disconnect"). They call
-# the root helpers through a scoped NOPASSWD sudoers rule installed by
-# openvpn/setup-root.sh, so selecting an item toggles the tunnel with zero input.
-# Terminal=false: no window, no prompts. The helpers, sudoers rule, .ovpn profile
-# and the secrets they read are set up by setup-root.sh and deliberately kept out
-# of Terraform state (state stores resource content in plaintext).
+# the Terraform-managed root helpers through a scoped NOPASSWD rule, so selecting
+# an item toggles the tunnel with zero input. Terminal=false: no window, no prompts.
+# setup-root.sh still handles only the .ovpn profile and root-only secrets, which
+# deliberately stay out of Terraform state.
 resource "host_file" "vpn_connect_desktop" {
   path    = "~/.local/share/applications/vpn-connect.desktop"
   content = <<-EOT
@@ -28,6 +75,10 @@ resource "host_file" "vpn_connect_desktop" {
     Categories=Network;Security;
     Keywords=vpn;openvpn;connect;
   EOT
+
+  depends_on = [
+    host_sudoers_rule.vpn,
+  ]
 }
 
 resource "host_file" "vpn_disconnect_desktop" {
@@ -44,4 +95,8 @@ resource "host_file" "vpn_disconnect_desktop" {
     Categories=Network;Security;
     Keywords=vpn;openvpn;disconnect;
   EOT
+
+  depends_on = [
+    host_sudoers_rule.vpn,
+  ]
 }

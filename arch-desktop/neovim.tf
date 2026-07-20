@@ -12,6 +12,10 @@ resource "host_git_repo" "vim_plug" {
   path = "${host_dir.neovim_data.path}/vim-plug"
 
   delete_on_destroy = false
+
+  depends_on = [
+    host_package_pacman.git,
+  ]
 }
 
 resource "host_link" "neovim_config" {

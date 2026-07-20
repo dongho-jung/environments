@@ -1,5 +1,4 @@
-# Network stack. Installed by hand during initial setup and adopted here
-# (see imports.tf) so it is tracked and re-creatable like everything else.
+# Network stack, tracked and re-creatable like the rest of the host.
 resource "host_package_pacman" "networkmanager" {
   name = "networkmanager"
 }

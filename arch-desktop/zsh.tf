@@ -25,6 +25,7 @@ resource "host_git_repo" "alias_tips" {
 
   depends_on = [
     host_dir.zsh,
+    host_package_pacman.git,
   ]
 }
 

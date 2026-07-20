@@ -1,4 +1,4 @@
-# Base system identity, adopted as-is from the running machine (see imports.tf).
+# Base system identity, already adopted into this workspace's state.
 resource "host_hostname" "this" {
   name = "arch"
 }
