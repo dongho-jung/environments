@@ -17,6 +17,11 @@ resource "host_git_repo" "environments" {
   path = "${host_dir.projects.path}/environments"
 
   delete_on_destroy = false
+
+  depends_on = [
+    host_package_pacman.git,
+    host_ssh_config_host.github,
+  ]
 }
 
 resource "host_git_repo" "shell_history" {
@@ -24,6 +29,11 @@ resource "host_git_repo" "shell_history" {
   path = "${host_dir.projects.path}/shell-history"
 
   delete_on_destroy = false
+
+  depends_on = [
+    host_package_pacman.git,
+    host_ssh_config_host.github,
+  ]
 }
 
 resource "host_git_repo" "terraform_provider_host" {
@@ -31,6 +41,11 @@ resource "host_git_repo" "terraform_provider_host" {
   path = "${host_dir.projects.path}/terraform-provider-host"
 
   delete_on_destroy = false
+
+  depends_on = [
+    host_package_pacman.git,
+    host_ssh_config_host.github,
+  ]
 }
 
 resource "host_file" "gitconfig" {
@@ -66,19 +81,22 @@ resource "host_file_block" "git_aliases" {
 }
 
 resource "host_schedule" "shell_history_git_auto_commit" {
-  schedule = "*/30 * * * *"
-  shell    = "/usr/bin/zsh"
+  schedule          = "*/30 * * * *"
+  shell             = "/usr/bin/zsh"
+  working_directory = host_git_repo.shell_history.path_resolved
+
+  environment = {
+    PATH = "/usr/local/bin:/usr/bin:/bin"
+  }
 
   # crontab + a running cron daemon must exist before this entry can be written.
   depends_on = [
+    host_package_pacman.zsh,
     host_systemd_service.cronie,
   ]
 
   command = <<-EOT
     set -euo pipefail
-
-    cd "${host_git_repo.shell_history.path_resolved}" || exit 1
-    export PATH="/usr/local/bin:/usr/bin:/bin"
 
     branch="main"
     remote="origin"

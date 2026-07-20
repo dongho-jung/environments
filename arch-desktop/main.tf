@@ -2,7 +2,7 @@ terraform {
   required_providers {
     host = {
       source  = "dongho-jung/host"
-      version = "~> 0.12.0"
+      version = "~> 0.13.0"
     }
   }
 }
@@ -10,4 +10,5 @@ terraform {
 provider "host" {
   target_user = "dongho"
   home_dir    = "/home/dongho"
+  runtime_dir = "/home/dongho/.local/state/terraform-provider-host"
 }

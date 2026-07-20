@@ -3,6 +3,10 @@
 # near-daily AUR releases never plan a rebuild; upgrade manually when wanted.
 resource "host_package_aur" "claude_code" {
   name = "claude-code"
+
+  depends_on = [
+    host_aur_helper.yay,
+  ]
 }
 
 resource "host_file_block" "claude_aliases" {

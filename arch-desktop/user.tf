@@ -1,8 +1,12 @@
 resource "host_user" "dongho" {
-  name = "dongho"
+  name   = "dongho"
+  groups = ["docker", "wheel"]
+
+  depends_on = [
+    host_package_pacman.docker,
+  ]
 
   lifecycle {
-    ignore_changes  = [groups]
     prevent_destroy = true
   }
 }

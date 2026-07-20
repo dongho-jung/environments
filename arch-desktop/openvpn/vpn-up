@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 # Bring up the OpenVPN "user-locked" tunnel with zero interaction.
 #
 # Reads username / password / TOTP secret from a root-only env file, generates a
@@ -6,27 +6,90 @@
 # challenge format (SCRV1:base64(pass):base64(otp)) so nothing has to be typed.
 # See https://forums.openvpn.net/viewtopic.php?t=33633 for the SCRV1 format.
 #
-# Installed to /usr/local/bin by openvpn/setup-root.sh and invoked through a
-# scoped NOPASSWD sudoers rule. Must run as root (openvpn creates the tun device).
+# Installed by host_system_file and invoked through a host_sudoers_rule-managed
+# NOPASSWD grant. Must run as root (openvpn creates the tun device).
+PATH=/usr/bin:/usr/sbin:/bin:/sbin
+export PATH
 set -euo pipefail
 
-env_file=/etc/openvpn/client/userlocked.env
-profile=/etc/openvpn/client/profile-userlocked.ovpn
+config_dir=/etc/openvpn/userlocked
+env_file=$config_dir/userlocked.env
+profile=$config_dir/profile.ovpn
 run_dir=/run/openvpn-userlocked
 pidfile=$run_dir/openvpn.pid
+lockfile=$run_dir/operation.lock
 logfile=/var/log/openvpn-userlocked.log
+cred=$run_dir/cred
+config=$run_dir/config
 
 die() { echo "vpn-up: $*" >&2; exit 1; }
 
-[[ $EUID -eq 0 ]]   || die "must run as root"
-[[ -r $env_file ]]  || die "missing $env_file (run setup-root.sh)"
-[[ -r $profile ]]   || die "missing $profile (run setup-root.sh)"
+validate_root_directory() {
+    local path=$1 uid gid mode
+    [[ ! -L $path && -d $path ]] || die "$path must be a real directory"
+    read -r uid gid mode < <(stat -Lc '%u %g %a' -- "$path") || die "cannot inspect $path"
+    [[ $uid == 0 && $gid == 0 && $mode == 700 ]] ||
+        die "$path must be root:root mode 0700"
+}
+
+validate_root_file() {
+    local path=$1 uid gid mode
+    [[ ! -L $path && -f $path ]] || die "$path must be a real regular file"
+    read -r uid gid mode < <(stat -Lc '%u %g %a' -- "$path") || die "cannot inspect $path"
+    [[ $uid == 0 && $gid == 0 && $mode == 600 ]] ||
+        die "$path must be root:root mode 0600"
+}
+
+managed_openvpn_pid() {
+    local pid=$1 i
+    local has_config=1 has_daemon=1 has_pidfile=1
+    local -a args=()
+
+    [[ $pid =~ ^[1-9][0-9]*$ && -r /proc/$pid/cmdline ]] || return 1
+    mapfile -d '' -t args < "/proc/$pid/cmdline" || return 1
+    ((${#args[@]} > 0)) || return 1
+    [[ ${args[0]##*/} == openvpn ]] || return 1
+
+    for ((i = 0; i + 1 < ${#args[@]}; i += 1)); do
+        case ${args[i]} in
+            --config)   [[ ${args[i + 1]} == "$config" ]] && has_config=0 ;;
+            --daemon)   [[ ${args[i + 1]} == openvpn-userlocked ]] && has_daemon=0 ;;
+            --writepid) [[ ${args[i + 1]} == "$pidfile" ]] && has_pidfile=0 ;;
+        esac
+    done
+    (( has_config == 0 && has_daemon == 0 && has_pidfile == 0 ))
+}
+
+[[ $EUID -eq 0 ]] || die "must run as root"
+validate_root_directory "$config_dir"
+validate_root_file "$env_file"
+validate_root_file "$profile"
 command -v oathtool >/dev/null || die "oathtool not installed (pacman -S oath-toolkit)"
 command -v openvpn  >/dev/null || die "openvpn not installed"
+command -v flock    >/dev/null || die "flock not installed (pacman -S util-linux)"
 
-# Already up? (pidfile points at a live process)
-if [[ -f $pidfile ]] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null; then
-    echo "vpn-up: already connected"; exit 0
+if [[ -L $run_dir ]] || [[ -e $run_dir && ! -d $run_dir ]]; then
+    die "$run_dir exists but is not a real directory"
+fi
+install -d -m 700 -o root -g root -- "$run_dir"
+validate_root_directory "$run_dir"
+
+# Serialize connect and disconnect across launcher/Waybar invocations.
+[[ ! -L $lockfile && (! -e $lockfile || -f $lockfile) ]] ||
+    die "$lockfile must not be a symbolic link or special file"
+umask 077
+exec 9>> "$lockfile"
+flock -x 9
+
+# A stale pidfile must never let this NOPASSWD wrapper trust an unrelated PID.
+if [[ -e $pidfile || -L $pidfile ]]; then
+    [[ ! -L $pidfile && -f $pidfile ]] || die "$pidfile must be a real regular file"
+    IFS= read -r pid < "$pidfile" || pid=
+    if managed_openvpn_pid "$pid"; then
+        echo "vpn-up: already connected"
+        exit 0
+    fi
+    rm -f -- "$pidfile"
 fi
 
 # shellcheck source=/dev/null
@@ -38,10 +101,10 @@ source "$env_file"
 otp=$(oathtool --totp -b "$VPN_TOTP_SECRET")
 scrv1="SCRV1:$(printf %s "$VPN_PASS" | base64 -w0):$(printf %s "$otp" | base64 -w0)"
 
-install -d -m 700 "$run_dir"
-cred=$run_dir/cred
-config=$run_dir/config
-umask 077
+for output in "$cred" "$config"; do
+    [[ ! -L $output && (! -e $output || -f $output) ]] ||
+        die "$output must not be a symbolic link or special file"
+done
 printf '%s\n%s\n' "$VPN_USER" "$scrv1" > "$cred"
 
 # Scripted config from the profile: drop the interactive auth directives and
@@ -56,6 +119,10 @@ grep -viE '^[[:space:]]*(static-challenge|auth-user-pass|reneg-sec)([[:space:]]|
 openvpn --config "$config" \
         --daemon openvpn-userlocked \
         --writepid "$pidfile" \
-        --log "$logfile"
+        --log "$logfile" 9>&-
+
+[[ ! -L $pidfile && -f $pidfile ]] || die "OpenVPN did not create a regular pidfile"
+IFS= read -r pid < "$pidfile" || pid=
+managed_openvpn_pid "$pid" || die "OpenVPN did not start the expected managed daemon"
 
 echo "vpn-up: launched (log: $logfile)"

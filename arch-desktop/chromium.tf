@@ -1,4 +1,4 @@
-# Installed by hand and adopted here (see imports.tf).
+# Browser package managed through Pacman.
 resource "host_package_pacman" "chromium" {
   name = "chromium"
 }

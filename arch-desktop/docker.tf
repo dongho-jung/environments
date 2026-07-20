@@ -17,7 +17,3 @@ resource "host_systemd_service" "docker" {
     host_package_pacman.docker,
   ]
 }
-
-# NOTE: to run docker without sudo, add your user to the `docker` group manually:
-#   sudo usermod -aG docker dongho   (then re-login)
-# host_user.dongho ignores group changes, so it is left out of Terraform here.
