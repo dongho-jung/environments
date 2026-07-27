@@ -4,8 +4,9 @@
 #   hyprshot - Hyprland-native capture wrapper (region/window/output) over grim/slurp
 #   satty    - annotation editor (arrows/text/blur); receives the capture on stdin
 #   wf-recorder - records a selected region or the focused-window geometry to MP4
-# Bound to the Print-key combinations in hypr/hyprland.lua; Ctrl variants capture
-# the focused window without requiring a click or region selection.
+#   wayscrollshot - selects and stitches a region while it is manually scrolled
+# Bound to the Print-key combinations in hypr/hyprland.lua; Alt+Print starts a
+# scrolling capture, while Ctrl variants capture the focused window directly.
 resource "host_package_pacman" "grim" {
   name = "grim"
 }
@@ -24,4 +25,13 @@ resource "host_package_pacman" "satty" {
 
 resource "host_package_pacman" "wf_recorder" {
   name = "wf-recorder"
+}
+
+# The prebuilt AUR package avoids compiling the Rust/OpenCV application locally.
+resource "host_package_aur" "wayscrollshot" {
+  name = "wayscrollshot-bin"
+
+  depends_on = [
+    host_aur_helper.yay,
+  ]
 }
