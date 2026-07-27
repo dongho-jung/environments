@@ -20,7 +20,7 @@
         "separate-outputs": true
     },
 
-    // Only visible while record-region.sh owns a live wf-recorder process.
+    // Only visible while our region/window recorder owns a live wf-recorder process.
     // Clicking the red pill stops the recording and finalizes the MP4.
     "custom/recording": {
         "interval": 1,
