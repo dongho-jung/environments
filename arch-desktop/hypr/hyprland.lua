@@ -393,11 +393,13 @@ hl.bind("XF86AudioPrev",  hl.dsp.exec_cmd("playerctl previous"),   { locked = tr
 -- annotations) to the clipboard and closes Satty.
 -- CTRL+Print captures the focused window immediately, without asking for a window
 -- selection. SHIFT+Print toggles a selected-region recording, while
--- CTRL+SHIFT+Print toggles a recording cropped to the focused window.
+-- CTRL+SHIFT+Print toggles a recording cropped to the focused window. ALT+Print
+-- selects a region and stitches it into a long image while that region is scrolled.
 local satty = "satty -f - --copy-command wl-copy --actions-on-escape=save-to-clipboard,exit --early-exit"
 hl.bind("Print",                       hl.dsp.exec_cmd("hyprshot -m region --freeze --raw | " .. satty))
 hl.bind(mainMod .. " + Print",         hl.dsp.exec_cmd("hyprshot -m window --raw | " .. satty))
 hl.bind(mainMod .. " + SHIFT + Print", hl.dsp.exec_cmd("hyprshot -m output --raw | " .. satty))
+hl.bind("ALT + Print",                 hl.dsp.exec_cmd("wayscrollshot"))
 hl.bind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\""))
 hl.bind("CTRL + Print",                hl.dsp.exec_cmd("hyprshot -m window -m active --raw | " .. satty))
 hl.bind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\" toggle-window"))
