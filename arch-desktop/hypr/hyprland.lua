@@ -38,6 +38,11 @@ local terminal    = "kitty"
 local fileManager = "dolphin"
 local menu        = "hyprlauncher"
 
+local scratchpadName      = "magic"
+local scratchpadWorkspace = "special:" .. scratchpadName
+local scratchpadTerminal  = "kitty --class scratchpad-terminal --config \"$HOME/.config/kitty/scratchpad.conf\""
+local opacityControl      = "bash \"$HOME/.config/hypr/adjust-window-opacity.sh\""
+
 
 -------------------
 ---- AUTOSTART ----
@@ -116,6 +121,7 @@ hl.config({
         -- Change transparency of focused and unfocused windows
         active_opacity   = 1.0,
         inactive_opacity = 1.0,
+        dim_special      = 0.0,
 
         shadow = {
             enabled      = true,
@@ -308,13 +314,23 @@ local function toggleStickyWindow()
 end
 
 -- Example binds, see https://wiki.hypr.land/Configuring/Basics/Binds/ for more
-bind(mainMod .. " + return", hl.dsp.exec_cmd(terminal), "앱 · 터미널 열기")
+local function openTerminal()
+    local special = hl.get_active_special_workspace()
+    local command = special and special.name == scratchpadWorkspace
+        and scratchpadTerminal
+        or terminal
+    hl.exec_cmd(command)
+end
+
+bind(mainMod .. " + return", openTerminal, "앱 · 터미널 열기")
 local closeWindowBind = bind(mainMod .. " + Q", hl.dsp.window.close(), "창 · 닫기")
 -- closeWindowBind:set_enabled(false)
 bind(mainMod .. " + M", hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()'"), "세션 · 종료 화면 열기")
 bind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager), "앱 · 파일 관리자 열기")
 bind(mainMod .. " + T", hl.dsp.window.float({ action = "toggle" }), "창 · 타일/플로팅 전환")
 bind(mainMod .. " + SHIFT + T", toggleStickyWindow, "창 · 모든 워크스페이스에 고정/해제")
+bind(mainMod .. " + Prior", hl.dsp.exec_cmd(opacityControl .. " increase"), "창 · 불투명도 20% 높이기")
+bind(mainMod .. " + Next",  hl.dsp.exec_cmd(opacityControl .. " decrease"), "창 · 불투명도 20% 낮추기")
 bind(mainMod .. " + D", hl.dsp.exec_cmd(menu), "앱 · 런처 열기")
 bind(mainMod .. " + P", hl.dsp.window.pseudo(), "창 · pseudotile 전환")
 bind(mainMod .. " + H", hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/show-keybinds.sh\""), "도움말 · 단축키 목록 열기/닫기")
@@ -404,9 +420,55 @@ for i = 1, 10 do
     bind(mainMod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i }), "워크스페이스 · 창을 " .. i .. "번으로 보내기")
 end
 
--- Example special workspace (scratchpad)
-bind(mainMod .. " + S",         hl.dsp.workspace.toggle_special("magic"), "워크스페이스 · scratchpad 열기/닫기")
-bind(mainMod .. " + SHIFT + S", hl.dsp.window.move({ workspace = "special:magic" }), "워크스페이스 · 창을 scratchpad로 보내기")
+-- A special workspace already follows workspace changes while it is visible,
+-- so pinning its windows is neither necessary nor supported by Hyprland.
+hl.config({
+    binds = {
+        hide_special_on_workspace_change = false,
+    },
+})
+
+local function moveActiveWindowToScratchpad()
+    local w = hl.get_active_window()
+    if not w then return end
+
+    -- A pinned window cannot be moved to a special workspace.
+    if w.pinned then
+        hl.dispatch(hl.dsp.window.pin({ action = "disable", window = w }))
+    end
+    stickyAutoFloated[tostring(w.stable_id)] = nil
+
+    if w.fullscreen ~= 0 or w.fullscreen_client ~= 0 then
+        hl.dispatch(hl.dsp.window.fullscreen_state({
+            internal = 0,
+            client   = 0,
+            action   = "set",
+            window   = w,
+        }))
+    end
+
+    hl.dispatch(hl.dsp.window.move({ workspace = scratchpadWorkspace, window = w }))
+
+    -- Scratchpad windows tile normally, so additional terminals split the
+    -- workspace instead of appearing as independent floating windows.
+    if w.floating then
+        hl.dispatch(hl.dsp.window.float({ action = "disable", window = w }))
+    end
+end
+
+local function toggleScratchpad()
+    local ws = hl.get_workspace(scratchpadWorkspace)
+    local startTerminal = not ws or ws.is_empty
+
+    hl.dispatch(hl.dsp.workspace.toggle_special(scratchpadName))
+
+    if startTerminal then
+        hl.exec_cmd(scratchpadTerminal)
+    end
+end
+
+bind(mainMod .. " + grave",         toggleScratchpad,             "워크스페이스 · scratchpad 열기/닫기")
+bind(mainMod .. " + SHIFT + grave", moveActiveWindowToScratchpad, "워크스페이스 · 창을 scratchpad로 보내기")
 
 -- Scroll through existing workspaces with mainMod + scroll
 bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "워크스페이스 · 다음으로 이동")
@@ -455,6 +517,26 @@ bind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/r
 -- and https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/
 
 -- Example window rules that are useful
+
+hl.window_rule({
+    name  = "style-scratchpad",
+    match = { workspace = scratchpadWorkspace },
+
+    -- Keep the regular workspace behind the scratchpad sharp and visible.
+    no_blur = true,
+    opacity = "0.90 override 0.82 override 0.90 override",
+})
+
+hl.window_rule({
+    name  = "style-scratchpad-terminal",
+    match = {
+        workspace = scratchpadWorkspace,
+        class     = "^scratchpad-terminal$",
+    },
+
+    -- Kitty makes only its background translucent, keeping text fully opaque.
+    opacity = "1.0 override 1.0 override 1.0 override",
+})
 
 local suppressMaximizeRule = hl.window_rule({
     -- Ignore maximize requests from all apps. You'll probably like this.
