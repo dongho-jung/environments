@@ -267,35 +267,75 @@ hl.device({
 
 local mainMod = "SUPER" -- Sets "Windows" key as main modifier
 
+-- Keep shortcut descriptions next to the actual bindings. show-keybinds.sh
+-- reads them back from `hyprctl binds`, so the overlay cannot silently drift
+-- away from this config.
+local function bind(keys, dispatcher, description, options)
+    options = options or {}
+    options.description = description
+    return hl.bind(keys, dispatcher, options)
+end
+
+-- Pinning only works for floating windows. Remember which windows this shortcut
+-- floated itself so a second press can restore those windows to tiling. Windows
+-- that were already floating remain floating when they are unpinned.
+local stickyAutoFloated = {}
+local function toggleStickyWindow()
+    local w = hl.get_active_window()
+    if not w then return end
+
+    local id = tostring(w.stable_id)
+    if w.pinned then
+        hl.dispatch(hl.dsp.window.pin({ action = "unset", window = w }))
+        if stickyAutoFloated[id] then
+            hl.dispatch(hl.dsp.window.float({ action = "unset", window = w }))
+        end
+        stickyAutoFloated[id] = nil
+        return
+    end
+
+    -- Hyprland cannot pin a fullscreen window. Leave it unchanged rather than
+    -- unexpectedly taking it out of fullscreen.
+    if w.fullscreen ~= 0 then return end
+
+    stickyAutoFloated[id] = not w.floating
+    if not w.floating then
+        hl.dispatch(hl.dsp.window.float({ action = "set", window = w }))
+    end
+    hl.dispatch(hl.dsp.window.pin({ action = "set", window = w }))
+end
+
 -- Example binds, see https://wiki.hypr.land/Configuring/Basics/Binds/ for more
-hl.bind(mainMod .. " + return", hl.dsp.exec_cmd(terminal))
-local closeWindowBind = hl.bind(mainMod .. " + Q", hl.dsp.window.close())
+bind(mainMod .. " + return", hl.dsp.exec_cmd(terminal), "앱 · 터미널 열기")
+local closeWindowBind = bind(mainMod .. " + Q", hl.dsp.window.close(), "창 · 닫기")
 -- closeWindowBind:set_enabled(false)
-hl.bind(mainMod .. " + M", hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()'"))
-hl.bind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager))
-hl.bind(mainMod .. " + T", hl.dsp.window.float({ action = "toggle" }))
-hl.bind(mainMod .. " + D", hl.dsp.exec_cmd(menu))
-hl.bind(mainMod .. " + P", hl.dsp.window.pseudo())
+bind(mainMod .. " + M", hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()'"), "세션 · 종료 화면 열기")
+bind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager), "앱 · 파일 관리자 열기")
+bind(mainMod .. " + T", hl.dsp.window.float({ action = "toggle" }), "창 · 타일/플로팅 전환")
+bind(mainMod .. " + SHIFT + T", toggleStickyWindow, "창 · 모든 워크스페이스에 고정/해제")
+bind(mainMod .. " + D", hl.dsp.exec_cmd(menu), "앱 · 런처 열기")
+bind(mainMod .. " + P", hl.dsp.window.pseudo(), "창 · pseudotile 전환")
+bind(mainMod .. " + H", hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/show-keybinds.sh\""), "도움말 · 단축키 목록 열기/닫기")
 -- Fake fullscreen (SUPER+F): tell the focused app it is fullscreen (client = 2)
 -- while keeping the window's real tiled geometry (internal = 0), then toggle back
 -- off. Hyprland 0.55 removed the old `fakefullscreen` dispatcher; this drives its
 -- replacement, `fullscreenstate`, via hl.dsp.window.fullscreen_state.
-hl.bind(mainMod .. " + F", function()
+bind(mainMod .. " + F", function()
     local w = hl.get_active_window()
     if not w then return end
     local client = (w.fullscreen_client == 2) and 0 or 2
     hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 0, client = client }))
-end)
+end, "창 · 앱 UI만 전체화면 전환")
 -- Real fullscreen (SUPER+SHIFT+F): actually fill the monitor (internal = 2) and
 -- tell the app too (client = 2), then toggle back off. Same fullscreenstate
 -- mechanism as the fake bind above, but it changes the window geometry as well.
-hl.bind(mainMod .. " + SHIFT + F", function()
+bind(mainMod .. " + SHIFT + F", function()
     local w = hl.get_active_window()
     if not w then return end
     local state = (w.fullscreen == 2) and 0 or 2
     hl.dispatch(hl.dsp.window.fullscreen_state({ internal = state, client = state }))
-end)
-hl.bind(mainMod .. " + J", hl.dsp.layout("togglesplit"))    -- dwindle only
+end, "창 · 실제 전체화면 전환")
+bind(mainMod .. " + J", hl.dsp.layout("togglesplit"), "배치 · 현재 split 가로/세로 전환") -- dwindle only
 
 -- macOS-style shortcuts: translate SUPER + <key> into its Linux equivalent and
 -- send that to the focused window. Omitting the `window` field from send_key_state
@@ -311,82 +351,82 @@ local function sendKeyTap(mods, key)
 end
 
 for _, sc in ipairs({
-    { on = "C", mods = "CTRL",  send = "Insert" }, -- copy
-    { on = "V", mods = "SHIFT", send = "Insert" }, -- paste
-    { on = "X", mods = "CTRL",  send = "X" },
-    { on = "R", mods = "CTRL",  send = "R" },
-    { on = "W", mods = "CTRL",  send = "W" },
-    { on = "A", mods = "CTRL",  send = "A" },
-    { on = "Z", mods = "CTRL",  send = "Z" },
+    { on = "C", mods = "CTRL",  send = "Insert", description = "편집 · 복사" }, -- copy
+    { on = "V", mods = "SHIFT", send = "Insert", description = "편집 · 붙여넣기" }, -- paste
+    { on = "X", mods = "CTRL",  send = "X",      description = "편집 · 잘라내기" },
+    { on = "R", mods = "CTRL",  send = "R",      description = "편집 · 새로고침" },
+    { on = "W", mods = "CTRL",  send = "W",      description = "편집 · 탭/문서 닫기" },
+    { on = "A", mods = "CTRL",  send = "A",      description = "편집 · 전체 선택" },
+    { on = "Z", mods = "CTRL",  send = "Z",      description = "편집 · 실행 취소" },
 }) do
-    hl.bind(mainMod .. " + " .. sc.on, sendKeyTap(sc.mods, sc.send))
+    bind(mainMod .. " + " .. sc.on, sendKeyTap(sc.mods, sc.send), sc.description)
 end
 
-hl.bind("Hangul", hl.dsp.exec_cmd("pgrep -x wl-kbptr >/dev/null || wl-kbptr -o modes=tile,bisect"))
+bind("Hangul", hl.dsp.exec_cmd("pgrep -x wl-kbptr >/dev/null || wl-kbptr -o modes=tile,bisect"), "포인터 · 키보드 마우스 열기")
 
 -- Move focus with mainMod + arrow keys
-hl.bind(mainMod .. " + left",  hl.dsp.focus({ direction = "left" }))
-hl.bind(mainMod .. " + right", hl.dsp.focus({ direction = "right" }))
-hl.bind(mainMod .. " + up",    hl.dsp.focus({ direction = "up" }))
-hl.bind(mainMod .. " + down",  hl.dsp.focus({ direction = "down" }))
+bind(mainMod .. " + left",  hl.dsp.focus({ direction = "left" }),  "포커스 · 왼쪽 창")
+bind(mainMod .. " + right", hl.dsp.focus({ direction = "right" }), "포커스 · 오른쪽 창")
+bind(mainMod .. " + up",    hl.dsp.focus({ direction = "up" }),    "포커스 · 위쪽 창")
+bind(mainMod .. " + down",  hl.dsp.focus({ direction = "down" }),  "포커스 · 아래쪽 창")
 
-hl.bind(mainMod .. " + SHIFT + left",  hl.dsp.window.move({ direction = "left" }))
-hl.bind(mainMod .. " + SHIFT + right", hl.dsp.window.move({ direction = "right" }))
-hl.bind(mainMod .. " + SHIFT + up",    hl.dsp.window.move({ direction = "up" }))
-hl.bind(mainMod .. " + SHIFT + down",  hl.dsp.window.move({ direction = "down" }))
+bind(mainMod .. " + SHIFT + left",  hl.dsp.window.move({ direction = "left" }),  "배치 · 창을 왼쪽으로 이동")
+bind(mainMod .. " + SHIFT + right", hl.dsp.window.move({ direction = "right" }), "배치 · 창을 오른쪽으로 이동")
+bind(mainMod .. " + SHIFT + up",    hl.dsp.window.move({ direction = "up" }),    "배치 · 창을 위쪽으로 이동")
+bind(mainMod .. " + SHIFT + down",  hl.dsp.window.move({ direction = "down" }),  "배치 · 창을 아래쪽으로 이동")
 
-hl.bind(mainMod .. " + CTRL + left",  hl.dsp.window.resize({ x = -20, y = 0, relative = true}), { repeating = true })
-hl.bind(mainMod .. " + CTRL + right", hl.dsp.window.resize({ x =  20, y = 0, relative = true}), { repeating = true })
-hl.bind(mainMod .. " + CTRL + up",    hl.dsp.window.resize({ x = 0, y = -20, relative = true}), { repeating = true })
-hl.bind(mainMod .. " + CTRL + down",  hl.dsp.window.resize({ x = 0, y =  20, relative = true}), { repeating = true })
+bind(mainMod .. " + CTRL + left",  hl.dsp.window.resize({ x = -20, y = 0, relative = true}), "크기 · 너비 줄이기", { repeating = true })
+bind(mainMod .. " + CTRL + right", hl.dsp.window.resize({ x =  20, y = 0, relative = true}), "크기 · 너비 늘리기", { repeating = true })
+bind(mainMod .. " + CTRL + up",    hl.dsp.window.resize({ x = 0, y = -20, relative = true}), "크기 · 높이 줄이기", { repeating = true })
+bind(mainMod .. " + CTRL + down",  hl.dsp.window.resize({ x = 0, y =  20, relative = true}), "크기 · 높이 늘리기", { repeating = true })
 
 -- Groups / tabbed windows. See https://wiki.hypr.land/Configuring/Basics/Dispatchers/#group
 -- 현재 창으로 group/tab 만들기 또는 해제
-hl.bind(mainMod .. " + G", hl.dsp.group.toggle())
+bind(mainMod .. " + G", hl.dsp.group.toggle(), "그룹 · 탭 그룹 만들기/해제")
 
 -- group 안에서 다음/이전 탭으로 이동
-hl.bind(mainMod .. " + TAB",         hl.dsp.group.next())
-hl.bind(mainMod .. " + SHIFT + TAB", hl.dsp.group.prev())
+bind(mainMod .. " + TAB",         hl.dsp.group.next(), "그룹 · 다음 탭")
+bind(mainMod .. " + SHIFT + TAB", hl.dsp.group.prev(), "그룹 · 이전 탭")
 
 -- group 안에서 현재 창 순서 이동
-hl.bind(mainMod .. " + CTRL + TAB", hl.dsp.group.move_window({ forward = true }))
+bind(mainMod .. " + CTRL + TAB", hl.dsp.group.move_window({ forward = true }), "그룹 · 현재 탭을 뒤로 이동")
 
 -- 현재 group 잠금: 새 창이 자동으로 group에 안 들어오게
-hl.bind(mainMod .. " + SHIFT + G", hl.dsp.group.lock())
+bind(mainMod .. " + SHIFT + G", hl.dsp.group.lock(), "그룹 · 새 창 자동 합류 잠금")
 
 -- Switch workspaces with mainMod + [0-9]
 -- Move active window to a workspace with mainMod + SHIFT + [0-9]
 for i = 1, 10 do
     local key = i % 10 -- 10 maps to key 0
-    hl.bind(mainMod .. " + " .. key,             hl.dsp.focus({ workspace = i}))
-    hl.bind(mainMod .. " + SHIFT + " .. key,     hl.dsp.window.move({ workspace = i }))
+    bind(mainMod .. " + " .. key,         hl.dsp.focus({ workspace = i}), "워크스페이스 · " .. i .. "번으로 이동")
+    bind(mainMod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i }), "워크스페이스 · 창을 " .. i .. "번으로 보내기")
 end
 
 -- Example special workspace (scratchpad)
-hl.bind(mainMod .. " + S",         hl.dsp.workspace.toggle_special("magic"))
-hl.bind(mainMod .. " + SHIFT + S", hl.dsp.window.move({ workspace = "special:magic" }))
+bind(mainMod .. " + S",         hl.dsp.workspace.toggle_special("magic"), "워크스페이스 · scratchpad 열기/닫기")
+bind(mainMod .. " + SHIFT + S", hl.dsp.window.move({ workspace = "special:magic" }), "워크스페이스 · 창을 scratchpad로 보내기")
 
 -- Scroll through existing workspaces with mainMod + scroll
-hl.bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }))
-hl.bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }))
+bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "워크스페이스 · 다음으로 이동")
+bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스페이스 · 이전으로 이동")
 
 -- Move/resize windows with mainMod + LMB/RMB and dragging
-hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
-hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
+bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   "마우스 · 창 이동", { mouse = true })
+bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), "마우스 · 창 크기 조절", { mouse = true })
 
 -- Laptop multimedia keys for volume and LCD brightness
-hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"), { locked = true, repeating = true })
-hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),      { locked = true, repeating = true })
-hl.bind("XF86AudioMute",        hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     { locked = true, repeating = true })
-hl.bind("XF86AudioMicMute",     hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   { locked = true, repeating = true })
-hl.bind("XF86MonBrightnessUp",  hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%+"),                  { locked = true, repeating = true })
-hl.bind("XF86MonBrightnessDown",hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%-"),                  { locked = true, repeating = true })
+bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"), "미디어 · 음량 높이기", { locked = true, repeating = true })
+bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),      "미디어 · 음량 낮추기", { locked = true, repeating = true })
+bind("XF86AudioMute",        hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     "미디어 · 음소거 전환", { locked = true, repeating = true })
+bind("XF86AudioMicMute",     hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   "미디어 · 마이크 음소거 전환", { locked = true, repeating = true })
+bind("XF86MonBrightnessUp",  hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%+"),                  "화면 · 밝기 높이기", { locked = true, repeating = true })
+bind("XF86MonBrightnessDown",hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%-"),                  "화면 · 밝기 낮추기", { locked = true, repeating = true })
 
 -- Requires playerctl
-hl.bind("XF86AudioNext",  hl.dsp.exec_cmd("playerctl next"),       { locked = true })
-hl.bind("XF86AudioPause", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })
-hl.bind("XF86AudioPlay",  hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })
-hl.bind("XF86AudioPrev",  hl.dsp.exec_cmd("playerctl previous"),   { locked = true })
+bind("XF86AudioNext",  hl.dsp.exec_cmd("playerctl next"),       "미디어 · 다음 트랙", { locked = true })
+bind("XF86AudioPause", hl.dsp.exec_cmd("playerctl play-pause"), "미디어 · 재생/일시정지", { locked = true })
+bind("XF86AudioPlay",  hl.dsp.exec_cmd("playerctl play-pause"), "미디어 · 재생/일시정지", { locked = true })
+bind("XF86AudioPrev",  hl.dsp.exec_cmd("playerctl previous"),   "미디어 · 이전 트랙", { locked = true })
 
 -- Screenshots: hyprshot captures (region/window/full output) and pipes the raw
 -- image to satty for annotation. Escape copies the current result (including any
@@ -396,13 +436,13 @@ hl.bind("XF86AudioPrev",  hl.dsp.exec_cmd("playerctl previous"),   { locked = tr
 -- CTRL+SHIFT+Print toggles a recording cropped to the focused window. ALT+Print
 -- selects a region and stitches it into a long image while that region is scrolled.
 local satty = "satty -f - --copy-command wl-copy --actions-on-escape=save-to-clipboard,exit --early-exit"
-hl.bind("Print",                       hl.dsp.exec_cmd("hyprshot -m region --freeze --raw | " .. satty))
-hl.bind(mainMod .. " + Print",         hl.dsp.exec_cmd("hyprshot -m window --raw | " .. satty))
-hl.bind(mainMod .. " + SHIFT + Print", hl.dsp.exec_cmd("hyprshot -m output --raw | " .. satty))
-hl.bind("ALT + Print",                 hl.dsp.exec_cmd("wayscrollshot"))
-hl.bind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\""))
-hl.bind("CTRL + Print",                hl.dsp.exec_cmd("hyprshot -m window -m active --raw | " .. satty))
-hl.bind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\" toggle-window"))
+bind("Print",                       hl.dsp.exec_cmd("hyprshot -m region --freeze --raw | " .. satty), "캡처 · 선택 영역 스크린샷 후 주석")
+bind(mainMod .. " + Print",         hl.dsp.exec_cmd("hyprshot -m window --raw | " .. satty),          "캡처 · 선택한 창 스크린샷 후 주석")
+bind(mainMod .. " + SHIFT + Print", hl.dsp.exec_cmd("hyprshot -m output --raw | " .. satty),          "캡처 · 모니터 스크린샷 후 주석")
+bind("ALT + Print",                 hl.dsp.exec_cmd("wayscrollshot"),                                  "캡처 · 스크롤 영역을 긴 이미지로 저장")
+bind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\""),   "녹화 · 선택 영역 시작/중지")
+bind("CTRL + Print",                hl.dsp.exec_cmd("hyprshot -m window -m active --raw | " .. satty), "캡처 · 현재 창 즉시 스크린샷 후 주석")
+bind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\" toggle-window"), "녹화 · 현재 창 시작/중지")
 
 
 --------------------------------
@@ -455,8 +495,8 @@ hl.window_rule({
     float = true,
 })
 
-hl.bind("SUPER + L", hl.dsp.exec_cmd("hyprlock"))
-hl.bind("SUPER + SHIFT + L", hl.dsp.exec_cmd("sh -c 'pidof hyprlock || hyprlock & sleep 1; systemctl suspend'"))
+bind("SUPER + L", hl.dsp.exec_cmd("hyprlock"), "세션 · 화면 잠그기")
+bind("SUPER + SHIFT + L", hl.dsp.exec_cmd("sh -c 'pidof hyprlock || hyprlock & sleep 1; systemctl suspend'"), "세션 · 잠근 뒤 절전")
 
 hl.on("hyprland.start", function()
   hl.exec_cmd("hypridle")
