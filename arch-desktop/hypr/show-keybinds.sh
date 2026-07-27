@@ -56,6 +56,9 @@ friendly_key() {
         up) printf '↑' ;;
         down) printf '↓' ;;
         tab) printf 'Tab' ;;
+        prior) printf 'PageUp' ;;
+        next) printf 'PageDown' ;;
+        grave) printf '%s' '`' ;;
         print) printf 'PrintScreen' ;;
         mouse_down) printf 'Wheel Down' ;;
         mouse_up) printf 'Wheel Up' ;;
