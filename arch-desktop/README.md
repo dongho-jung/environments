@@ -37,6 +37,10 @@ not as root; `host_aur_helper` intentionally refuses to run `makepkg` as root.
    sudo -n /usr/local/bin/vpn-up
    ```
 
+   Existing installations using `/etc/openvpn/client` are migrated automatically.
+   For a migration that must not prompt for new secrets, use
+   `sudo bash openvpn/setup-root.sh --non-interactive`.
+
 The VPN setup keeps secrets out of Terraform state. Its launchers fail closed
 unless `/etc/openvpn/userlocked` and both input files have the expected
 root-only ownership, type, and permissions.
