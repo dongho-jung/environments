@@ -11,6 +11,16 @@ set -euo pipefail
 
 [[ $EUID -eq 0 ]] || { echo "run with sudo: sudo bash $0"; exit 1; }
 
+non_interactive=false
+case ${1:-} in
+    "") ;;
+    --non-interactive) non_interactive=true ;;
+    *)
+        echo "usage: sudo bash $0 [--non-interactive]" >&2
+        exit 2
+        ;;
+esac
+
 target_user=${SUDO_USER:-dongho}
 openvpn_dir=/etc/openvpn
 config_dir=$openvpn_dir/userlocked
@@ -38,6 +48,58 @@ validate_root_file() {
         die "$path must be root:root mode 0600 (got uid=$uid gid=$gid mode=$mode)"
 }
 
+write_env_file() {
+    local user=$1 pass=$2 secret=$3
+
+    umask 077
+    tmp_env=$(mktemp "$config_dir/.userlocked.env.XXXXXX")
+    trap 'rm -f -- "$tmp_env"' EXIT
+    printf 'VPN_USER=%q\nVPN_PASS=%q\nVPN_TOTP_SECRET=%q\n' \
+        "$user" "$pass" "$secret" > "$tmp_env"
+    chown root:root -- "$tmp_env"
+    chmod 600 -- "$tmp_env"
+    mv -f -- "$tmp_env" "$env_file"
+    trap - EXIT
+    validate_root_file "$env_file"
+}
+
+migrate_legacy_env() {
+    local line legacy_user= legacy_pass= legacy_secret=
+    local found_user=false found_pass=false found_secret=false
+
+    validate_root_file "$legacy_env"
+    while IFS= read -r line || [[ -n $line ]]; do
+        case $line in
+            VPN_USER=*)
+                [[ $found_user == false ]] || die "$legacy_env contains duplicate VPN_USER"
+                legacy_user=${line#VPN_USER=}
+                found_user=true
+                ;;
+            VPN_PASS=*)
+                [[ $found_pass == false ]] || die "$legacy_env contains duplicate VPN_PASS"
+                legacy_pass=${line#VPN_PASS=}
+                found_pass=true
+                ;;
+            VPN_TOTP_SECRET=*)
+                [[ $found_secret == false ]] ||
+                    die "$legacy_env contains duplicate VPN_TOTP_SECRET"
+                legacy_secret=${line#VPN_TOTP_SECRET=}
+                found_secret=true
+                ;;
+            "") ;;
+            *) die "$legacy_env contains an unsupported line" ;;
+        esac
+    done < "$legacy_env"
+
+    [[ $found_user == true && -n $legacy_user ]] || die "VPN_USER missing in $legacy_env"
+    [[ $found_pass == true && -n $legacy_pass ]] || die "VPN_PASS missing in $legacy_env"
+    [[ $found_secret == true && -n $legacy_secret ]] ||
+        die "VPN_TOTP_SECRET missing in $legacy_env"
+
+    write_env_file "$legacy_user" "$legacy_pass" "$legacy_secret"
+    echo "migrated $legacy_env -> $env_file"
+}
+
 [[ ! -L $openvpn_dir && -d $openvpn_dir ]] || die "$openvpn_dir must be a real directory"
 read -r parent_uid parent_gid parent_mode < <(stat -Lc '%u %g %a' -- "$openvpn_dir") ||
     die "cannot inspect $openvpn_dir"
@@ -56,6 +118,13 @@ if [[ -L $profile ]]; then
 elif [[ -f $profile ]]; then
     validate_root_file "$profile"
     echo "profile already present: $profile"
+elif [[ -L $legacy_profile ]]; then
+    die "$legacy_profile must not be a symbolic link"
+elif [[ -f $legacy_profile ]]; then
+    validate_root_file "$legacy_profile"
+    install -m 600 -o root -g root -- "$legacy_profile" "$profile"
+    validate_root_file "$profile"
+    echo "migrated $legacy_profile -> $profile"
 elif [[ -L $download ]]; then
     die "$download must not be a symbolic link"
 elif [[ -f $download ]]; then
@@ -72,6 +141,12 @@ if [[ -L $env_file ]]; then
 elif [[ -f $env_file ]]; then
     validate_root_file "$env_file"
     echo "env file already exists: $env_file (leaving as-is; edit manually to change)"
+elif [[ -L $legacy_env ]]; then
+    die "$legacy_env must not be a symbolic link"
+elif [[ -f $legacy_env ]]; then
+    migrate_legacy_env
+elif [[ $non_interactive == true ]]; then
+    die "no existing secrets found; run without --non-interactive to enter them"
 else
     read -rp  "VPN username              : " u
     read -rsp "VPN password              : " p; echo
@@ -82,16 +157,8 @@ else
     fi
     # Canonical base32: drop spaces, upper-case.
     s=$(printf '%s' "$s" | tr -d '[:space:]' | tr 'a-z' 'A-Z')
-    umask 077
     # Bash-escape every value before vpn-up sources this root-only file.
-    tmp_env=$(mktemp "$config_dir/.userlocked.env.XXXXXX")
-    trap 'rm -f -- "$tmp_env"' EXIT
-    printf 'VPN_USER=%q\nVPN_PASS=%q\nVPN_TOTP_SECRET=%q\n' "$u" "$p" "$s" > "$tmp_env"
-    chown root:root -- "$tmp_env"
-    chmod 600 -- "$tmp_env"
-    mv -f -- "$tmp_env" "$env_file"
-    trap - EXIT
-    validate_root_file "$env_file"
+    write_env_file "$u" "$p" "$s"
     echo "wrote $env_file (0600, root-only)"
     if command -v oathtool >/dev/null && oathtool --totp -b "$s" >/dev/null 2>&1; then
         echo "OTP check OK"
@@ -102,7 +169,7 @@ fi
 
 if [[ -e $legacy_env || -L $legacy_env || -e $legacy_profile || -L $legacy_profile ]]; then
     echo "NOTE: legacy files under $openvpn_dir/client are no longer used."
-    echo "      Remove them manually only after the new launcher works."
+    echo "      They were left in place so this migration remains recoverable."
 fi
 
 echo
