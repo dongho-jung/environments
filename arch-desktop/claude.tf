@@ -19,6 +19,11 @@ resource "host_link" "claude_settings" {
   destination = "~/.claude/settings.json"
 }
 
+resource "host_link" "claude_instructions" {
+  source      = "claude/CLAUDE.md"
+  destination = "~/.claude/CLAUDE.md"
+}
+
 resource "host_link" "claude_command_c" {
   source      = "../common/claude/commands/c.md"
   destination = "~/.claude/commands/c.md"
