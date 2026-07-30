@@ -18,6 +18,11 @@ resource "host_link" "codex_default_rules" {
   destination = "~/.codex/rules/default.rules"
 }
 
+resource "host_link" "codex_agents" {
+  source      = "codex/AGENTS.md"
+  destination = "~/.codex/AGENTS.md"
+}
+
 resource "host_dir" "codex_agents_plugins" {
   path = "~/.agents/plugins"
   mode = "0755"
