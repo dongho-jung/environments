@@ -101,8 +101,14 @@ resource "host_schedule" "shell_history_git_auto_commit" {
     branch="main"
     remote="origin"
 
+    # A delayed fetch or push must not overlap the next 30-minute invocation.
+    # Keep the lock under .git so it is repository-local and never committed.
+    exec 9>".git/terraform-provider-host-shell-history.lock"
+    flock -n 9 || exit 0
+
     git fetch "$remote" "$branch"
-    if ! git diff --quiet "HEAD..$remote/$branch"; then
+    remote_commit="$(git rev-parse FETCH_HEAD)"
+    if ! git merge-base --is-ancestor "$remote_commit" HEAD; then
       git pull --rebase --autostash "$remote" "$branch"
     fi
 

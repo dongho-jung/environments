@@ -2,7 +2,7 @@ terraform {
   required_providers {
     host = {
       source  = "dongho-jung/host"
-      version = "~> 0.13.0"
+      version = "~> 0.14.0"
     }
   }
 }
