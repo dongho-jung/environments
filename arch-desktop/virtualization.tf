@@ -123,9 +123,9 @@ resource "host_systemd_unit" "libvirt_default_network" {
 }
 
 resource "host_systemd_service" "libvirt_default_network" {
-  name            = host_systemd_unit.libvirt_default_network.name
-  enabled         = true
-  running         = true
+  name    = host_systemd_unit.libvirt_default_network.name
+  enabled = true
+  running = true
   restart_trigger = sha256(jsonencode({
     network = filesha256("${path.module}/libvirt/default-network.xml")
     script  = filesha256("${path.module}/libvirt/ensure-default-network")
