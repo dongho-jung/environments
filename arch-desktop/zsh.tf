@@ -7,6 +7,10 @@ resource "host_package_pacman" "zsh" {
   name = "zsh"
 }
 
+resource "host_package_pacman" "zsh_completions" {
+  name = "zsh-completions"
+}
+
 # Wayland clipboard, backs the `y`/`p` aliases below (macOS pbcopy/pbpaste)
 resource "host_package_pacman" "wl_clipboard" {
   name = "wl-clipboard"
@@ -20,6 +24,7 @@ resource "host_dir" "zsh" {
 resource "host_git_repo" "alias_tips" {
   url  = "https://github.com/djui/alias-tips.git"
   path = "${host_dir.zsh.path}/alias-tips"
+  ref  = "41cb143ccc3b8cc444bf20257276cb43275f65c4"
 
   delete_on_destroy = false
 
@@ -34,6 +39,7 @@ resource "host_file" "zshrc" {
 
   depends_on = [
     host_git_repo.alias_tips,
+    host_package_pacman.zsh_completions,
   ]
 
   block {

@@ -59,7 +59,6 @@ resource "host_file" "gitconfig" {
       editor = nvim
       autocrlf = input
       quotePath = false
-      hooksPath = ${pathexpand("~/.git-hooks")}
     [commit]
       verbose = true
     [init]
