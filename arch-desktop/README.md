@@ -44,3 +44,26 @@ not as root; `host_aur_helper` intentionally refuses to run `makepkg` as root.
 The VPN setup keeps secrets out of Terraform state. Its launchers fail closed
 unless `/etc/openvpn/userlocked` and both input files have the expected
 root-only ownership, type, and permissions.
+
+## Windows 11 virtual machine
+
+The configuration installs QEMU/KVM, libvirt, virt-manager, UEFI firmware,
+software TPM 2.0 support, NAT networking, and the Windows VirtIO driver ISO.
+After the first apply:
+
+1. Sign out and back in once so the new `libvirt` group membership is visible
+   to the desktop session.
+2. Open `virt-manager` and use the `QEMU/KVM` system connection.
+3. Open **Edit > Connection Details > Virtual Networks**, select `default`,
+   enable **Autostart**, and start the network. Its DHCP service advertises
+   AdGuard Home at `192.168.122.1` for DNS, avoiding a second port 53 listener.
+4. Create a VM from a Windows 11 ISO and select **Customize configuration before
+   install**. Use a Q35 chipset, x86_64 UEFI firmware, a `host-passthrough` CPU,
+   and an emulated CRB TPM 2.0 device.
+5. Attach `/var/lib/libvirt/images/virtio-win.iso` as a SATA CD-ROM. If the
+   installer cannot see a VirtIO disk, load the matching Windows 11 AMD64
+   storage driver from that ISO. Run `virtio-win-guest-tools.exe` in Windows
+   after installation to install the remaining VirtIO drivers and guest agent.
+
+Keep the SPICE display and video devices that virt-manager proposes for the
+graphical console. GPU passthrough is a separate setup and is not enabled here.
