@@ -11,7 +11,8 @@
 
     "hyprland/workspaces": {
         "format": "{id}",
-        "on-click": "activate"
+        "on-click": "activate",
+        "enable-bar-scroll": true
     },
 
     "hyprland/window": {
