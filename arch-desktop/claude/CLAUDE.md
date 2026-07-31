@@ -2,10 +2,33 @@
 
 ## Branch and worktree isolation
 
-- By default, before a task writes, modifies, generates, moves, or deletes files anywhere inside a Git repository, create a dedicated Git worktree and task branch for the current Claude Code session and perform all repository writes there. Treat an existing checkout as read-only unless it is already a dedicated worktree owned by this session or the user explicitly directs otherwise.
+### Location and naming
+
+- By default, before a task writes, modifies, generates, moves, or deletes files anywhere inside a Git repository, create a dedicated Git worktree and task branch for the current Claude Code session and perform all repository writes there. Treat the canonical checkout as read-only unless the user explicitly directs otherwise.
+- Use `~/.worktrees` as the single root for all agent-created temporary worktrees. Do not create them inside the repository, beside the repository, under `/tmp`, or in another ad hoc location.
+- Name each path `~/.worktrees/<repo>-<task-slug>`, where `<repo>` is the repository root directory name and `<task-slug>` is a concise kebab-case task name. Add a short owner or numeric suffix only when the intended path already exists.
+- Follow an explicit user request to use a particular checkout, branch, worktree, or location instead of these defaults.
+
+### Creation and ownership
+
 - Give every concurrently running Claude Code session or agent its own worktree and branch. Never reuse or modify a worktree owned by another session, even if it appears idle.
-- Before creating a worktree, inspect `git status` and `git worktree list`. Preserve all existing work and choose a unique worktree path and branch name. If the current session is already running in a dedicated worktree, use it instead of creating another.
-- Follow an explicit user request to use a particular checkout, branch, or worktree.
+- Before creating one, inspect `git status --short --branch` and `git worktree list --porcelain`, then verify the exact target path and branch are unused. Preserve every existing dirty or untracked change.
+- If the current session is already in its own dedicated worktree, reuse it instead of creating another. Otherwise create the worktree from the intended base branch in `~/.worktrees` before making any repository write.
+- Immediately mark a newly created or resumed worktree as active with `git worktree lock --reason "Claude Code active: <branch>" <path>`. A lock is an ownership signal: never unlock, move, remove, or write in a worktree locked by another session.
+- Do not relocate a legacy worktree outside `~/.worktrees` merely for consistency while it may be in use. Its owner may move it after confirming that it is inactive and clean; otherwise let the lifecycle rules below retire it after merge.
+
+### Lifecycle and cleanup
+
+- Inspect registered worktrees for housekeeping before creating a new one and again before the final handoff. An active session must unlock its own worktree as its final lifecycle action so a later session can recognize it as inactive.
+- Automatically remove a worktree only when every condition below is true:
+  - It is not the canonical checkout or the current worktree, and it is not locked.
+  - `git -C <path> status --porcelain --untracked-files=all` is empty.
+  - Its branch is confirmed merged into the intended integration branch, either by Git ancestry or by an authoritative merged PR/MR status for squash or rebase merges. Refresh remote refs first when that is available; never infer merge status from a stale or missing ref.
+  - The exact path and branch have been rechecked immediately before removal.
+- Run cleanup from the canonical checkout or another retained worktree. Use `git worktree remove <exact-path>` without `--force`, then use `git branch -d <branch>` only if Git accepts the safe deletion. If branch deletion is refused, leave the branch and report it rather than forcing it.
+- Use `git worktree prune --dry-run` first. Run `git worktree prune` only when every reported entry has been confirmed stale; otherwise leave the metadata intact and report it.
+- Never use `rm -rf`, a glob, `git worktree remove --force`, or `git branch -D` for routine cleanup. Never delete a dirty, locked, unmerged, or ambiguous worktree. Leave it in place and report its path, branch, and blocking condition.
+- If the current task is already merged at handoff, clean up its worktree using these checks. If it is not merged, preserve the worktree and branch, unlock it at handoff, and report their exact names for later cleanup.
 
 ## Commit conventions
 
