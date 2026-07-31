@@ -12,13 +12,3 @@ resource "host_file" "makepkg_config" {
   path    = "~/.config/pacman/makepkg.conf"
   content = "OPTIONS+=(!debug)\n"
 }
-
-# Migrate the former standalone helper resource out of state without
-# uninstalling yay; the provider now treats it as backend tooling.
-removed {
-  from = host_aur_helper.yay
-
-  lifecycle {
-    destroy = false
-  }
-}
