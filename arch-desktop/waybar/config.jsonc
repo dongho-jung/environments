@@ -26,18 +26,18 @@
     "custom/recording": {
         "interval": 1,
         "signal": 8,
-        "exec": "/home/dongho/.config/hypr/record-region.sh status",
+        "exec": "$HOME/.config/hypr/record-region.sh status",
         "return-type": "json",
         "format": "{text}",
         "hide-empty-text": true,
-        "on-click": "/home/dongho/.config/hypr/record-region.sh stop"
+        "on-click": "$HOME/.config/hypr/record-region.sh stop"
     },
 
     // OpenVPN "user-locked" tunnel status. vpn-status.sh prints JSON; the pill is
     // only shown (styled bright green) while connected. Left/right click toggles.
     "custom/vpn": {
         "interval": 2,
-        "exec": "/home/dongho/.config/waybar/vpn-status.sh",
+        "exec": "$HOME/.config/waybar/vpn-status.sh",
         "return-type": "json",
         "format": "{}",
         "on-click": "sudo -n /usr/local/bin/vpn-up",

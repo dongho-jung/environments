@@ -12,3 +12,8 @@ resource "host_package_pacman" "pipewire_pulse" {
 resource "host_package_pacman" "wireplumber" {
   name = "wireplumber"
 }
+
+# PulseAudio-compatible mixer for selecting streams and per-application levels.
+resource "host_package_pacman" "pavucontrol" {
+  name = "pavucontrol"
+}

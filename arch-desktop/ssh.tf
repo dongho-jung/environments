@@ -41,7 +41,7 @@ resource "host_ssh_config_host" "github" {
   extra_options = {
     AddKeysToAgent        = "yes"
     StrictHostKeyChecking = "yes"
-    UserKnownHostsFile    = "/home/dongho/.ssh/known_hosts.github /home/dongho/.ssh/known_hosts"
+    UserKnownHostsFile    = "${host_file.github_known_hosts.path_resolved} ${pathexpand("~/.ssh/known_hosts")}"
   }
 
   depends_on = [
