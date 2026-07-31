@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export LC_ALL=C
+
+readonly connection="qemu:///system"
+readonly network="default"
+readonly xml="/usr/local/share/terraform-libvirt-default-network.xml"
+
+virsh --connect "$connection" net-define "$xml" >/dev/null
+virsh --connect "$connection" net-autostart "$network" >/dev/null
+
+if ! virsh --connect "$connection" net-info "$network" |
+    awk '$1 == "Active:" { found = 1; active = ($2 == "yes") } END { exit !(found && active) }'; then
+  virsh --connect "$connection" net-start "$network" >/dev/null
+fi
