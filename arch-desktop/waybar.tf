@@ -8,10 +8,6 @@ resource "host_package_aur" "waybar" {
   # Keep the tested build installed instead of rebuilding on every upstream
   # master change. Upgrade explicitly when a newer git build is wanted.
   ignore_version = true
-
-  depends_on = [
-    host_aur_helper.yay,
-  ]
 }
 
 resource "host_link" "waybar_config" {

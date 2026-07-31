@@ -38,8 +38,4 @@ resource "host_package_pacman" "wf_recorder" {
 # The prebuilt AUR package avoids compiling the Rust/OpenCV application locally.
 resource "host_package_aur" "wayscrollshot" {
   name = "wayscrollshot-bin"
-
-  depends_on = [
-    host_aur_helper.yay,
-  ]
 }

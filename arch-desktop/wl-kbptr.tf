@@ -10,10 +10,6 @@
 # which builds and installs via yay/paru.
 resource "host_package_aur" "wl_kbptr" {
   name = "wl-kbptr"
-
-  depends_on = [
-    host_aur_helper.yay,
-  ]
 }
 #
 # NOTE: "floating" mode (auto-detecting on-screen targets, like vimium hints) needs
