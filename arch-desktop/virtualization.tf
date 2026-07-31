@@ -8,6 +8,10 @@ resource "host_package_pacman" "libvirt" {
   name = "libvirt"
 }
 
+resource "host_package_pacman" "dmidecode" {
+  name = "dmidecode"
+}
+
 resource "host_package_pacman" "virt_manager" {
   name = "virt-manager"
 }
@@ -48,9 +52,9 @@ resource "host_package_aur" "virtio_win" {
 # AdGuard listener on virbr0 to guests.
 resource "host_system_file" "libvirt_default_network" {
   source      = "${path.module}/libvirt/default-network.xml"
-  destination = "/etc/libvirt/qemu/networks/default.xml"
+  destination = "/usr/local/share/terraform-libvirt-default-network.xml"
 
-  mode              = "0600"
+  mode              = "0644"
   adopt_existing    = true
   delete_on_destroy = false
 
@@ -59,8 +63,9 @@ resource "host_system_file" "libvirt_default_network" {
   ]
 }
 
-# The monolithic daemon remains the supported Arch setup and also permits
-# domains marked for autostart to start with the host.
+# Arch socket-activates the monolithic daemon and intentionally lets it exit
+# after 120 idle seconds. Start and enable it initially, then ignore only the
+# transient running flag so its normal idle exit does not create perpetual drift.
 resource "host_systemd_service" "libvirtd" {
   name    = "libvirtd.service"
   enabled = true
@@ -68,10 +73,67 @@ resource "host_systemd_service" "libvirtd" {
 
   depends_on = [
     host_package_pacman.dnsmasq,
+    host_package_pacman.dmidecode,
     host_package_pacman.edk2_ovmf,
     host_package_pacman.iptables,
     host_package_pacman.qemu_desktop,
     host_package_pacman.swtpm,
+  ]
+
+  lifecycle {
+    ignore_changes = [running]
+  }
+}
+
+resource "host_system_file" "ensure_libvirt_default_network" {
+  source      = "${path.module}/libvirt/ensure-default-network"
+  destination = "/usr/local/bin/terraform-ensure-libvirt-default-network"
+
+  mode              = "0755"
+  adopt_existing    = true
+  delete_on_destroy = true
+
+  depends_on = [
+    host_package_pacman.libvirt,
     host_system_file.libvirt_default_network,
+  ]
+}
+
+resource "host_systemd_unit" "libvirt_default_network" {
+  name = "terraform-libvirt-default-network.service"
+
+  content = <<-EOT
+    [Unit]
+    Description=Ensure the Terraform-managed libvirt default network
+    Requires=libvirtd.service
+    After=libvirtd.service
+
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/local/bin/terraform-ensure-libvirt-default-network
+    RemainAfterExit=yes
+
+    [Install]
+    WantedBy=multi-user.target
+  EOT
+
+  depends_on = [
+    host_system_file.ensure_libvirt_default_network,
+  ]
+}
+
+resource "host_systemd_service" "libvirt_default_network" {
+  name            = host_systemd_unit.libvirt_default_network.name
+  enabled         = true
+  running         = true
+  restart_trigger = sha256(jsonencode({
+    network = filesha256("${path.module}/libvirt/default-network.xml")
+    script  = filesha256("${path.module}/libvirt/ensure-default-network")
+    unit    = host_systemd_unit.libvirt_default_network.content
+  }))
+
+  depends_on = [
+    host_systemd_service.libvirtd,
+    host_systemd_unit.libvirt_default_network,
   ]
 }
