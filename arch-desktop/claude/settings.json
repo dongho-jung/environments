@@ -1,9 +1,9 @@
 {
   "includeCoAuthoredBy": false,
-  "model": "claude-fable-5[1m]",
   "enabledPlugins": {
     "ralph-loop@claude-plugins-official": true
   },
   "tui": "fullscreen",
+  "skipDangerousModePermissionPrompt": true,
   "theme": "auto"
 }
