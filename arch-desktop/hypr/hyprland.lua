@@ -325,7 +325,7 @@ end
 bind(mainMod .. " + return", openTerminal, "앱 · 터미널 열기")
 local closeWindowBind = bind(mainMod .. " + Q", hl.dsp.window.close(), "창 · 닫기")
 -- closeWindowBind:set_enabled(false)
-bind(mainMod .. " + M", hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()'"), "세션 · 종료 화면 열기")
+bind(mainMod .. " + M", hl.dsp.exit(), "세션 · 종료")
 bind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager), "앱 · 파일 관리자 열기")
 bind(mainMod .. " + T", hl.dsp.window.float({ action = "toggle" }), "창 · 타일/플로팅 전환")
 bind(mainMod .. " + SHIFT + T", toggleStickyWindow, "창 · 모든 워크스페이스에 고정/해제")
