@@ -7,8 +7,9 @@ resource "host_package_pacman" "kitty" {
 }
 
 resource "host_link" "kitty_config" {
-  source      = "kitty"
-  destination = "~/.config/kitty"
+  source       = "kitty"
+  destination  = "~/.config/kitty"
+  stage_source = true
 
   depends_on = [
     host_package_pacman.kitty,
