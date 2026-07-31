@@ -39,7 +39,6 @@ resource "host_package_aur" "virtio_win" {
   name = "virtio-win"
 
   depends_on = [
-    host_aur_helper.yay,
     host_package_pacman.libvirt,
   ]
 }
