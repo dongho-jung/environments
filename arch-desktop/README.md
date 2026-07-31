@@ -14,6 +14,7 @@ not as root; provider-managed AUR helper bootstrap intentionally refuses to run
    shell-history repository:
 
    ```sh
+   install -d -m 0700 ~/.local/state/terraform/arch-desktop
    terraform init
    sudo -v
    terraform apply \
@@ -21,6 +22,11 @@ not as root; provider-managed AUR helper bootstrap intentionally refuses to run
      -target=host_file.github_known_hosts \
      -target=host_ssh_config_host.github
    ```
+
+Terraform state lives at
+`~/.local/state/terraform/arch-desktop/terraform.tfstate`. The fixed local
+backend keeps the canonical checkout and temporary Git worktrees on the same
+locked state instead of silently creating independent host inventories.
 
 3. Register `~/.ssh/id_ed25519.pub` with the `dongho-jung` GitHub account, then
    run the normal full apply:
