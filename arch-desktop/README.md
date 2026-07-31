@@ -2,8 +2,7 @@
 
 This configuration assumes a minimal host bootstrap has already created the
 `dongho` user and installed/configured `sudo`. Terraform must run as `dongho`,
-not as root; provider-managed AUR helper bootstrap intentionally refuses to run
-`makepkg` as root.
+not as root.
 
 ## First apply on a new host
 
