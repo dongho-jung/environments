@@ -20,3 +20,31 @@ resource "host_package_pacman" "fcitx5_qt" {
 resource "host_package_pacman" "fcitx5_configtool" {
   name = "fcitx5-configtool"
 }
+
+resource "host_file" "fcitx5_config" {
+  path    = "~/.config/fcitx5/config"
+  content = file("${path.module}/fcitx5/config")
+
+  depends_on = [
+    host_package_pacman.fcitx5,
+  ]
+}
+
+resource "host_file" "fcitx5_profile" {
+  path    = "~/.config/fcitx5/profile"
+  content = file("${path.module}/fcitx5/profile")
+
+  depends_on = [
+    host_package_pacman.fcitx5,
+    host_package_pacman.fcitx5_hangul,
+  ]
+}
+
+resource "host_file" "fcitx5_hangul_config" {
+  path    = "~/.config/fcitx5/conf/hangul.conf"
+  content = file("${path.module}/fcitx5/conf/hangul.conf")
+
+  depends_on = [
+    host_package_pacman.fcitx5_hangul,
+  ]
+}
