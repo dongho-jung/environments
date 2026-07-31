@@ -56,6 +56,8 @@ local opacityControl      = "bash \"$HOME/.config/hypr/adjust-window-opacity.sh\
 hl.on("hyprland.start", function ()
     hl.exec_cmd("fcitx5 -d")
     hl.exec_cmd("waybar")
+    hl.exec_cmd("hypridle")
+    hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
 end)
 
 
@@ -67,6 +69,9 @@ end)
 
 hl.env("XCURSOR_SIZE", "24")
 hl.env("HYPRCURSOR_SIZE", "24")
+hl.env("XMODIFIERS", "@im=fcitx")
+hl.env("QT_IM_MODULE", "fcitx")
+hl.env("GTK_IM_MODULE", "fcitx")
 
 
 -----------------------
@@ -581,7 +586,3 @@ hl.window_rule({
 
 bind("SUPER + L", hl.dsp.exec_cmd("hyprlock"), "세션 · 화면 잠그기")
 bind("SUPER + SHIFT + L", hl.dsp.exec_cmd("sh -c 'pidof hyprlock || hyprlock & sleep 1; systemctl suspend'"), "세션 · 잠근 뒤 절전")
-
-hl.on("hyprland.start", function()
-  hl.exec_cmd("hypridle")
-end)
