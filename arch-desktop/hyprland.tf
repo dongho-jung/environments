@@ -28,8 +28,9 @@ resource "host_package_pacman" "brightnessctl" {
 }
 
 resource "host_link" "hypr_config" {
-  source      = "hypr"
-  destination = "~/.config/hypr"
+  source       = "hypr"
+  destination  = "~/.config/hypr"
+  stage_source = true
 
   depends_on = [
     host_package_pacman.hyprland,

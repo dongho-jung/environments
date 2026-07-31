@@ -11,8 +11,9 @@ resource "host_package_aur" "waybar" {
 }
 
 resource "host_link" "waybar_config" {
-  source      = "waybar"
-  destination = "~/.config/waybar"
+  source       = "waybar"
+  destination  = "~/.config/waybar"
+  stage_source = true
 
   depends_on = [
     host_package_aur.waybar,

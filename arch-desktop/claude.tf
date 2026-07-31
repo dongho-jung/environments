@@ -11,21 +11,25 @@ resource "host_file_block" "claude_aliases" {
 }
 
 resource "host_link" "claude_settings" {
-  source      = "claude/settings.json"
-  destination = "~/.claude/settings.json"
+  source       = "claude/settings.json"
+  destination  = "~/.claude/settings.json"
+  stage_source = true
 }
 
 resource "host_link" "claude_instructions" {
-  source      = "claude/CLAUDE.md"
-  destination = "~/.claude/CLAUDE.md"
+  source       = "claude/CLAUDE.md"
+  destination  = "~/.claude/CLAUDE.md"
+  stage_source = true
 }
 
 resource "host_link" "claude_command_c" {
-  source      = "../common/claude/commands/c.md"
-  destination = "~/.claude/commands/c.md"
+  source       = "../common/claude/commands/c.md"
+  destination  = "~/.claude/commands/c.md"
+  stage_source = true
 }
 
 resource "host_link" "claude_command_new_version" {
-  source      = "../common/claude/commands/new-version.md"
-  destination = "~/.claude/commands/new-version.md"
+  source       = "../common/claude/commands/new-version.md"
+  destination  = "~/.claude/commands/new-version.md"
+  stage_source = true
 }

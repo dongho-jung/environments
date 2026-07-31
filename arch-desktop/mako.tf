@@ -6,8 +6,9 @@ resource "host_package_pacman" "mako" {
 }
 
 resource "host_link" "mako_config" {
-  source      = "mako"
-  destination = "~/.config/mako"
+  source       = "mako"
+  destination  = "~/.config/mako"
+  stage_source = true
 
   depends_on = [
     host_package_pacman.mako,
