@@ -24,7 +24,9 @@
 4. Keep the history useful while working:
    - Add concise comments for material scope or approach changes, important decisions, blockers, failed validations, and handoffs. Update the description when the durable scope or completion criteria change.
    - Do not comment on every small edit or duplicate information already present. Never put credentials, secrets, sensitive customer data, or raw private logs in an issue.
-5. Complete the lifecycle only after the requested outcome is implemented and proportionately verified:
+5. Complete the lifecycle only after the requested outcome is delivered and proportionately verified:
+   - For Git repository work performed on a separate task branch or worktree, integration into the intended target branch is part of the tracked scope. A local commit, pushed branch, clean worktree, or open or approved PR/MR is not completion. Do not add the final completion comment or transition the issue to Done while the work remains unmerged.
+   - Verify the merge before Jira completion: refresh relevant remote refs when available and confirm Git ancestry into the intended target branch, or inspect an authoritative merged PR/MR status. For squash or rebase merges, rely on the merged PR/MR status rather than commit ancestry alone. If the merge cannot be verified, keep the issue in an appropriate non-terminal state and record the branch or PR/MR reference and the remaining merge step.
    - Add a final concise comment summarizing the result, validation performed, and relevant commit or PR references when available.
    - Re-read the issue, fetch fresh transitions, and move it to a Done-equivalent status such as `작업 완료` only when the entire tracked scope is complete. For partial work or a blocker, leave it open in the appropriate non-terminal state and record the remaining work or blocker instead.
 6. Verify mutations by inspecting the issue after an assignment, material update, or transition. If an outcome is unknown, inspect before retrying so comments, issues, and transitions are not duplicated. Mention the issue key and final status in the user handoff.
