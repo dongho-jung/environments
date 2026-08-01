@@ -41,10 +41,20 @@ resource "host_file" "fcitx5_profile" {
 }
 
 resource "host_file" "fcitx5_hangul_config" {
-  path    = "~/.config/fcitx5/conf/hangul.conf"
-  content = file("${path.module}/fcitx5/conf/hangul.conf")
+  path = "~/.config/fcitx5/conf/hangul.conf"
+  # Match the blank line Fcitx writes at the end of input-method configs.
+  content = format("%s\n", file("${path.module}/fcitx5/conf/hangul.conf"))
 
   depends_on = [
     host_package_pacman.fcitx5_hangul,
+  ]
+}
+
+resource "host_file" "fcitx5_quickphrase_config" {
+  path    = "~/.config/fcitx5/conf/quickphrase.conf"
+  content = file("${path.module}/fcitx5/conf/quickphrase.conf")
+
+  depends_on = [
+    host_package_pacman.fcitx5,
   ]
 }
