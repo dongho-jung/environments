@@ -21,15 +21,3 @@ resource "host_link" "claude_instructions" {
   destination  = "~/.claude/CLAUDE.md"
   stage_source = true
 }
-
-resource "host_link" "claude_command_c" {
-  source       = "../common/claude/commands/c.md"
-  destination  = "~/.claude/commands/c.md"
-  stage_source = true
-}
-
-resource "host_link" "claude_command_new_version" {
-  source       = "../common/claude/commands/new-version.md"
-  destination  = "~/.claude/commands/new-version.md"
-  stage_source = true
-}
