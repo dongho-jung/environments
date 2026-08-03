@@ -128,6 +128,27 @@ resource "host_file" "zshrc" {
   block {
     name    = "functions"
     content = <<-EOT
+      gwl() {
+        local selection worktree
+        local worktree_pattern='^(.*[^[:space:]])[[:space:]]+[[:xdigit:]]+[[:space:]]'
+
+        selection=$(git worktree list | fzf \
+          --height=40% \
+          --layout=reverse \
+          --border \
+          --prompt='worktree> ' \
+          --header='enter: copy path') || return
+        [[ -n "$selection" && "$selection" =~ $worktree_pattern ]] || return 1
+        worktree=$match[1]
+
+        if print -rn -- "$worktree" | wl-copy; then
+          print -r -- "Copied: $worktree"
+        else
+          print -u2 -r -- "gwl: failed to copy $worktree"
+          return 1
+        fi
+      }
+
       tmp() {
         TMP=~/tmp/$(date +%F)
         if [ "$#" -gt 0 ]; then
