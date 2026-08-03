@@ -54,20 +54,33 @@ root-only ownership, type, and permissions.
 ## Windows 11 virtual machine
 
 The configuration installs QEMU/KVM, libvirt, virt-manager, UEFI firmware,
-software TPM 2.0 support, NAT networking, and the Windows VirtIO driver ISO.
-After the first apply:
+software TPM 2.0 support, NAT networking, the Windows VirtIO driver ISO, and the
+`windows11-vm` launcher. Download a Windows 11 x64 ISO to `~/Downloads`, then
+create or start the VM and open its graphical console with one command:
 
-1. Sign out and back in once so the new `libvirt` group membership is visible
-   to the desktop session. `SUPER+M` exits Hyprland; logging in again on tty1 is
-   sufficient, so a full reboot is not required.
-2. Open `virt-manager` and use the `QEMU/KVM` system connection.
-3. Create a VM from a Windows 11 ISO and select **Customize configuration before
-   install**. Use a Q35 chipset, x86_64 UEFI firmware, a `host-passthrough` CPU,
-   and an emulated CRB TPM 2.0 device.
-4. Attach `/var/lib/libvirt/images/virtio-win.iso` as a SATA CD-ROM. If the
-   installer cannot see a VirtIO disk, load the matching Windows 11 AMD64
-   storage driver from that ISO. Run `virtio-win-guest-tools.exe` in Windows
-   after installation to install the remaining VirtIO drivers and guest agent.
+```sh
+windows11-vm
+```
+
+On first use, the launcher selects the newest `*Win*11*x64*.iso` in
+`~/Downloads` and creates `win11` with 4 vCPUs, 8 GiB RAM, a 128 GiB sparse
+disk, Q35, UEFI, SPICE, and exactly one emulated CRB TPM. Later invocations
+start the existing domain when necessary and open its console. Set
+`WINDOWS11_ISO=/path/to/windows.iso` to override ISO discovery, or run
+`windows11-vm --print-xml` to inspect the domain specification without creating
+it.
+
+The system disk and initial network adapter use Windows-supported emulated
+devices so Setup does not require drivers. The launcher also attaches
+`/var/lib/libvirt/images/virtio-win.iso`; run `virtio-win-guest-tools.exe` from
+that CD in Windows after installation to add the optimized drivers and guest
+agent. The Windows 11 OS profile supplies the TPM automatically, so do not add a
+second TPM in virt-manager.
+
+After the first Terraform apply, sign out and back in once if the new `libvirt`
+group membership is not yet visible to the desktop session. `SUPER+M` exits
+Hyprland; logging in again on tty1 is sufficient, so a full reboot is not
+required.
 
 Terraform defines, starts, and enables autostart for the `default` NAT network.
 Its DHCP service advertises AdGuard Home at `192.168.122.1` for DNS, avoiding a
