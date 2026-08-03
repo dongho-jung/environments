@@ -77,6 +77,17 @@ count_tpms() {
   printf '%s\n' "$count"
 }
 
+cpu_topology_matches() {
+  local xml="$1"
+  local topology
+
+  topology="$(grep -m1 -E '<topology([[:space:]>])' <<<"$xml" || true)"
+  [[ -n "$topology" ]] &&
+    grep -Eq "sockets=['\"]1['\"]" <<<"$topology" &&
+    grep -Eq "cores=['\"]${vcpus}['\"]" <<<"$topology" &&
+    grep -Eq "threads=['\"]1['\"]" <<<"$topology"
+}
+
 network_is_active() {
   local info
 
@@ -128,6 +139,7 @@ require_command readlink
 require_command virsh
 require_command virt-install
 require_command virt-manager
+require_command virt-xml
 
 if virsh --connect "$connection" dominfo "$vm_name" >/dev/null 2>&1; then
   domain_xml="$(virsh --connect "$connection" dumpxml --inactive "$vm_name")"
@@ -141,6 +153,26 @@ if virsh --connect "$connection" dominfo "$vm_name" >/dev/null 2>&1; then
   fi
 
   state="$(virsh --connect "$connection" domstate "$vm_name")"
+  if ! cpu_topology_matches "$domain_xml"; then
+    case "$state" in
+      "shut off" | crashed)
+        printf 'Updating %s to one socket with %s cores...\n' \
+          "$vm_name" "$vcpus"
+        virt-xml "$vm_name" \
+          --connect "$connection" \
+          --edit \
+          --vcpus "${vcpus},sockets=1,cores=${vcpus},threads=1" \
+          >/dev/null
+        domain_xml="$(virsh --connect "$connection" dumpxml --inactive "$vm_name")"
+        cpu_topology_matches "$domain_xml" ||
+          die "failed to apply the expected CPU topology to $vm_name"
+        ;;
+      *)
+        die "$vm_name must be shut down to correct its CPU topology"
+        ;;
+    esac
+  fi
+
   case "$state" in
     running)
       ;;
@@ -197,7 +229,7 @@ install_args=(
   --connect "$connection"
   --name "$vm_name"
   --memory "$memory_mib"
-  --vcpus "$vcpus"
+  --vcpus "${vcpus},sockets=1,cores=${vcpus},threads=1"
   --cpu host-passthrough
   --machine q35
   --boot uefi
@@ -218,6 +250,8 @@ prospective_xml="$("${install_args[@]}" --dry-run --print-xml=1)"
 tpm_count="$(count_tpms "$prospective_xml")"
 [[ "$tpm_count" == "1" ]] ||
   die "generated domain has $tpm_count TPM devices; expected exactly one"
+cpu_topology_matches "$prospective_xml" ||
+  die "generated domain does not have the expected CPU topology"
 
 if [[ "$mode" == "print-xml" ]]; then
   printf '%s\n' "$prospective_xml"
@@ -231,5 +265,7 @@ domain_xml="$(virsh --connect "$connection" dumpxml --inactive "$vm_name")"
 tpm_count="$(count_tpms "$domain_xml")"
 [[ "$tpm_count" == "1" ]] ||
   die "created domain has $tpm_count TPM devices; expected exactly one"
+cpu_topology_matches "$domain_xml" ||
+  die "created domain does not have the expected CPU topology"
 
 open_console

@@ -64,8 +64,10 @@ windows11-vm
 
 On first use, the launcher selects the newest `*Win*11*x64*.iso` in
 `~/Downloads` and creates `win11` with 4 vCPUs, 8 GiB RAM, a 128 GiB sparse
-disk, Q35, UEFI, SPICE, and exactly one emulated CRB TPM. Later invocations
-start the existing domain when necessary and open its console. Set
+disk, Q35, UEFI, SPICE, and exactly one emulated CRB TPM. The vCPUs are exposed
+as one socket with four cores so Windows can use all of them. Later invocations
+reconcile that CPU topology, start the existing domain when necessary, and open
+its console. Set
 `WINDOWS11_ISO=/path/to/windows.iso` to override ISO discovery, or run
 `windows11-vm --print-xml` to inspect the domain specification without creating
 it.
