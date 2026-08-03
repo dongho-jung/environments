@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export LC_ALL=C
+
+readonly connection="qemu:///system"
+readonly vm_name="win11"
+readonly network_name="default"
+readonly storage_pool="default"
+readonly disk_volume="${vm_name}.qcow2"
+readonly memory_mib="8192"
+readonly vcpus="4"
+readonly disk_gib="128"
+readonly virtio_iso="/var/lib/libvirt/images/virtio-win.iso"
+
+usage() {
+  cat <<'EOF'
+Usage: windows11-vm [--print-xml] [WINDOWS_ISO]
+
+Create or start the managed Windows 11 VM and open its graphical console.
+The newest Win11*x64*.iso in ~/Downloads is used when WINDOWS_ISO is omitted.
+
+Options:
+  --print-xml  Print the existing or prospective libvirt domain XML and exit.
+  -h, --help   Show this help.
+
+Environment:
+  WINDOWS11_ISO           Override the installer ISO path.
+  WINDOWS11_VM_NO_CONSOLE Set to 1 to skip opening virt-manager.
+EOF
+}
+
+die() {
+  printf 'windows11-vm: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "required command is missing: $1"
+}
+
+resolve_windows_iso() {
+  local requested="${1:-${WINDOWS11_ISO:-}}"
+
+  if [[ -n "$requested" ]]; then
+    [[ -f "$requested" ]] || die "Windows ISO not found: $requested"
+    [[ -r "$requested" ]] || die "Windows ISO is not readable: $requested"
+    readlink -f -- "$requested"
+    return
+  fi
+
+  local downloads_dir="${XDG_DOWNLOAD_DIR:-${HOME:?}/Downloads}"
+  local -a candidates=()
+  local candidate
+  local selected=""
+
+  shopt -s nullglob nocaseglob
+  candidates=("$downloads_dir"/*win*11*x64*.iso)
+  shopt -u nullglob nocaseglob
+
+  ((${#candidates[@]} > 0)) ||
+    die "no Windows 11 x64 ISO found in $downloads_dir"
+
+  selected="${candidates[0]}"
+  for candidate in "${candidates[@]:1}"; do
+    [[ "$candidate" -nt "$selected" ]] && selected="$candidate"
+  done
+
+  readlink -f -- "$selected"
+}
+
+count_tpms() {
+  local xml="$1"
+  local count
+
+  count="$(grep -Ec '<tpm([[:space:]>])' <<<"$xml" || true)"
+  printf '%s\n' "$count"
+}
+
+network_is_active() {
+  local info
+
+  info="$(virsh --connect "$connection" net-info "$network_name")" || return 1
+  grep -Eq '^Active:[[:space:]]+yes$' <<<"$info"
+}
+
+pool_is_active() {
+  local info
+
+  info="$(virsh --connect "$connection" pool-info "$storage_pool")" || return 1
+  grep -Eq '^State:[[:space:]]+running$' <<<"$info"
+}
+
+open_console() {
+  if [[ "${WINDOWS11_VM_NO_CONSOLE:-0}" == "1" ]]; then
+    return
+  fi
+
+  printf 'Opening the %s console...\n' "$vm_name"
+  virt-manager \
+    --connect "$connection" \
+    --show-domain-console "$vm_name"
+}
+
+mode="launch"
+case "${1:-}" in
+  --print-xml)
+    mode="print-xml"
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -*)
+    usage >&2
+    die "unknown option: $1"
+    ;;
+esac
+
+(($# <= 1)) || {
+  usage >&2
+  die "expected at most one Windows ISO path"
+}
+
+require_command grep
+require_command readlink
+require_command virsh
+require_command virt-install
+require_command virt-manager
+
+if virsh --connect "$connection" dominfo "$vm_name" >/dev/null 2>&1; then
+  domain_xml="$(virsh --connect "$connection" dumpxml --inactive "$vm_name")"
+  tpm_count="$(count_tpms "$domain_xml")"
+  [[ "$tpm_count" == "1" ]] ||
+    die "existing $vm_name domain has $tpm_count TPM devices; expected exactly one"
+
+  if [[ "$mode" == "print-xml" ]]; then
+    printf '%s\n' "$domain_xml"
+    exit 0
+  fi
+
+  state="$(virsh --connect "$connection" domstate "$vm_name")"
+  case "$state" in
+    running)
+      ;;
+    paused)
+      printf 'Resuming %s...\n' "$vm_name"
+      virsh --connect "$connection" resume "$vm_name" >/dev/null
+      ;;
+    "shut off" | crashed)
+      printf 'Starting %s...\n' "$vm_name"
+      virsh --connect "$connection" start "$vm_name" >/dev/null
+      ;;
+    *)
+      die "cannot automatically start $vm_name from state: $state"
+      ;;
+  esac
+
+  open_console
+  exit 0
+fi
+
+windows_iso="$(resolve_windows_iso "${1:-}")"
+[[ -f "$virtio_iso" ]] || die "VirtIO driver ISO not found: $virtio_iso"
+
+virsh --connect "$connection" net-info "$network_name" >/dev/null 2>&1 ||
+  die "libvirt network is not defined: $network_name"
+if [[ "$mode" == "launch" ]] && ! network_is_active; then
+  printf 'Starting libvirt network %s...\n' "$network_name"
+  if ! virsh --connect "$connection" net-start "$network_name" \
+    >/dev/null 2>&1; then
+    network_is_active ||
+      die "failed to start libvirt network: $network_name"
+  fi
+fi
+
+virsh --connect "$connection" pool-info "$storage_pool" >/dev/null 2>&1 ||
+  die "libvirt storage pool is not defined: $storage_pool"
+if [[ "$mode" == "launch" ]] && ! pool_is_active; then
+  printf 'Starting libvirt storage pool %s...\n' "$storage_pool"
+  if ! virsh --connect "$connection" pool-start "$storage_pool" \
+    >/dev/null 2>&1; then
+    pool_is_active ||
+      die "failed to start libvirt storage pool: $storage_pool"
+  fi
+fi
+
+disk_spec="pool=${storage_pool},size=${disk_gib},format=qcow2,bus=sata"
+if virsh --connect "$connection" vol-info \
+  --pool "$storage_pool" "$disk_volume" >/dev/null 2>&1; then
+  disk_spec="vol=${storage_pool}/${disk_volume},bus=sata"
+fi
+
+install_args=(
+  virt-install
+  --connect "$connection"
+  --name "$vm_name"
+  --memory "$memory_mib"
+  --vcpus "$vcpus"
+  --cpu host-passthrough
+  --machine q35
+  --boot uefi
+  --osinfo win11
+  --disk "$disk_spec"
+  --cdrom "$windows_iso"
+  --disk "path=${virtio_iso},device=cdrom,bus=sata,readonly=on"
+  --network "network=${network_name},model=e1000e"
+  --graphics spice
+  --video qxl
+  --sound ich9
+  --noautoconsole
+)
+
+# The win11 libosinfo profile supplies one emulated CRB TPM 2.0 device. Do not
+# add --tpm here: doing so would create the duplicate device rejected by libvirt.
+prospective_xml="$("${install_args[@]}" --dry-run --print-xml=1)"
+tpm_count="$(count_tpms "$prospective_xml")"
+[[ "$tpm_count" == "1" ]] ||
+  die "generated domain has $tpm_count TPM devices; expected exactly one"
+
+if [[ "$mode" == "print-xml" ]]; then
+  printf '%s\n' "$prospective_xml"
+  exit 0
+fi
+
+printf 'Creating %s from %s...\n' "$vm_name" "$windows_iso"
+"${install_args[@]}"
+
+domain_xml="$(virsh --connect "$connection" dumpxml --inactive "$vm_name")"
+tpm_count="$(count_tpms "$domain_xml")"
+[[ "$tpm_count" == "1" ]] ||
+  die "created domain has $tpm_count TPM devices; expected exactly one"
+
+open_console
