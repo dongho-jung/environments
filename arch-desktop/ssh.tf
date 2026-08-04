@@ -12,6 +12,14 @@ resource "host_ssh_key" "github" {
   ]
 }
 
+# Printed after every apply so a fresh host never has to be told out of band
+# which key to register; the private shell-history clone stays blocked until it
+# is added to the GitHub account.
+output "github_ssh_key" {
+  description = "Public key to register at https://github.com/settings/keys"
+  value       = host_ssh_key.github.public_key
+}
+
 # Pinned from GitHub's published SSH host keys. Keeping this separate from the
 # general known_hosts file preserves entries learned for other hosts.
 resource "host_file" "github_known_hosts" {

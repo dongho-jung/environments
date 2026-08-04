@@ -77,6 +77,9 @@ count_tpms() {
   printf '%s\n' "$count"
 }
 
+# Windows 11 client editions cap the CPU sockets they will use, so the vCPUs are
+# exposed as one socket with four cores. Without this the guest ignores all but
+# the first core. Existing domains are reconciled before they start.
 cpu_topology_matches() {
   local xml="$1"
   local topology
