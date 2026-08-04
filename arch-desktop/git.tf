@@ -12,18 +12,22 @@ resource "host_dir" "projects" {
   mode = "0755"
 }
 
+# Public repositories clone over HTTPS so a fresh host needs no registered SSH
+# key before the first apply. Pushing uses the gh credential helper configured
+# in .gitconfig below.
 resource "host_git_repo" "environments" {
-  url  = "git@github.com:dongho-jung/environments.git"
+  url  = "https://github.com/dongho-jung/environments.git"
   path = "${host_dir.projects.path}/environments"
 
   delete_on_destroy = false
 
   depends_on = [
     host_package_pacman.git,
-    host_ssh_config_host.github,
   ]
 }
 
+# The only private repository, so this is the one clone that needs the SSH key
+# registered with the GitHub account first.
 resource "host_git_repo" "shell_history" {
   url  = "git@github.com:dongho-jung/shell-history.git"
   path = "${host_dir.projects.path}/shell-history"
@@ -37,14 +41,13 @@ resource "host_git_repo" "shell_history" {
 }
 
 resource "host_git_repo" "terraform_provider_host" {
-  url  = "git@github.com:dongho-jung/terraform-provider-host.git"
+  url  = "https://github.com/dongho-jung/terraform-provider-host.git"
   path = "${host_dir.projects.path}/terraform-provider-host"
 
   delete_on_destroy = false
 
   depends_on = [
     host_package_pacman.git,
-    host_ssh_config_host.github,
   ]
 }
 
@@ -67,7 +70,13 @@ resource "host_file" "gitconfig" {
       rebase = false
     [push]
       autoSetupRemote = true
+    [credential "https://github.com"]
+      helper = !/usr/bin/gh auth git-credential
   EOT
+
+  depends_on = [
+    host_package_pacman.gh,
+  ]
 }
 
 resource "host_file_block" "git_aliases" {
