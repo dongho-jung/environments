@@ -8,14 +8,9 @@ terraform {
   required_providers {
     host = {
       source  = "dongho-jung/host"
-      version = "~> 0.19.0"
+      version = "~> 0.20.0"
     }
   }
 }
 
-provider "host" {
-  target_user                  = "dongho"
-  aur_helper                   = "yay"
-  aur_remove_make_dependencies = true
-  aur_clean_after              = true
-}
+provider "host" {}
