@@ -1,5 +1,5 @@
 # Remap Caps Lock to F17. Fcitx exposes that key as Launch8 and uses it as the
-# Korean input toggle, leaving the physical Hangul key free for wl-kbptr.
+# Korean input toggle, leaving the physical Hangul key free to bind elsewhere.
 resource "host_package_pacman" "keyd" {
   name = "keyd"
 }
