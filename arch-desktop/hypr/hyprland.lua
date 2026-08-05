@@ -385,8 +385,6 @@ for _, sc in ipairs({
     bind(mainMod .. " + " .. sc.on, sendKeyTap(sc.mods, sc.send), sc.description)
 end
 
-bind("Hangul", hl.dsp.exec_cmd("pgrep -x wl-kbptr >/dev/null || wl-kbptr -o modes=tile,bisect"), "포인터 · 키보드 마우스 열기")
-
 -- Move focus with mainMod + arrow keys
 bind(mainMod .. " + left",  hl.dsp.focus({ direction = "left" }),  "포커스 · 왼쪽 창")
 bind(mainMod .. " + right", hl.dsp.focus({ direction = "right" }), "포커스 · 오른쪽 창")
