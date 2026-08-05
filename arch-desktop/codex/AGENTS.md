@@ -35,26 +35,41 @@
 
 If Jira authorization is required, present the same-email consent URL and retry after authorization. If a required transition has screen fields, permissions are missing, or the CapeLabs MCP is unavailable, do not silently claim the Jira workflow succeeded; continue other safe in-scope work when possible and report the exact Jira limitation.
 
-## Branch and worktree isolation
+## Branch and worktree handling
 
-### Location and naming
+### Default: work in the current checkout
 
-- By default, before a task writes, modifies, generates, moves, or deletes files anywhere inside a Git repository, create a dedicated Git worktree and task branch for the current Codex session and perform all repository writes there. Treat the canonical checkout as read-only unless the user explicitly directs otherwise.
-- Use `~/.worktrees` as the single root for all agent-created temporary worktrees. Do not create them inside the repository, beside the repository, under `/tmp`, or in another ad hoc location.
-- Name each path `~/.worktrees/<repo>-<task-slug>`, where `<repo>` is the repository root directory name and `<task-slug>` is a concise kebab-case task name. Add a short owner or numeric suffix only when the intended path already exists.
-- Follow an explicit user request to use a particular checkout, branch, worktree, or location instead of these defaults.
+- Work directly in the current checkout on the current branch. Writing, modifying, generating, moving, or deleting files inside a Git repository is the normal case and is not by itself a reason to create a worktree.
+- Branch choice still follows the Branch targets rules under Commit conventions: on a shared branch (`main`/`master`/`develop`), move the work onto a `type/kebab-name` branch before committing rather than committing directly.
+- Leave unrelated uncommitted and untracked changes exactly as they are. Never stash, reset, or check out over work you did not create.
 
-### Creation and ownership
+### When to isolate instead
 
-- Give every concurrently running Codex session or agent its own worktree and branch. Never reuse or modify a worktree owned by another session, even if it appears idle.
+Create a dedicated worktree and task branch only when at least one of these holds:
+
+- The user asks for a worktree, or asks that the current checkout stay untouched.
+- Another session or agent looks active in this repository: a worktree locked for it in `git worktree list --porcelain`, an agent you were told is running, or files changing under you that you did not change.
+- The checkout moved on its own: HEAD or the current branch changed mid-task, or `git status` shows a state you did not create.
+- The repository is mid-operation: an unresolved conflict, or `MERGE_HEAD`, `REBASE_HEAD`, `CHERRY_PICK_HEAD`, or `BISECT_LOG` present.
+- The task needs a different base branch, or a branch switch, while the checkout holds uncommitted work that must survive.
+- You are running parallel agents that will write to this repository at the same time; give each its own worktree.
+
+When one of these surfaces mid-task, stop before the next write, say what you observed, and continue in a worktree instead of writing into the ambiguity. When nothing has been written yet and the cause is unclear, ask rather than guess.
+
+### Creating one
+
+- Name each path `~/.worktrees/<repo>-<task-slug>`, where `<repo>` is the repository root directory name and `<task-slug>` is a concise kebab-case task name. Add a short owner or numeric suffix only when the intended path already exists. Never create it inside the repository, beside the repository, under `/tmp`, or in another ad hoc location.
 - Before creating one, inspect `git status --short --branch` and `git worktree list --porcelain`, then verify the exact target path and branch are unused. Preserve every existing dirty or untracked change.
-- If the current session is already in its own dedicated worktree, reuse it instead of creating another. Otherwise create the worktree from the intended base branch in `~/.worktrees` before making any repository write.
+- If the current session is already in its own dedicated worktree, reuse it instead of creating another. Otherwise create the worktree from the intended base branch.
 - Immediately mark a newly created or resumed worktree as active with `git worktree lock --reason "Codex active: <branch>" <path>`. A lock is an ownership signal: never unlock, move, remove, or write in a worktree locked by another session.
+- Give every concurrently running Codex session or agent its own worktree and branch. Never reuse or modify a worktree owned by another session, even if it appears idle.
 - Do not relocate a legacy worktree outside `~/.worktrees` merely for consistency while it may be in use. Its owner may move it after confirming that it is inactive and clean; otherwise let the lifecycle rules below retire it after merge.
+- Follow an explicit user request to use a particular checkout, branch, worktree, or location instead of these defaults.
 
 ### Lifecycle and cleanup
 
-- Inspect registered worktrees for housekeeping before creating a new one and again before the final handoff. An active session must unlock its own worktree as its final lifecycle action so a later session can recognize it as inactive.
+- These rules apply only when this session created or resumed a worktree, or when the user asks for worktree housekeeping. Do not go hunting for worktrees to tidy during an unrelated task.
+- An active session must unlock its own worktree as its final lifecycle action so a later session can recognize it as inactive.
 - Automatically remove a worktree only when every condition below is true:
   - It is not the canonical checkout or the current worktree, and it is not locked.
   - `git -C <path> status --porcelain --untracked-files=all` is empty.
