@@ -27,7 +27,7 @@
    - Add concise comments for material scope or approach changes, important decisions, blockers, failed validations, and handoffs. Update the description when the durable scope or completion criteria change.
    - Do not comment on every small edit or duplicate information already present. Never put credentials, secrets, sensitive customer data, or raw private logs in an issue.
 5. Complete the lifecycle only after the requested outcome is delivered and proportionately verified:
-   - For Git repository work performed on a separate task branch or worktree, integration into the intended target branch is part of the tracked scope. A local commit, pushed branch, clean worktree, or open or approved PR/MR is not completion. Do not add the final completion comment or transition the issue to Done while the work remains unmerged.
+   - For Git repository work performed on a separate task branch, integration into the intended target branch is part of the tracked scope. A local commit, a pushed branch, or an open or approved PR/MR is not completion. Do not add the final completion comment or transition the issue to Done while the work remains unmerged.
    - Verify the merge before Jira completion: refresh relevant remote refs when available and confirm Git ancestry into the intended target branch, or inspect an authoritative merged PR/MR status. For squash or rebase merges, rely on the merged PR/MR status rather than commit ancestry alone. If the merge cannot be verified, keep the issue in an appropriate non-terminal state and record the branch or PR/MR reference and the remaining merge step.
    - Add a final concise comment summarizing the result, validation performed, and relevant commit or PR references when available.
    - Re-read the issue, fetch fresh transitions, and move it to a Done-equivalent status such as `작업 완료` only when the entire tracked scope is complete. For partial work or a blocker, leave it open in the appropriate non-terminal state and record the remaining work or blocker instead.
@@ -35,50 +35,76 @@
 
 If Jira authorization is required, present the same-email consent URL and retry after authorization. If a required transition has screen fields, permissions are missing, or the CapeLabs MCP is unavailable, do not silently claim the Jira workflow succeeded; continue other safe in-scope work when possible and report the exact Jira limitation.
 
-## Branch and worktree handling
+## Branch handling and the repository lock
 
 ### Default: work in the current checkout
 
-- Work directly in the current checkout on the current branch. Writing, modifying, generating, moving, or deleting files inside a Git repository is the normal case and is not by itself a reason to create a worktree.
+- Work directly in the current checkout on the current branch. Writing, modifying, generating, moving, or deleting files inside a Git repository is the normal case. Never create a Git worktree to isolate the work; concurrent sessions coordinate through the lock file below instead.
 - Branch choice still follows the Branch targets rules under Commit conventions: on a shared branch (`main`/`master`/`develop`), move the work onto a `type/kebab-name` branch before committing rather than committing directly.
 - Leave unrelated uncommitted and untracked changes exactly as they are. Never stash, reset, or check out over work you did not create.
 
-### When to isolate instead
+### The `.ai-agent-lock` file
 
-Create a dedicated worktree and task branch only when at least one of these holds:
+Concurrent sessions coordinate through one file at the repository root: `<repo-root>/.ai-agent-lock`, where `<repo-root>` is `git rev-parse --show-toplevel`. The global gitignore covers that name everywhere, so it is never staged or committed — do not add it to a repository's own `.gitignore`.
 
-- The user asks for a worktree, or asks that the current checkout stay untouched.
-- Another session or agent looks active in this repository: a worktree locked for it in `git worktree list --porcelain`, an agent you were told is running, or files changing under you that you did not change.
-- The checkout moved on its own: HEAD or the current branch changed mid-task, or `git status` shows a state you did not create.
-- The repository is mid-operation: an unresolved conflict, or `MERGE_HEAD`, `REBASE_HEAD`, `CHERRY_PICK_HEAD`, or `BISECT_LOG` present.
-- The task needs a different base branch, or a branch switch, while the checkout holds uncommitted work that must survive.
-- You are running parallel agents that will write to this repository at the same time; give each its own worktree.
+Treat it as a mutex *and* a handoff note. It has to carry enough context that whoever finds it next — including a later session after this one crashes — can tell what was being done, how far it got, and whether taking over is safe.
 
-When one of these surfaces mid-task, stop before the next write, say what you observed, and continue in a worktree instead of writing into the ambiguity. When nothing has been written yet and the cause is unclear, ask rather than guess.
+- Read-only work never needs the lock: reading, searching, explaining, reviewing, `git status`/`log`/`diff`. Do not take it just to look around.
+- Take it before the first write to the repository: a file edit, a `git` mutation, or a command that writes into the tree.
+- One lock per repository, at its root. Subagents spawned by this session work under this session's lock and never take their own. A submodule is a separate repository with its own lock; the superproject's lock does not cover it.
 
-### Creating one
+#### Acquiring
 
-- Name each path `~/.worktrees/<repo>-<task-slug>`, where `<repo>` is the repository root directory name and `<task-slug>` is a concise kebab-case task name. Add a short owner or numeric suffix only when the intended path already exists. Never create it inside the repository, beside the repository, under `/tmp`, or in another ad hoc location.
-- Before creating one, inspect `git status --short --branch` and `git worktree list --porcelain`, then verify the exact target path and branch are unused. Preserve every existing dirty or untracked change.
-- If the current session is already in its own dedicated worktree, reuse it instead of creating another. Otherwise create the worktree from the intended base branch.
-- Immediately mark a newly created or resumed worktree as active with `git worktree lock --reason "Codex active: <branch>" <path>`. A lock is an ownership signal: never unlock, move, remove, or write in a worktree locked by another session.
-- Give every concurrently running Codex session or agent its own worktree and branch. Never reuse or modify a worktree owned by another session, even if it appears idle.
-- Do not relocate a legacy worktree outside `~/.worktrees` merely for consistency while it may be in use. Its owner may move it after confirming that it is inactive and clean; otherwise let the lifecycle rules below retire it after merge.
-- Follow an explicit user request to use a particular checkout, branch, worktree, or location instead of these defaults.
+Create it atomically so two sessions starting at the same moment cannot both win — `set -C` makes `>` fail when the file already exists:
 
-### Lifecycle and cleanup
+```sh
+lock="$(git rev-parse --show-toplevel)/.ai-agent-lock"
+(set -C; cat > "$lock" <<EOF
+agent: ${AI_AGENT:-codex}
+session: <this session's id, as shown by /status>
+branch: $(git branch --show-current)
+started: $(date -Iseconds)
+updated: $(date -Iseconds)
+task: <one line: what the user asked for>
+plan:
+  - [ ] <first step>
+  - [ ] <next step>
+notes: <resume with: codex resume SESSION; plus anything else a later session needs>
+EOF
+) || { echo "already held:"; cat "$lock"; }
+```
 
-- These rules apply only when this session created or resumed a worktree, or when the user asks for worktree housekeeping. Do not go hunting for worktrees to tidy during an unrelated task.
-- An active session must unlock its own worktree as its final lifecycle action so a later session can recognize it as inactive.
-- Automatically remove a worktree only when every condition below is true:
-  - It is not the canonical checkout or the current worktree, and it is not locked.
-  - `git -C <path> status --porcelain --untracked-files=all` is empty.
-  - Its branch is confirmed merged into the intended integration branch, either by Git ancestry or by an authoritative merged PR/MR status for squash or rebase merges. Refresh remote refs first when that is available; never infer merge status from a stale or missing ref.
-  - The exact path and branch have been rechecked immediately before removal.
-- Run cleanup from the canonical checkout or another retained worktree. Use `git worktree remove <exact-path>` without `--force`, then use `git branch -d <branch>` only if Git accepts the safe deletion. If branch deletion is refused, leave the branch and report it rather than forcing it.
-- Use `git worktree prune --dry-run` first. Run `git worktree prune` only when every reported entry has been confirmed stale; otherwise leave the metadata intact and report it.
-- Never use `rm -rf`, a glob, `git worktree remove --force`, or `git branch -D` for routine cleanup. Never delete a dirty, locked, unmerged, or ambiguous worktree. Leave it in place and report its path, branch, and blocking condition.
-- If the current task is already merged at handoff, clean up its worktree using these checks. If it is not merged, preserve the worktree and branch, unlock it at handoff, and report their exact names for later cleanup.
+- A failed redirect means the lock is held. Do not write; follow *Finding a lock you do not own* below.
+- Put real content in `task`, `plan`, and `notes`. A lock that only says "working" is useless to whoever finds it.
+- Keep it current as the work goes: tick off `plan` items, refresh `updated`, and record whatever is left dangling — a WIP commit SHA, a file mid-edit, a migration half applied, a blocker. That record, not the timestamp, is what tells the next session where things actually stand.
+
+#### Releasing
+
+- Release it as the final action of the task, once the tree is in the state being handed over:
+
+```sh
+command rm -f "$(git rev-parse --show-toplevel)/.ai-agent-lock"
+```
+
+- `rm` is aliased to a no-op in this environment — plain `rm -f` prints a message and deletes nothing. Always use `command rm` for the lock.
+- If the task ends unfinished, leave the lock in place, update `plan` and `notes` to describe exactly what remains, and give the user its path in the handoff.
+
+#### Finding a lock you do not own
+
+Read it first — it was written for this moment. Then judge it against the repository's actual state.
+
+**The owner looks alive** — `updated` is recent, or the work it describes matches what the tree is currently doing. Do not write; wait it out. Tell the user who holds it and what they are doing, then re-check every 5 minutes and take the lock as soon as it frees. Keep doing read-only and otherwise unblocked work while waiting.
+
+```sh
+# checks every 5 minutes, exits the moment the lock frees
+for _ in $(seq 6); do [ -e "$lock" ] || break; sleep 300; done
+```
+
+Run that in the background so the session is not blocked. When it frees, acquire it the normal way — a third session may have won the race, so re-judge from the top if the acquire fails. After roughly 30 minutes with no release, stop waiting and re-read the lock: if the owner still looks alive, report the wait and ask the user how to proceed; if it now looks gone, fall through to the case below.
+
+**The owner looks gone** — `updated` is stale and nothing in the tree is moving. Do not take the lock on your own. Read what it was doing, then compare its `plan` and `notes` against the repository as it stands now: what landed, what is half-applied, whether the tree is clean, whether its branch still exists. Report both sides and ask the user how to proceed — resume the unfinished work from the lock, clear it and start fresh, or leave it alone. Act only on their answer.
+
+Never silently delete or overwrite another session's lock, and never treat one as dead just because it is old. Where the lock and the repository disagree, trust the repository and say so.
 
 ## Commit conventions
 
