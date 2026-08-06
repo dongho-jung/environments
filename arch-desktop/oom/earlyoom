@@ -1,0 +1,9 @@
+# systemd splits $EARLYOOM_ARGS on whitespace without removing quotes, so the
+# --avoid regexp is left unquoted. The stock file quotes it, which makes earlyoom
+# match literal quote characters and silently protect nothing.
+#
+# 8%/4% of 32 GiB is roughly 2.6 GiB before SIGTERM and 1.3 GiB before SIGKILL,
+# and both the memory and the swap threshold have to be crossed before earlyoom
+# acts. The avoid list keeps the session itself alive so a kill leaves a usable
+# desktop instead of a black screen.
+EARLYOOM_ARGS="-r 3600 -m 8,4 -s 8,4 --avoid ^(systemd|Hyprland|kitty|waybar|sshd|dbus-.+|pipewire|pipewire-.+|wireplumber)$"

@@ -18,3 +18,13 @@ resource "host_sysctl" "inotify_max_user_watches" {
   key   = "fs.inotify.max_user_watches"
   value = "524288"
 }
+
+# systemd ships 16, which enables sync and nothing else. During the 2026-08-06
+# memory freeze (see oom.tf) every REISUB key past the S was silently dropped by
+# the kernel, so the only way out was the power button. This is a single-user
+# desktop, so the usual argument for withholding the reboot and signal keys from
+# whoever is at the keyboard does not apply.
+resource "host_sysctl" "kernel_sysrq" {
+  key   = "kernel.sysrq"
+  value = "1"
+}
