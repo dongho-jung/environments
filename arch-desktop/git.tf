@@ -60,6 +60,17 @@ resource "host_file" "global_gitignore" {
   EOT
 }
 
+# GitHub verifies signatures against the signing key registered on the
+# account; this file is what lets `git log --show-signature` do the same
+# locally.
+resource "host_file" "git_allowed_signers" {
+  path = "~/.config/git/allowed_signers"
+
+  content = <<-EOT
+    dongho971220@gmail.com ${trimspace(host_ssh_key.github.public_key)}
+  EOT
+}
+
 resource "host_file" "gitconfig" {
   path = "~/.gitconfig"
 
@@ -67,6 +78,11 @@ resource "host_file" "gitconfig" {
     [user]
       email = dongho971220@gmail.com
       name = dongho-jung
+      signingkey = ${host_ssh_key.github.path_resolved}.pub
+    [gpg]
+      format = ssh
+    [gpg "ssh"]
+      allowedSignersFile = ${host_file.git_allowed_signers.path_resolved}
     [core]
       editor = nvim
       autocrlf = input
@@ -74,6 +90,9 @@ resource "host_file" "gitconfig" {
       excludesFile = ${host_file.global_gitignore.path_resolved}
     [commit]
       verbose = true
+      gpgsign = true
+    [tag]
+      gpgsign = true
     [init]
       defaultBranch = main
     [pull]
