@@ -58,6 +58,12 @@ hl.on("hyprland.start", function ()
     hl.exec_cmd("waybar")
     hl.exec_cmd("hypridle")
     hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
+    -- Advertise an assistive-technology consumer so GTK/Qt apps publish their
+    -- AT-SPI trees; wl-wysiwyc reads those to label clickable elements.
+    -- Chromium ignores this signal and needs --force-renderer-accessibility
+    -- instead (managed in chromium.tf via chromium-flags.conf).
+    hl.exec_cmd("gsettings set org.gnome.desktop.interface toolkit-accessibility true")
+    hl.exec_cmd("gsettings set org.gnome.desktop.a11y.applications screen-reader-enabled true")
 end)
 
 
