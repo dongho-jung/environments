@@ -635,5 +635,49 @@ hl.window_rule({
     float = true,
 })
 
-bind("SUPER + L", hl.dsp.exec_cmd("hyprlock"), "세션 · 화면 잠그기")
+-- Locking is one keypress away from the focus binds, and a stray SUPER+L used to
+-- blank the session instantly. Make it a two-press gesture instead: the first
+-- press only arms the lock, and hyprlock starts on a second press that lands
+-- between lockArmDelay and lockArmWindow seconds later. A press inside the delay
+-- is exactly the accidental double tap this guards against, so it is ignored and
+-- the arming is left untouched -- the next press after the delay still locks.
+-- Once the window lapses the shortcut is disarmed again, so a press that was
+-- forgotten about cannot combine with a later one to lock the screen.
+--
+-- lockArmWindow matches mako's default-timeout (see mako/config), so the toast
+-- below stays on screen for as long as the arming is actually valid.
+local lockArmDelay  = 2
+local lockArmWindow = 5
+local lockArmedAt   = nil
+
+-- os.time() only resolves whole seconds, so a press 1.1s after arming could read
+-- as 2s and slip past the delay. /proc/uptime is monotonic, resolves hundredths
+-- and costs no process spawn. If it ever becomes unreadable the fallback is a
+-- different time base, which makes the elapsed time look far out of range -- that
+-- fails towards re-arming, never towards an unexpected lock.
+local function monotonicSeconds()
+    local file = io.open("/proc/uptime", "r")
+    if not file then return os.time() end
+    local seconds = file:read("*n")
+    file:close()
+    return seconds or os.time()
+end
+
+bind("SUPER + L", function()
+    local now = monotonicSeconds()
+    local armedFor = lockArmedAt and (now - lockArmedAt)
+
+    if armedFor and armedFor < lockArmDelay then return end
+
+    if armedFor and armedFor <= lockArmWindow then
+        lockArmedAt = nil
+        hl.exec_cmd("hyprlock")
+        return
+    end
+
+    lockArmedAt = now
+    hl.exec_cmd("notify-send -a '화면 잠금' '화면 잠금 대기'"
+        .. " '" .. lockArmDelay .. "~" .. lockArmWindow .. "초 사이에"
+        .. " SUPER+L을 한 번 더 누르면 잠깁니다.'")
+end, "세션 · 화면 잠그기 (2초 뒤 한 번 더)")
 bind("SUPER + SHIFT + L", hl.dsp.exec_cmd("sh -c 'pidof hyprlock || hyprlock & sleep 1; systemctl suspend'"), "세션 · 잠근 뒤 절전")
