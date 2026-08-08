@@ -286,6 +286,22 @@ hl.device({
 
 local mainMod = "SUPER" -- Sets "Windows" key as main modifier
 
+-- SUPER belongs to the compositor, never to the focused app. A lone SUPER tap is
+-- not part of any bind, so Hyprland would forward it to the client -- inside
+-- virt-manager's SPICE console that reaches the Windows guest and pops the Start
+-- menu. Claiming the bare keysym makes Hyprland swallow it instead.
+--
+-- The empty modmask is deliberate: Hyprland emits the key event before xkb folds
+-- the press into the modifier state, so a lone SUPER press is still seen as "no
+-- modifiers held". Suppressing the press also suppresses its release, so no
+-- stray key-up escapes either. SUPER as a modifier is unaffected -- clients keep
+-- receiving wl_keyboard.modifiers, and SUPER + <key> binds read the xkb state
+-- rather than this event.
+--
+-- No description on purpose: this is not a user-facing shortcut, and
+-- show-keybinds.sh lists only binds that carry one.
+hl.bind("Super_L", function() end)
+
 -- Keep shortcut descriptions next to the actual bindings. show-keybinds.sh
 -- reads them back from `hyprctl binds`, so the overlay cannot silently drift
 -- away from this config.
@@ -575,6 +591,19 @@ hl.window_rule({
     },
 
     no_focus = true,
+})
+
+-- virt-manager's SPICE console grabs the keyboard through GTK, which on Wayland
+-- means zwp_keyboard_shortcuts_inhibit. While that inhibitor is up Hyprland stops
+-- handling *every* keybind and hands the raw keys to the guest, so SUPER + <key>
+-- lands in Windows instead of here. The Windows guest has no use for them, so
+-- refuse the inhibitor for this window and keep SUPER host-side. Combined with the
+-- bare Super_L bind above, the guest never sees the key at all.
+hl.window_rule({
+    name  = "vm-console-keeps-host-shortcuts",
+    match = { class = "^virt-manager$" },
+
+    no_shortcuts_inhibit = true,
 })
 
 -- Layer rules also return a handle.
