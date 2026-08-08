@@ -359,7 +359,6 @@ bind(mainMod .. " + SHIFT + T", toggleStickyWindow, "창 · 모든 워크스페�
 bind(mainMod .. " + Prior", hl.dsp.exec_cmd(opacityControl .. " increase"), "창 · 불투명도 20% 높이기")
 bind(mainMod .. " + Next",  hl.dsp.exec_cmd(opacityControl .. " decrease"), "창 · 불투명도 20% 낮추기")
 bind(mainMod .. " + D", hl.dsp.exec_cmd(menu), "앱 · 런처 열기")
-bind(mainMod .. " + P", hl.dsp.window.pseudo(), "창 · pseudotile 전환")
 bind(mainMod .. " + H", hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/show-keybinds.sh\""), "도움말 · 단축키 목록 열기/닫기")
 -- Fake fullscreen (SUPER+F): tell the focused app it is fullscreen (client = 2)
 -- while keeping the window's real tiled geometry (internal = 0), then toggle back
@@ -412,6 +411,19 @@ bind(mainMod .. " + left",  hl.dsp.focus({ direction = "left" }),  "포커스 ·
 bind(mainMod .. " + right", hl.dsp.focus({ direction = "right" }), "포커스 · 오른쪽 창")
 bind(mainMod .. " + up",    hl.dsp.focus({ direction = "up" }),    "포커스 · 위쪽 창")
 bind(mainMod .. " + down",  hl.dsp.focus({ direction = "down" }),  "포커스 · 아래쪽 창")
+
+-- Same focus moves without leaving the letter block: p [ ] form an inverted T
+-- under `-`, mirroring the arrow cluster.
+--
+--        -            (up)
+--    p   [   ]        (left / down / right)
+--
+-- `-` sits directly above `[` on a US layout, so the shape matches the arrows.
+-- P used to toggle pseudotile; that bind is gone in favour of this one.
+bind(mainMod .. " + P",            hl.dsp.focus({ direction = "left" }),  "포커스 · 왼쪽 창")
+bind(mainMod .. " + bracketright", hl.dsp.focus({ direction = "right" }), "포커스 · 오른쪽 창")
+bind(mainMod .. " + minus",        hl.dsp.focus({ direction = "up" }),    "포커스 · 위쪽 창")
+bind(mainMod .. " + bracketleft",  hl.dsp.focus({ direction = "down" }),  "포커스 · 아래쪽 창")
 
 bind(mainMod .. " + SHIFT + left",  hl.dsp.window.move({ direction = "left" }),  "배치 · 창을 왼쪽으로 이동")
 bind(mainMod .. " + SHIFT + right", hl.dsp.window.move({ direction = "right" }), "배치 · 창을 오른쪽으로 이동")
