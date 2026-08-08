@@ -1,0 +1,4 @@
+interface:
+  display_name: "CapeLabs Jira"
+  short_description: "Decide and manage CapeLabs Jira tracking"
+  default_prompt: "Use $capelabs-jira to decide whether this CapeLabs change needs Jira tracking and manage the issue lifecycle if it does."
