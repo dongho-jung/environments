@@ -545,11 +545,12 @@ bind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/r
 bind("CTRL + Print",                hl.dsp.exec_cmd("hyprshot -m window -m active --raw | " .. satty), "캡처 · 현재 창 즉시 스크린샷 후 주석")
 bind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\" toggle-window"), "녹화 · 현재 창 시작/중지")
 
--- Keyboard-driven clicking: the Hangul key opens wl-wysiwyc (pick a window by
--- number, a spot by letter, and it clicks there). IME toggling lives on Launch8
--- (keyd maps capslock to f17), so this key is free. pidof keeps a second press
--- from stacking another overlay while one is already open.
-bind("Hangul", hl.dsp.exec_cmd("pidof wl-wysiwyc || \"$HOME/projects/wl-wysiwyc/target/release/wl-wysiwyc\""), "마우스 · 키보드로 클릭 (wl-wysiwyc)")
+-- Keyboard-driven clicking: the Hangul key opens wl-wysiwyc, which labels the
+-- focused window's clickable elements; typing a label puts the pointer on it,
+-- then - clicks and = right-clicks. IME toggling lives on Launch8 (keyd maps
+-- capslock to f17), so this key is free. The tool cancels a running overlay
+-- when it is launched again, which makes this key a toggle.
+bind("Hangul", hl.dsp.exec_cmd("\"$HOME/projects/wl-wysiwyc/target/release/wl-wysiwyc\""), "마우스 · 키보드로 클릭 (wl-wysiwyc)")
 
 
 --------------------------------
