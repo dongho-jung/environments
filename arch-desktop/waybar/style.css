@@ -32,6 +32,7 @@ window#waybar {
 #memory,
 #disk,
 #network,
+#bluetooth,
 #pulseaudio,
 #tray {
     padding: 0 8px;
@@ -44,6 +45,17 @@ window#waybar {
 #temperature.critical {
     color: #f38ba8;
     background: rgba(243, 139, 168, 0.15);
+}
+
+#bluetooth.connected,
+#pulseaudio.bluetooth {
+    color: #89b4fa;
+}
+
+#bluetooth.disabled,
+#bluetooth.off,
+#bluetooth.no-controller {
+    color: #6c7086;
 }
 
 /* Recording pill: hidden by hide-empty-text unless our recorder is active. */

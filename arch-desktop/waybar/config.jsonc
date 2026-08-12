@@ -7,7 +7,7 @@
 
     "modules-left": ["hyprland/workspaces", "hyprland/window"],
     "modules-center": ["clock"],
-    "modules-right": ["custom/recording", "custom/vpn", "cpu", "temperature", "memory", "disk", "network", "pulseaudio", "tray"],
+    "modules-right": ["custom/recording", "custom/vpn", "cpu", "temperature", "memory", "disk", "network", "bluetooth", "pulseaudio", "tray"],
 
     "hyprland/workspaces": {
         "format": "{id}",
@@ -86,10 +86,31 @@
         "tooltip-format": "{ifname}: {ipaddr}\n↓ {bandwidthDownBytes}   ↑ {bandwidthUpBytes}"
     },
 
+    // Persistent adapter/connection status. Click to pair, trust, connect, or
+    // remove devices in Blueman; audio routing remains PipeWire's job.
+    "bluetooth": {
+        "format": "BT {status}",
+        "format-disabled": "BT disabled",
+        "format-off": "BT off",
+        "format-on": "BT on",
+        "format-connected": "BT {device_alias}",
+        "format-connected-battery": "BT {device_alias} {device_battery_percentage}%",
+        "format-no-controller": "BT unavailable",
+        "max-length": 32,
+        "tooltip-format": "{controller_alias}: {status}",
+        "tooltip-format-connected": "{controller_alias}: {status}\n\n{device_enumerate}",
+        "tooltip-format-enumerate-connected": "{device_alias}",
+        "tooltip-format-enumerate-connected-battery": "{device_alias} · battery {device_battery_percentage}%",
+        "on-click": "blueman-manager"
+    },
+
     "pulseaudio": {
-        "format": "VOL {volume}%",
-        "format-muted": "VOL muted",
-        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+        "format": "VOL {volume}% · {desc}",
+        "format-bluetooth": "BT VOL {volume}% · {desc}",
+        "format-muted": "VOL muted · {desc}",
+        "max-length": 36,
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+        "on-click-right": "pavucontrol --tab=3"
     },
 
     "tray": {
