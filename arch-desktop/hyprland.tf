@@ -33,7 +33,10 @@ resource "host_link" "hypr_config" {
   stage_source = true
 
   depends_on = [
+    host_package_pacman.jq,
     host_package_pacman.hyprland,
+    host_package_pacman.pipewire_pulse,
+    host_systemd_service.bluetooth,
   ]
 }
 

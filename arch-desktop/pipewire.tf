@@ -18,20 +18,13 @@ resource "host_package_pacman" "pavucontrol" {
   name = "pavucontrol"
 }
 
-# Prefer a newly connected headset or speaker as the default output. Existing
-# streams follow the new default through WirePlumber's enabled-by-default
-# linking.follow-default-target policy, and fall back when the device vanishes.
-resource "host_file" "pipewire_switch_on_connect" {
-  path = "~/.config/pipewire/pipewire-pulse.conf.d/switch-on-connect.conf"
-
-  content = <<-EOT
-    pulse.cmd = [
-      { cmd = "load-module" args = "module-switch-on-connect" }
-    ]
-  EOT
-
-  depends_on = [
-    host_package_pacman.pipewire_pulse,
-    host_package_pacman.wireplumber,
-  ]
+# The trusted-device watcher parses PipeWire's PulseAudio-compatible JSON to
+# identify the exact Bluetooth sink that appeared.
+resource "host_package_pacman" "jq" {
+  name = "jq"
 }
+
+# Automatic output selection is intentionally handled by
+# hypr/bluetooth-audio-autoswitch.sh instead of module-switch-on-connect. The
+# latter switches to every newly attached sink, while the watcher admits only
+# Bluetooth devices explicitly marked Trusted in BlueZ.

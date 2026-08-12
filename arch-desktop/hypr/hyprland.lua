@@ -58,6 +58,9 @@ hl.on("hyprland.start", function ()
     hl.exec_cmd("waybar")
     hl.exec_cmd("hypridle")
     hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
+    -- A BlueZ Trusted flag is the allowlist: only explicitly trusted Bluetooth
+    -- audio devices become the default output when they connect.
+    hl.exec_cmd("bash \"$HOME/.config/hypr/bluetooth-audio-autoswitch.sh\"")
     -- Advertise an assistive-technology consumer so GTK/Qt apps publish their
     -- AT-SPI trees; wl-wysiwyc reads those to label clickable elements.
     -- Chromium ignores this signal and needs --force-renderer-accessibility
