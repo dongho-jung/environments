@@ -529,6 +529,14 @@ bind("XF86AudioPause", hl.dsp.exec_cmd("playerctl play-pause"), "미디어 · �
 bind("XF86AudioPlay",  hl.dsp.exec_cmd("playerctl play-pause"), "미디어 · 재생/일시정지", { locked = true })
 bind("XF86AudioPrev",  hl.dsp.exec_cmd("playerctl previous"),   "미디어 · 이전 트랙", { locked = true })
 
+-- Physical keypad keycodes keep these controls stable regardless of Num Lock:
+-- KP4/KP5/KP6 are previous/play-pause/next, and KP8/KP2 adjust the volume.
+bind("code:83", hl.dsp.exec_cmd("playerctl previous"),                                      "미디어 · 숫자패드 4로 이전 트랙", { locked = true })
+bind("code:84", hl.dsp.exec_cmd("playerctl play-pause"),                                    "미디어 · 숫자패드 5로 재생/일시정지", { locked = true })
+bind("code:85", hl.dsp.exec_cmd("playerctl next"),                                          "미디어 · 숫자패드 6으로 다음 트랙", { locked = true })
+bind("code:80", hl.dsp.exec_cmd("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"),           "미디어 · 숫자패드 8로 음량 높이기", { locked = true, repeating = true })
+bind("code:88", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),                "미디어 · 숫자패드 2로 음량 낮추기", { locked = true, repeating = true })
+
 -- Screenshots: hyprshot captures (region/window/full output) and pipes the raw
 -- image to satty for annotation. Escape copies the current result (including any
 -- annotations) to the clipboard and closes Satty.
@@ -537,13 +545,18 @@ bind("XF86AudioPrev",  hl.dsp.exec_cmd("playerctl previous"),   "미디어 · �
 -- CTRL+SHIFT+Print toggles a recording cropped to the focused window. ALT+Print
 -- selects a region and stitches it into a long image while that region is scrolled.
 local satty = "satty -f - --copy-command wl-copy --actions-on-escape=save-to-clipboard,exit --early-exit"
-bind("Print",                       hl.dsp.exec_cmd("hyprshot -m region --freeze --raw | " .. satty), "캡처 · 선택 영역 스크린샷 후 주석")
-bind(mainMod .. " + Print",         hl.dsp.exec_cmd("hyprshot -m window --raw | " .. satty),          "캡처 · 선택한 창 스크린샷 후 주석")
-bind(mainMod .. " + SHIFT + Print", hl.dsp.exec_cmd("hyprshot -m output --raw | " .. satty),          "캡처 · 모니터 스크린샷 후 주석")
-bind("ALT + Print",                 hl.dsp.exec_cmd("wayscrollshot"),                                  "캡처 · 스크롤 영역을 긴 이미지로 저장")
-bind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\""),   "녹화 · 선택 영역 시작/중지")
-bind("CTRL + Print",                hl.dsp.exec_cmd("hyprshot -m window -m active --raw | " .. satty), "캡처 · 현재 창 즉시 스크린샷 후 주석")
-bind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\" toggle-window"), "녹화 · 현재 창 시작/중지")
+-- Keep capture shortcuts available inside temporary input modes such as
+-- wl-wysiwyc's keyboard-navigation submap.
+local function captureBind(keys, dispatcher, description)
+    bind(keys, dispatcher, description, { submap_universal = true })
+end
+captureBind("Print",                       hl.dsp.exec_cmd("hyprshot -m region --freeze --raw | " .. satty), "캡처 · 선택 영역 스크린샷 후 주석")
+captureBind(mainMod .. " + Print",         hl.dsp.exec_cmd("hyprshot -m window --raw | " .. satty),          "캡처 · 선택한 창 스크린샷 후 주석")
+captureBind(mainMod .. " + SHIFT + Print", hl.dsp.exec_cmd("hyprshot -m output --raw | " .. satty),          "캡처 · 모니터 스크린샷 후 주석")
+captureBind("ALT + Print",                 hl.dsp.exec_cmd("wayscrollshot"),                                  "캡처 · 스크롤 영역을 긴 이미지로 저장")
+captureBind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\""),   "녹화 · 선택 영역 시작/중지")
+captureBind("CTRL + Print",                hl.dsp.exec_cmd("hyprshot -m window -m active --raw | " .. satty), "캡처 · 현재 창 즉시 스크린샷 후 주석")
+captureBind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\" toggle-window"), "녹화 · 현재 창 시작/중지")
 
 -- Keyboard-driven clicking: the Hangul key opens wl-wysiwyc, which labels the
 -- focused window's clickable elements; typing a label puts the pointer on it,
