@@ -204,9 +204,12 @@ fi
 if [[ -z $video_root || $video_root == "$HOME" ]]; then
     video_root="$HOME/Videos"
 fi
-output_dir="$video_root/Recordings"
+recording_timestamp=$(date +%Y%m%d-%H%M%S-%3N)
+# Keep each month manageable while retaining the existing Recordings root:
+# ~/Videos/Recordings/YY/MM/recording-YYYYMMDD-HHMMSS-mmm.mp4
+output_dir="$video_root/Recordings/${recording_timestamp:2:2}/${recording_timestamp:4:2}"
 mkdir -p -- "$output_dir"
-output_file="$output_dir/recording-$(date +%Y%m%d-%H%M%S-%3N).mp4"
+output_file="$output_dir/recording-$recording_timestamp.mp4"
 
 recorder_args=(-g "$geometry")
 if [[ -n $output_name ]]; then
