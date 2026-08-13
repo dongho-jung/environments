@@ -68,6 +68,22 @@ resource "host_link" "windows11_vm_launcher" {
   ]
 }
 
+# A repeatable Arch Linux installer VM and launcher. The guest uses native
+# VirtIO devices, UEFI firmware, and the shared libvirt NAT network.
+resource "host_link" "archlinux_vm_launcher" {
+  source       = "libvirt/archlinux-vm"
+  destination  = "${host_dir.local_bin.path}/archlinux-vm"
+  stage_source = true
+
+  depends_on = [
+    host_package_pacman.edk2_ovmf,
+    host_package_pacman.libvirt,
+    host_package_pacman.qemu_desktop,
+    host_package_pacman.swtpm,
+    host_package_pacman.virt_manager,
+  ]
+}
+
 resource "host_file_block" "local_bin_path" {
   block   = host_file.zshrc.blocks.path
   content = "export PATH=\"$HOME/.local/bin:$PATH\""
