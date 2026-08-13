@@ -31,7 +31,7 @@ resource "host_file_block" "zoxide_init" {
 
       for query in "$${queries[@]}"; do
         query_length=$${#query}
-        (( max_errors = query_length < 8 ? 1 : 2 ))
+        (( max_errors = query_length < 7 ? 1 : 3 ))
         correction=
 
         for (( errors = 0; errors <= max_errors; ++errors )); do
