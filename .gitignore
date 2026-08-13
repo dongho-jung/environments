@@ -12,3 +12,16 @@ mac-desktop/users/dongho/packages/codex/config.toml
 automatic_backups/
 mac-mini-asahi/waybar/openvpn-1password.conf
 __pycache__/
+
+# IDE 설정 export — 열었던 프로젝트 경로가 그대로 남아 내부 저장소명이 노출된다
+**/settings/pycharm/
+**/settings/pycharm.zip
+**/settings/intellij/
+.idea/
+
+# IME 사용자 데이터 — 암호화 키(.encrypt_key.db)와 입력 이력(.history.db, segment.db)
+**/configs/mozc/
+
+# 업무용 머신 셸 설정 — k8s 컨텍스트/AWS 프로파일 등 내부 인프라 식별자가 섞인다
+others/mac-laptop/dotfiles/zshrc
+others/mac-laptop-2024/dotfiles/zshrc
