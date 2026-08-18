@@ -14,6 +14,13 @@
 - Branch choice still follows the Branch targets rules under Commit conventions: on a shared branch (`main`/`master`/`develop`), move the work onto a `type/kebab-name` branch before committing rather than committing directly.
 - Leave unrelated uncommitted and untracked changes exactly as they are. Never stash, reset, or check out over work you did not create.
 
+### Finish merged work on the target branch
+
+- Treat post-merge branch cleanup as part of delivery. When the current task's PR or MR is merged and the requested outcome is complete, do not wait for the user to ask and do not leave the checkout on the finished task branch.
+- Before releasing `.ai-agent-lock`, refresh the intended target branch, verify the PR or MR is authoritatively merged, require a clean worktree, switch to the target branch, and fast-forward it to its remote-tracking branch. Do not rebase, reset, or force the target branch to make this succeed.
+- After switching to the target branch, delete the exact local task branch when it is fully merged and has no unique unmerged commits. Also delete the matching remote branch when this session created or pushed it and the PR or MR is merged; an already-absent remote ref counts as cleaned up. Never delete unrelated, unmerged, or user-owned branches.
+- Finish with `git status` showing the checkout on the updated target branch. If unrelated changes, a non-fast-forward target, an unverified merge, or another safety condition prevents cleanup, preserve the state, keep the lock handoff accurate, and report the exact blocker instead of stashing, resetting, or forcing.
+
 ### The `.ai-agent-lock` file
 
 Concurrent sessions coordinate through one file at the repository root: `<repo-root>/.ai-agent-lock`, where `<repo-root>` is `git rev-parse --show-toplevel`. The global gitignore covers that name everywhere, so it is never staged or committed — do not add it to a repository's own `.gitignore`.
