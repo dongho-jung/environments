@@ -53,9 +53,33 @@ class LaunchBehaviorTest(unittest.TestCase):
 
         self.assertIn('if [[ "$${1-}" == "--new" ]]', configuration)
         self.assertIn('if [[ "$${1-}" == "--task" ]]', configuration)
+        self.assertIn("agent-task open --managed --new --agent codex", configuration)
+        self.assertIn("agent-task open --managed --agent codex", configuration)
         self.assertIn('command codex --dangerously-bypass-approvals-and-sandbox "$@"', configuration)
         self.assertIn('command env IS_DEMO=1 claude', configuration)
         self.assertNotIn('resource "host_package_pacman" "bubblewrap"', configuration)
+
+    def test_legacy_open_invocation_launches_the_native_agent(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "continue here", "--agent", "codex"])
+        arguments.command = []
+        environment = {
+            "AI_TASK_HARNESS": "agent-task",
+            "AI_TASK_WORKTREE": "/managed/worktree",
+            "AGENT_TASK_POLICY": "/managed/policy.json",
+        }
+        completed = mock.Mock(returncode=0)
+
+        with (
+            mock.patch.dict(os.environ, environment, clear=True),
+            mock.patch.object(AGENT_TASK.subprocess, "run", return_value=completed) as run,
+        ):
+            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(run.call_args.args[0][0], "codex")
+        self.assertEqual(run.call_args.args[0][-1], "continue here")
+        self.assertNotIn("AI_TASK_HARNESS", run.call_args.kwargs["env"])
+        self.assertNotIn("AGENT_TASK_POLICY", run.call_args.kwargs["env"])
 
 
 class HarnessTest(unittest.TestCase):
@@ -332,6 +356,7 @@ class HarnessTest(unittest.TestCase):
         resumed = self.cli(
             "open",
             "finish it",
+            "--managed",
             "--agent",
             "custom",
             "--",
@@ -362,7 +387,7 @@ class HarnessTest(unittest.TestCase):
                 f"printf '{name}\\n' > {name}.txt",
             )
 
-        opened = self.cli("open", "another instruction", "--agent", "custom", "--", "true")
+        opened = self.cli("open", "another instruction", "--managed", "--agent", "custom", "--", "true")
 
         self.assertEqual(opened.returncode, 2)
         self.assertIn("multiple interrupted tasks require a terminal selection", opened.stderr)

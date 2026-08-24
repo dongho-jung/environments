@@ -387,6 +387,30 @@ def default_agent_command(agent: str, prompt: str | None) -> list[str]:
     return result
 
 
+def native_agent_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    for name in (
+        "AGENT_TASK_POLICY",
+        "AI_REPO_MEMORY",
+        "AI_REPO_MEMORY_SOURCE",
+        "AI_TASK_BRANCH",
+        "AI_TASK_HARNESS",
+        "AI_TASK_ID",
+        "AI_TASK_TARGET_BRANCH",
+        "AI_TASK_WORKTREE",
+    ):
+        environment.pop(name, None)
+    return environment
+
+
+def launch_native_agent(args: argparse.Namespace) -> int:
+    explicit = list(args.command)
+    if args.agent == "custom" and not explicit:
+        raise AgentTaskError("custom agents require a command after --")
+    command = explicit or default_agent_command(args.agent, args.description)
+    return subprocess.run(command, cwd=Path.cwd(), env=native_agent_environment(), check=False).returncode
+
+
 def default_recovery_command(agent: str, prompt: str) -> list[str]:
     if agent == "codex":
         return [
@@ -963,6 +987,8 @@ def choose_recovery_task(tasks: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 def command_open(args: argparse.Namespace, store: Store) -> int:
+    if not args.managed and not args.new:
+        return launch_native_agent(args)
     checkout = repo_root(Path.cwd().resolve())
     repository = primary_worktree(checkout)
     tasks = refresh_interrupted_tasks(store, repository)
@@ -1177,13 +1203,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-task", description="Run coding agents in disposable Git worktrees.")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
-    opening = subparsers.add_parser("open", help="resume interrupted work or start a new managed session")
+    opening = subparsers.add_parser("open", help="launch natively, or open a managed session on request")
     opening.add_argument("description", nargs="?")
     opening.add_argument("--task", help="task description for a custom command")
     opening.add_argument("--agent", choices=("codex", "claude", "custom"), default="codex")
     opening.add_argument("--target", help="local integration target branch")
     opening.add_argument("--check", action="append", default=[], help="post-merge check; repeatable")
     opening.add_argument("--no-integrate", action="store_true")
+    opening.add_argument("--managed", action="store_true", help="resume or create a managed worktree task")
     opening.add_argument("--new", action="store_true", help="start separately even when interrupted work exists")
     opening.add_argument("--new-session", action="store_true", help="recover files in a fresh agent conversation")
     opening.set_defaults(func=command_open)

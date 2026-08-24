@@ -29,18 +29,18 @@ resource "host_file_block" "agent_task_functions" {
       if [[ "$${1-}" == "--new" ]]; then
         shift
         if (( $# )); then
-          agent-task open --new --agent codex "$*"
+          agent-task open --managed --new --agent codex "$*"
         else
-          agent-task open --new --agent codex
+          agent-task open --managed --new --agent codex
         fi
         return
       fi
       if [[ "$${1-}" == "--task" ]]; then
         shift
         if (( $# )); then
-          agent-task open --agent codex "$*"
+          agent-task open --managed --agent codex "$*"
         else
-          agent-task open --agent codex
+          agent-task open --managed --agent codex
         fi
         return
       fi
@@ -51,18 +51,18 @@ resource "host_file_block" "agent_task_functions" {
       if [[ "$${1-}" == "--new" ]]; then
         shift
         if (( $# )); then
-          agent-task open --new --agent claude "$*"
+          agent-task open --managed --new --agent claude "$*"
         else
-          agent-task open --new --agent claude
+          agent-task open --managed --new --agent claude
         fi
         return
       fi
       if [[ "$${1-}" == "--task" ]]; then
         shift
         if (( $# )); then
-          agent-task open --agent claude "$*"
+          agent-task open --managed --agent claude "$*"
         else
-          agent-task open --agent claude
+          agent-task open --managed --agent claude
         fi
         return
       fi

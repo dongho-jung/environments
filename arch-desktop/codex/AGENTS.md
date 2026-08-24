@@ -8,13 +8,14 @@
 
 ## Harness-managed worktrees
 
-- The `o` launcher starts a normal Codex session in the current checkout. Use `o --new` only when a separate parallel worktree is wanted; use `o --task` to resume or create a managed task through `agent-task open`.
-- The remaining rules in this section apply only when `AI_TASK_HARNESS=agent-task`. An unmanaged session follows the normal checkout workflow and may work across repositories when the request requires it, but must not access harness worktrees or lifecycle state.
-- `AI_TASK_WORKTREE` is the repository owned by the current managed task. Inspect, edit, validate, and commit that repository's intended result there.
-- In the assigned repository, stay on the assigned branch and leave branch/worktree creation, integration, and cleanup to the harness.
-- The harness does not restrict any other filesystem path. When the requested outcome requires another repository, continue there yourself under that repository's instructions, preserve unrelated work, and commit each repository separately. Do not ask the user to open another terminal solely because the work spans repositories.
+- The `o` launcher starts a normal Codex session in the current checkout. Use `o --new` only when a separate parallel worktree is wanted; use `o --task` to resume or create a managed task through `agent-task open --managed`.
+- The remaining rules in this section apply only when `AI_TASK_HARNESS=agent-task`. An unmanaged session follows the normal checkout workflow and must not access harness worktrees or lifecycle state.
+- The harness is a Git worktree lifecycle coordinator, not a filesystem, network, remote-service, or cross-repository security boundary. It adds no blanket restriction on normal tools or user-authorized operations.
+- `AI_TASK_WORKTREE` is the repository owned by the current managed task. Inspect, edit, validate, and commit that repository's intended result there. Stay on its assigned branch and leave its branch/worktree creation, integration, and cleanup to the harness.
+- Remote inspection is allowed. Use the appropriate live read-only tool such as `gh pr view`, an API/MCP query, `git ls-remote`, or `git fetch` when current remote state matters. Never claim the harness blocks a check unless an attempted command returned an actual policy error; report that command and error.
+- When the requested outcome requires another path, repository, service, deployment, database, container runtime, or Terraform operation, continue there yourself under its instructions and the user's authorization. Preserve unrelated work and keep repository commits separate. Do not ask the user to open another terminal solely because the work spans repositories.
 - Never erase unfinished work. A dirty or interrupted managed task is preserved, and `o --task` resumes its native Codex conversation in the same path.
-- Do not mutate cloud resources, Terraform state, databases, clusters, container daemons, or deployments from a coding task. Terraform/OpenTofu mutation commands are forbidden; plans are feedback only.
+- External mutations follow the user request and ordinary safety rules; `AI_TASK_HARNESS` does not independently forbid them. Read-only verification does not require separate permission.
 - `agent-task list`, `status`, `integrate`, `cleanup`, and `reconcile` are operator commands.
 
 ### Repository memory
@@ -70,5 +71,5 @@ type: concise english title
 
 ### Safety
 
-- Never run destructive Git commands, force-push, or use `--no-verify`. Do not work around a policy denial.
+- Never run destructive Git commands, force-push, or use `--no-verify`. Respect a real system or policy denial, but do not assume one without attempting safe, in-scope checks.
 - If a commit hook or allowed Git command fails, show `git status` and fix only task-local causes. Leave lifecycle recovery to the harness.

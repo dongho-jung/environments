@@ -7,12 +7,12 @@ edits and commits, while the harness owns integration and cleanup for its one
 assigned repository.
 
 ```text
-open -> interrupted task -------------------------> resume the native chat
-     -> new task -> agent exits with dirty files -> RECOVERY_REQUIRED
-                 -> agent process disappears ----> RECOVERY_REQUIRED (never auto-integrate)
-                 -> clean commit ----------------> integrate
-                                                   |-- success -> cleanup
-                                                   `-- conflict/check failure -> recovery
+open --managed -> interrupted task ----------------> resume the native chat
+               -> new task -> dirty agent exit ----> RECOVERY_REQUIRED
+                           -> process disappears ---> RECOVERY_REQUIRED (never auto-integrate)
+                           -> clean commit ---------> integrate
+                                                     |-- success -> cleanup
+                                                     `-- conflict/check failure -> recovery
 ```
 
 Task state is keyed by repository and agent. One interrupted task resumes
@@ -40,10 +40,17 @@ Without `--new` or `--task`, every argument and native subcommand is forwarded
 directly to Codex or Claude. Managed recovery still reuses the exact worktree
 path and native conversation recorded for that task.
 
+For compatibility with shell functions loaded before this change,
+`agent-task open` also launches the requested agent natively unless `--managed`
+or `--new` is present. This means updating the linked `agent-task` executable is
+enough to unstick an already-open shell; re-sourcing the function is optional.
+
 Operator commands are available directly:
 
 ```sh
-agent-task open "implement feature X" --agent codex
+agent-task open "implement feature X" --agent codex # native compatibility path
+agent-task open --managed "implement feature X" --agent codex
+agent-task open --managed --new "parallel feature" --agent codex
 agent-task start "implement feature X" --agent codex
 agent-task start "implement feature X" --agent claude --target develop
 agent-task start --agent custom --task "custom run" -- ./runner
@@ -98,13 +105,16 @@ progress, and remembered tools never authorize external mutation.
 - Managed agents start in the assigned worktree but run with normal filesystem
   access. There is no Bubblewrap mount namespace, path allowlist, or Git command
   wrapper.
-- The harness owns only its assigned repository. If the requested outcome needs
-  another repository, the agent may work there normally under that repository's
-  instructions and must keep its changes and commits separate.
+- The harness owns only the assigned repository's temporary branch, worktree,
+  integration, and cleanup lifecycle. It does not restrict filesystem paths,
+  network access, remote status inspection, other repositories, or otherwise
+  authorized operational tools.
 - Integration is serialized per repository and target branch, while coding
   remains parallel.
 - The target ref advances only after a clean merge candidate and configured
-  checks succeed. The harness does not fetch, push, deploy, or apply Terraform.
+  checks succeed. Automatic harness integration itself does not fetch, push,
+  deploy, or apply Terraform; the launched agent can perform user-authorized
+  remote or operational work normally.
 - A new task starts from the current checkout's `HEAD`; the memory setting names
   its integration target. A dirty checkout is refused rather than silently
   leaving its work out of the temporary worktree.
@@ -119,5 +129,6 @@ progress, and remembered tools never authorize external mutation.
 Everything is centralized under `~/.local/state/agent-task` by default. New
 worktrees use `worktrees/<repo-name>-<short-hash>/<task-id>/`; integration
 worktrees and scratch data live in sibling directories and are removed after
-use. Conflict resolution, remote synchronization, deployment, and
-repository-specific build discovery remain explicit operator concerns.
+use. The automatic lifecycle remains repository-agnostic; application-specific
+remote synchronization, deployment, and build discovery remain normal agent or
+operator work according to the request.
