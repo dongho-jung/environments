@@ -1,3 +1,14 @@
+# Bubblewrap is no longer owned by agent-task, but it remains installed as a
+# dependency of other desktop packages. Forget the old resource without asking
+# Pacman to remove the shared package.
+removed {
+  from = host_package_pacman.bubblewrap
+
+  lifecycle {
+    destroy = false
+  }
+}
+
 resource "host_dir" "local_bin" {
   path = "~/.local/bin"
   mode = "0755"
