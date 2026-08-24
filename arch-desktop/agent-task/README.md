@@ -1,30 +1,31 @@
 # agent-task
 
-`agent-task` is a deliberately small lifecycle wrapper for Codex and Claude
-Code. One run gets one temporary branch and one temporary Git worktree. The
-agent may edit and commit; the parent process owns integration and cleanup.
+`agent-task` runs each Codex or Claude coding session in a temporary branch and
+worktree. The agent owns file edits and commits; the harness owns integration
+and cleanup.
 
 ```text
-start -> agent -> clean commit -> integrate -> cleanup
-                  |                |
-                  +-- dirty -------+-- conflict/check failure
-                                   |
-                                   v
-                           RECOVERY_REQUIRED
+start -> agent -> dirty files --------------------> RECOVERY_REQUIRED (keep worktree)
+               -> clean, no commit --------------> FAILED (remove worktree + branch)
+               -> clean commit -> remove worktree -> integrate
+                                                   |-- success -> remove branch
+                                                   `-- conflict/check failure
+                                                       -> RECOVERY_REQUIRED (keep commit)
 ```
 
-The durable output is a commit. A dirty or ambiguous worktree is always kept.
+A clean committed result never needs an idle worktree. `recover` recreates one
+from the retained branch only when more work is necessary.
 
 ## Use
 
-The installed shell functions preserve the familiar launchers:
+The installed shell functions launch managed sessions:
 
 ```sh
 o implement the login timeout
 c implement the login timeout
 ```
 
-The direct interface is:
+Operator commands are available directly:
 
 ```sh
 agent-task start "implement feature X" --agent codex
@@ -39,26 +40,21 @@ agent-task cleanup TASK_ID
 agent-task reconcile
 ```
 
-Add repeated `--check 'command'` options for checks that must pass on the
-merged candidate. Changed Terraform files also get `terraform fmt -check` when
-Terraform is installed. There is intentionally no general language/build
-command guessing in v1.
+Repeat `--check 'command'` to validate the merged candidate. Changed Terraform
+files also run `terraform fmt -check` when Terraform is installed. v1 does not
+guess application-specific build or test commands.
 
 ## Repository memory
 
-Each repository gets a globally ignored `.ai-metadata` JSON file. The harness
-creates it on first use, gives every task a private worktree copy, and merges
-valid edits back when the agent exits cleanly. Different JSON fields merge
-optimistically; competing edits to the same field preserve the task for
-recovery instead of choosing a winner.
+The globally ignored `.ai-metadata` JSON file records stable local knowledge
+such as the target branch, deployment strategy, environments, and required MCP
+tool names. The harness creates it on first use and gives each task a private
+copy.
 
 ```json
 {
   "schema_version": 1,
-  "branching": {
-    "target_branch": "main",
-    "strategy": null
-  },
+  "branching": {"target_branch": "main", "strategy": null},
   "deployment": {
     "strategy": null,
     "environments": {},
@@ -69,43 +65,33 @@ recovery instead of choosing a winner.
 }
 ```
 
-Without `--target`, new tasks use `branching.target_branch`. Agents review the
-file every session and update it only for stable facts confirmed by repository
-state, documentation, CI, or the user. It is local memory rather than an
-instruction source: recorded tools and deployment steps do not grant authority
-to perform external mutations. Secrets and transient task state do not belong
-in this file.
+Independent field changes merge automatically. For a same-field race, the last
+completed task wins and the overwritten field names remain visible in
+`agent-task status`; metadata never blocks code integration or retains a
+worktree. `.ai-metadata` is rejected if it appears in a result commit.
 
-## Safety boundary
+Metadata is context, not authority. It must not contain secrets or task progress,
+and recorded deployment tools never authorize external mutation.
 
-Bubblewrap makes the host filesystem read-only except for the assigned
-worktree, shared Git metadata, and the selected agent's state directory. It
-also hides system runtime sockets. A command wrapper blocks normal attempts to
-switch branches, manage worktrees, merge/rebase, rewrite refs/config, fetch,
-push, or run Terraform/OpenTofu mutation commands.
+## Safety and cleanup
 
-This protects against accidental lifecycle mistakes; it is not a hostile-code
-sandbox. A determined process could call an alternate binary or a remote API.
-The global agent instructions therefore also forbid bypasses and all deployment
-or shared-state mutation from coding sessions.
+- Bubblewrap exposes only the assigned worktree, shared Git data, and the
+  selected agent's state as writable host paths.
+- The command wrapper blocks branch/worktree/ref/config operations and
+  Terraform/OpenTofu mutation commands. It guards accidental misuse, not a
+  deliberately hostile process or every possible remote API.
+- Integration is serialized per repository and target branch, while coding
+  remains parallel.
+- The target ref advances only after a clean merge candidate and configured
+  checks succeed. The harness does not fetch, push, deploy, or apply Terraform.
+- Uncommitted tracked or untracked work keeps its worktree. After a clean commit,
+  ignored build artifacts are disposable and are recorded by path before removal.
+- Per-task locks keep foreground commands and the hourly reconciler from
+  changing the same registry entry concurrently.
+- Reconciliation retries ready work, removes safe terminal worktrees, prunes
+  stale Git metadata, registers unknown managed worktrees for recovery, and
+  exits nonzero when operator recovery is required.
 
-## Lifecycle rules
-
-- Integration is serialized per repository and target branch; coding is not.
-- Integration uses a separate detached worktree and only fast-forwards the
-  local target after the merge and checks succeed.
-- The harness does not fetch, push, deploy, or mutate infrastructure.
-- A dirty target queues the result instead of touching the checkout.
-- Dirty, conflicted, and validation-failed task worktrees are preserved for
-  `recover`.
-- Cleanup never removes uncommitted or ignored files. The managed
-  `.ai-metadata` copy is synchronized first; other ignored artifacts require an
-  explicit `cleanup --discard-ignored` after inspection.
-- Task metadata lives in `${XDG_STATE_HOME:-~/.local/state}/agent-task`.
-- The hourly reconciler resumes known clean tasks, prunes stale Git metadata,
-  and registers unknown worktrees under its own managed directory as recovery
-  items. It does not guess how to merge or delete an unknown orphan.
-
-That conservative stop-and-preserve behavior is intentional. Smarter build
-discovery, remote synchronization, deployment serialization, and automatic
-conflict solving are outside v1.
+Task metadata lives in `~/.local/state/agent-task` by default. Conflict resolution,
+remote synchronization, deployment, and repository-specific build discovery
+remain explicit operator concerns.

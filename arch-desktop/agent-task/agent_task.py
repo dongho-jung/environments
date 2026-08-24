@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small lifecycle harness for disposable coding-agent Git worktrees."""
+"""Lifecycle harness for disposable coding-agent Git worktrees."""
 
 from __future__ import annotations
 
@@ -135,6 +135,7 @@ class Store:
         path = self.task_path(task["task_id"])
         temporary = path.with_name(f".{path.name}.{os.getpid()}")
         temporary.write_text(json.dumps(task, indent=2, sort_keys=True) + "\n")
+        temporary.chmod(0o600)
         os.replace(temporary, path)
 
     def load(self, task_id: str) -> dict[str, Any]:
@@ -196,10 +197,6 @@ def metadata_bytes(value: dict[str, Any]) -> bytes:
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
 
 
-def digest(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
 def write_metadata(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}")
     temporary.write_bytes(metadata_bytes(value))
@@ -257,7 +254,7 @@ def merge_metadata(
     current: Any,
     proposed: Any,
     path: str,
-    conflicts: list[str],
+    overwrites: list[str],
 ) -> Any:
     if proposed == base:
         return current
@@ -271,73 +268,87 @@ def merge_metadata(
                 current.get(key, MISSING),
                 proposed.get(key, MISSING),
                 f"{path}.{key}" if path else key,
-                conflicts,
+                overwrites,
             )
             if merged is not MISSING:
                 result[key] = merged
         return result
-    conflicts.append(path or "<root>")
-    return current
+    overwrites.append(path or "<root>")
+    return proposed
 
 
 def stage_metadata(task: dict[str, Any], value: dict[str, Any]) -> None:
     path = Path(task["worktree_path"]) / METADATA_NAME
     write_metadata(path, value)
     task["metadata_base"] = value
-    task["metadata_base_digest"] = digest(metadata_bytes(value))
     task["metadata_pending"] = True
 
 
-def sync_metadata(store: Store, task: dict[str, Any]) -> bool:
+def archive_metadata_proposal(
+    store: Store,
+    task: dict[str, Any],
+    reason: str,
+    *,
+    raw: bytes | None = None,
+) -> None:
+    task["metadata_proposal"] = {
+        "reason": reason,
+        "proposal": raw.decode(errors="replace") if raw is not None else None,
+        "recorded_at": now(),
+    }
+    task["metadata_pending"] = False
+    task["metadata_warning"] = reason
+    store.save(task)
+
+
+def clear_metadata_warning(task: dict[str, Any]) -> None:
+    task.pop("metadata_proposal", None)
+    task.pop("metadata_warning", None)
+
+
+def sync_metadata(store: Store, task: dict[str, Any]) -> None:
     if not task.get("metadata_pending"):
-        return True
+        return
     proposed_path = Path(task["worktree_path"]) / METADATA_NAME
     if not proposed_path.exists():
-        task["metadata_error"] = f"managed {METADATA_NAME} copy is missing"
-        store.save(task)
-        return False
+        archive_metadata_proposal(store, task, f"managed {METADATA_NAME} copy is missing")
+        return
     try:
-        proposed = read_metadata(proposed_path)
+        raw = proposed_path.read_bytes()
+    except OSError as error:
+        archive_metadata_proposal(store, task, f"cannot read {proposed_path}: {error}")
+        return
+    try:
+        proposed = validate_metadata(json.loads(raw))
         base = validate_metadata(task["metadata_base"])
-    except (AgentTaskError, KeyError) as error:
-        task["metadata_error"] = str(error)
-        store.save(task)
-        return False
+    except (AgentTaskError, KeyError, UnicodeError, json.JSONDecodeError) as error:
+        archive_metadata_proposal(store, task, str(error), raw=raw)
+        return
     if proposed == base:
-        proposed_path.unlink()
         task["metadata_pending"] = False
-        task.pop("metadata_error", None)
         store.save(task)
-        return True
+        return
 
     canonical_path = Path(task["metadata_path"])
     with store.lock(f"metadata:{task['git_common_dir']}"):
         try:
             current = read_metadata(canonical_path)
         except AgentTaskError as error:
-            task["metadata_error"] = str(error)
-            store.save(task)
-            return False
-        conflicts: list[str] = []
-        merged = validate_metadata(merge_metadata(base, current, proposed, "", conflicts))
-        if conflicts:
-            task["metadata_conflict"] = {
-                "canonical_path": str(canonical_path),
-                "fields": conflicts,
-            }
-            store.save(task)
-            return False
+            archive_metadata_proposal(store, task, str(error), raw=raw)
+            return
+        overwrites: list[str] = []
+        merged = validate_metadata(merge_metadata(base, current, proposed, "", overwrites))
+        if overwrites:
+            task["metadata_overwrites"] = {"fields": overwrites, "recorded_at": now()}
+        else:
+            task.pop("metadata_overwrites", None)
         write_metadata(canonical_path, merged)
 
-    proposed_path.unlink()
     task["metadata_base"] = merged
-    task["metadata_base_digest"] = digest(metadata_bytes(merged))
     task["metadata_pending"] = False
     task["metadata_updated"] = True
-    task.pop("metadata_conflict", None)
-    task.pop("metadata_error", None)
+    clear_metadata_warning(task)
     store.save(task)
-    return True
 
 
 # The wrapper is an accidental-misuse guard, not a hostile-code sandbox. The
@@ -425,7 +436,21 @@ def policy_main(tool: str) -> int:
             return deny("git -C outside the assigned worktree")
         if command == "__config__":
             return deny("Git directory/config overrides")
+        alias = None
+        if command:
+            configured = subprocess.run(
+                [real, "config", "--get", f"alias.{command}"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            alias = configured.stdout.strip() if configured.returncode == 0 else None
+        if alias:
+            return deny(f"Git aliases are unavailable in managed tasks: {command}")
         if command == "branch" and tail in ([], ["--show-current"]):
+            pass
+        elif command == "maintenance" and tail and tail[0] == "run" and "--auto" in tail:
             pass
         elif command in GIT_DENIED:
             return deny(f"git {command}")
@@ -609,7 +634,11 @@ def worktree_changes(path: Path) -> tuple[list[str], list[str]]:
     if not path.exists():
         return [], []
     output = git(path, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching").stdout
-    lines = [line for line in output.splitlines() if line and line[3:] != METADATA_NAME]
+    lines = [
+        line
+        for line in output.splitlines()
+        if line and not (line[:2] in ("??", "!!") and line[3:] == METADATA_NAME)
+    ]
     return [line for line in lines if not line.startswith("!!")], [line for line in lines if line.startswith("!!")]
 
 
@@ -626,54 +655,75 @@ def current_head(task: dict[str, Any]) -> str | None:
     return task.get("result_commit")
 
 
+def commit_tracks_metadata(repository: Path, commit: str) -> bool:
+    return git(repository, "cat-file", "-e", f"{commit}:{METADATA_NAME}", check=False).returncode == 0
+
+
 def unlock_worktree(repository: Path, path: Path) -> None:
     git(repository, "worktree", "unlock", str(path), check=False)
 
 
-def cleanup_task(store: Store, task: dict[str, Any], *, discard_ignored: bool = False) -> bool:
+def cleanup_task(store: Store, task: dict[str, Any]) -> bool:
     path = Path(task["worktree_path"])
+    changed = False
     if path.exists():
-        normal, ignored = worktree_changes(path)
+        normal, _ignored = worktree_changes(path)
         if normal:
-            task.setdefault("cleanup_pending_status", task.get("status"))
             set_status(store, task, RECOVERY, f"cleanup preserved uncommitted changes in {path}")
             return False
-        if not sync_metadata(store, task):
-            task.setdefault("cleanup_pending_status", task.get("status"))
-            detail = task.get("metadata_error") or f"metadata conflict: {task.get('metadata_conflict', {}).get('fields', [])}"
-            set_status(store, task, RECOVERY, f"cleanup preserved {METADATA_NAME}: {detail}")
+        sync_metadata(store, task)
+        normal, ignored = worktree_changes(path)
+        if normal:
+            set_status(store, task, RECOVERY, f"cleanup preserved uncommitted changes in {path}")
             return False
-        _normal, ignored = worktree_changes(path)
-        if ignored and not discard_ignored:
-            task.setdefault("cleanup_pending_status", task.get("status"))
-            set_status(store, task, RECOVERY, f"cleanup preserved ignored files in {path}")
-            return False
+        if ignored:
+            task["discarded_ignored_artifacts"] = {
+                "count": len(ignored),
+                "sample": [line[3:] for line in ignored[:20]],
+            }
+            cleaned = git(path, "clean", "-ff", "-d", "-X", check=False)
+            if cleaned.returncode:
+                set_status(store, task, RECOVERY, f"ignored artifact cleanup failed: {cleaned.stderr.strip()}")
+                return False
+            normal, ignored = worktree_changes(path)
+            if normal or ignored:
+                set_status(store, task, RECOVERY, f"cleanup found new changes in {path}")
+                return False
         unlock_worktree(Path(task["repository"]), path)
-        arguments = ["worktree", "remove"]
-        if ignored and discard_ignored:
-            arguments.append("--force")
-        result = git(Path(task["repository"]), *arguments, str(path), check=False)
+        result = git(Path(task["repository"]), "worktree", "remove", str(path), check=False)
         if result.returncode:
             git(Path(task["repository"]), "worktree", "lock", "--reason", f"agent-task:{task['task_id']}", str(path), check=False)
             set_status(store, task, RECOVERY, f"worktree removal failed: {result.stderr.strip()}")
             return False
+        task.setdefault("worktree_cleaned_at", now())
+        changed = True
+
+    scratch = store.scratch / task["task_id"]
+    shutil.rmtree(scratch, ignore_errors=True)
 
     branch = task.get("branch")
     repository = Path(task["repository"])
     if branch and branch_exists(repository, branch):
         head = ref(repository, f"refs/heads/{branch}")
-        terminal = task.get("cleanup_pending_status") or task.get("status")
         safe_to_delete = (
-            (terminal == FAILED and head == task.get("base_sha"))
-            or (terminal == INTEGRATED and task.get("integrated_commit") and is_ancestor(repository, head, task["integrated_commit"]))
+            (task.get("status") == FAILED and head == task.get("base_sha"))
+            or (task.get("integrated_commit") and is_ancestor(repository, head, task["integrated_commit"]))
         )
         if safe_to_delete:
             git(repository, "branch", "-D", branch)
+            task.setdefault("branch_deleted_at", now())
+            changed = True
 
-    pending = task.pop("cleanup_pending_status", None)
-    if pending:
-        set_status(store, task, pending)
-    else:
+    task.pop("cleanup_pending_status", None)
+    if (
+        task.get("integrated_commit")
+        and not branch_exists(repository, branch)
+        and (task.get("status") != INTEGRATED or task.get("status_reason"))
+    ):
+        task["status"] = INTEGRATED
+        task.pop("status_reason", None)
+        changed = True
+    if changed:
         store.save(task)
     return True
 
@@ -703,12 +753,10 @@ def inspect_result(store: Store, task: dict[str, Any], *, trust_clean_commit: bo
         if branch != task.get("branch"):
             set_status(store, task, RECOVERY, f"unexpected branch {branch or '(detached)'} preserved")
             return
-        if not sync_metadata(store, task):
-            detail = task.get("metadata_error") or f"conflicting fields: {task.get('metadata_conflict', {}).get('fields', [])}"
-            set_status(store, task, RECOVERY, f"{METADATA_NAME} update preserved: {detail}")
-            return
     head = current_head(task)
     if not head or head == task.get("base_sha"):
+        if path.exists():
+            sync_metadata(store, task)
         set_status(store, task, FAILED, "agent produced no commit")
         cleanup_task(store, task)
         return
@@ -716,8 +764,22 @@ def inspect_result(store: Store, task: dict[str, Any], *, trust_clean_commit: bo
         set_status(store, task, RECOVERY, "result does not descend from the recorded base")
         return
     task["result_commit"] = head
+    if commit_tracks_metadata(Path(task["repository"]), head):
+        raw = (path / METADATA_NAME).read_bytes() if path.exists() and (path / METADATA_NAME).exists() else None
+        archive_metadata_proposal(
+            store,
+            task,
+            f"result commit tracks forbidden {METADATA_NAME}; remove it from the branch before integration",
+            raw=raw,
+        )
+        set_status(store, task, RECOVERY, f"result commit tracks forbidden {METADATA_NAME}")
+        cleanup_task(store, task)
+        return
+    if path.exists():
+        sync_metadata(store, task)
     if task.get("agent_exit_code", 0) and not trust_clean_commit:
         set_status(store, task, RECOVERY, f"agent exited with {task['agent_exit_code']}; clean commit preserved")
+        cleanup_task(store, task)
         return
     set_status(store, task, READY)
 
@@ -772,20 +834,25 @@ def validate_candidate(store: Store, task: dict[str, Any], candidate: Path, targ
     return True
 
 
+def defer_integration(store: Store, task: dict[str, Any], status: str, reason: str) -> bool:
+    set_status(store, task, status, reason)
+    cleanup_task(store, task)
+    return False
+
+
 def integrate_task(store: Store, task: dict[str, Any]) -> bool:
     repository = Path(task["repository"])
     target = task.get("target_branch")
     result_commit = task.get("result_commit")
     if not target or not result_commit:
-        set_status(store, task, RECOVERY, "integration metadata is incomplete")
-        return False
+        return defer_integration(store, task, RECOVERY, "integration metadata is incomplete")
+    if commit_tracks_metadata(repository, result_commit):
+        return defer_integration(store, task, RECOVERY, f"result commit tracks forbidden {METADATA_NAME}")
 
     with store.lock(f"integrate:{common_dir(repository)}:{target}"):
-        task.update(store.load(task["task_id"]))
         target_ref = f"refs/heads/{target}"
         if not branch_exists(repository, target):
-            set_status(store, task, RECOVERY, f"target branch no longer exists: {target}")
-            return False
+            return defer_integration(store, task, RECOVERY, f"target branch no longer exists: {target}")
         target_sha = ref(repository, target_ref)
         if is_ancestor(repository, result_commit, target_sha):
             task["integrated_commit"] = target_sha
@@ -795,8 +862,7 @@ def integrate_task(store: Store, task: dict[str, Any]) -> bool:
 
         checkout = target_checkout(repository, target)
         if checkout and worktree_changes(checkout)[0]:
-            set_status(store, task, READY, f"target checkout is dirty; integration queued: {checkout}")
-            return False
+            return defer_integration(store, task, READY, f"target checkout is dirty; integration queued: {checkout}")
 
         candidate = store.integrations / repo_key(repository) / task["task_id"]
         candidate.parent.mkdir(parents=True, exist_ok=True)
@@ -817,30 +883,26 @@ def integrate_task(store: Store, task: dict[str, Any]) -> bool:
                 check=False,
             )
             if merge.returncode:
-                set_status(store, task, RECOVERY, "integration conflict; task worktree preserved")
-                return False
+                return defer_integration(store, task, RECOVERY, "integration conflict; committed result preserved")
             candidate_head = ref(candidate, "HEAD")
             set_status(store, task, VALIDATING)
             if not validate_candidate(store, task, candidate, target_sha):
-                set_status(store, task, RECOVERY, "merged candidate failed validation")
-                return False
+                return defer_integration(store, task, RECOVERY, "merged candidate failed validation")
 
             if ref(repository, target_ref) != target_sha:
-                set_status(store, task, READY, "target advanced during validation; integration queued")
-                return False
+                return defer_integration(store, task, READY, "target advanced during validation; integration queued")
             if checkout:
                 if worktree_changes(checkout)[0]:
-                    set_status(store, task, READY, f"target checkout became dirty; integration queued: {checkout}")
-                    return False
+                    return defer_integration(
+                        store, task, READY, f"target checkout became dirty; integration queued: {checkout}"
+                    )
                 advanced = git(checkout, "-c", "core.hooksPath=/dev/null", "merge", "--ff-only", candidate_head, check=False)
                 if advanced.returncode:
-                    set_status(store, task, READY, "target could not fast-forward; integration queued")
-                    return False
+                    return defer_integration(store, task, READY, "target could not fast-forward; integration queued")
             else:
                 updated = git(repository, "update-ref", target_ref, candidate_head, target_sha, check=False)
                 if updated.returncode:
-                    set_status(store, task, READY, "target advanced; integration queued")
-                    return False
+                    return defer_integration(store, task, READY, "target advanced; integration queued")
 
             task["integrated_commit"] = candidate_head
             set_status(store, task, INTEGRATED)
@@ -853,7 +915,11 @@ def integrate_task(store: Store, task: dict[str, Any]) -> bool:
 
 def finalize_task(store: Store, task: dict[str, Any], *, integrate: bool, trust_clean_commit: bool = False) -> None:
     inspect_result(store, task, trust_clean_commit=trust_clean_commit)
-    if task.get("status") == READY and integrate:
+    if task.get("status") != READY:
+        return
+    if not cleanup_task(store, task):
+        return
+    if integrate:
         integrate_task(store, task)
 
 
@@ -889,13 +955,13 @@ def create_task(store: Store, args: argparse.Namespace) -> dict[str, Any]:
         "workdir_relative": str(relative),
         "metadata_path": str(metadata_path),
         "metadata_base": metadata,
-        "metadata_base_digest": digest(metadata_bytes(metadata)),
         "metadata_pending": False,
         "agent": args.agent,
         "description": args.task or args.description or "interactive agent task",
         "checks": args.check,
         "status": CREATED,
         "created_at": now(),
+        "process": {"pid": os.getpid(), "start": process_start(os.getpid()), "role": "launcher"},
     }
     store.save(task)
     worktree.parent.mkdir(parents=True, exist_ok=True)
@@ -924,26 +990,30 @@ def recreate_worktree(store: Store, task: dict[str, Any]) -> None:
     git(repository, "worktree", "lock", "--reason", f"agent-task:{task['task_id']}", str(path))
     if task.get("metadata_path"):
         stage_metadata(task, read_metadata(Path(task["metadata_path"])))
-        task.pop("metadata_conflict", None)
-        task.pop("metadata_error", None)
         store.save(task)
 
 
 def prepare_recovery(task: dict[str, Any]) -> str:
     path = Path(task["worktree_path"])
     notes: list[str] = []
-    if task.get("metadata_conflict"):
+    if task.get("metadata_warning"):
         notes.append(
-            f"Reconcile {METADATA_NAME} with the read-only current copy at $AI_REPO_METADATA_SOURCE; "
-            f"conflicting fields: {task['metadata_conflict'].get('fields', [])}."
+            f"A non-blocking {METADATA_NAME} proposal is recorded in the task status: "
+            f"{task['metadata_warning']}."
         )
-    elif task.get("metadata_error"):
-        notes.append(f"Repair {METADATA_NAME}: {task['metadata_error']}.")
+    if commit_tracks_metadata(Path(task["repository"]), ref(path, "HEAD")):
+        notes.append(f"Remove {METADATA_NAME} from the branch with git rm --cached, then commit the deletion.")
     normal, _ignored = worktree_changes(path)
     if normal or not task.get("target_branch"):
         notes.append("Resume the preserved files and commit the completed result.")
         return " ".join(notes)
     repository = Path(task["repository"])
+    if not branch_exists(repository, task["target_branch"]):
+        notes.append(f"The target branch {task['target_branch']} no longer exists; repair the task metadata first.")
+        return " ".join(notes)
+    if git(path, "rev-parse", "--verify", "MERGE_HEAD", check=False).returncode == 0:
+        notes.append("A target merge is already in progress. Resolve only those conflicts and commit.")
+        return " ".join(notes)
     target_sha = ref(repository, f"refs/heads/{task['target_branch']}")
     head = ref(path, "HEAD")
     if is_ancestor(repository, target_sha, head):
@@ -957,15 +1027,28 @@ def prepare_recovery(task: dict[str, Any]) -> str:
     return " ".join(notes)
 
 
-def launch_for_task(store: Store, task: dict[str, Any], command: Sequence[str], *, integrate: bool) -> int:
-    try:
-        exit_code = launch_agent(store, task, command)
-    except Exception as error:
-        task.pop("process", None)
-        set_status(store, task, RECOVERY, f"agent launch failed: {error}")
-        raise
-    finalize_task(store, task, integrate=integrate)
-    return exit_code
+def launch_for_task(
+    store: Store,
+    task: dict[str, Any],
+    command: Sequence[str],
+    *,
+    integrate: bool,
+    task_locked: bool = False,
+) -> int:
+    manager = contextlib.nullcontext() if task_locked else store.lock(f"task:{task['task_id']}")
+    with manager:
+        current = store.load(task["task_id"])
+        task.clear()
+        task.update(current)
+        try:
+            exit_code = launch_agent(store, task, command)
+        except Exception as error:
+            task.pop("process", None)
+            set_status(store, task, FAILED, f"agent launch failed: {error}")
+            cleanup_task(store, task)
+            raise
+        finalize_task(store, task, integrate=integrate)
+        return exit_code
 
 
 def command_start(args: argparse.Namespace, store: Store) -> int:
@@ -992,12 +1075,13 @@ def command_list(_args: argparse.Namespace, store: Store) -> int:
     if not tasks:
         print("No agent tasks.")
         return 0
-    print(f"{'TASK':31} {'STATUS':21} {'AGENT':8} {'TARGET':16} RESULT")
+    print(f"{'TASK':31} {'STATUS':21} {'AGENT':8} {'TARGET':16} {'RESULT':10} NOTE")
     for task in tasks:
+        note = "metadata" if task.get("metadata_warning") or task.get("metadata_overwrites") else "-"
         print(
             f"{task['task_id'][:31]:31} {task.get('status', '?')[:21]:21} "
             f"{task.get('agent', '?')[:8]:8} {(task.get('target_branch') or '-')[:16]:16} "
-            f"{(task.get('result_commit') or '-')[:10]}"
+            f"{(task.get('result_commit') or '-')[:10]:10} {note}"
         )
     return 0
 
@@ -1010,32 +1094,34 @@ def command_status(args: argparse.Namespace, store: Store) -> int:
 
 
 def command_integrate(args: argparse.Namespace, store: Store) -> int:
-    task = store.load(args.task_id)
-    if process_alive(task.get("process")):
-        raise AgentTaskError("coding agent is still running")
-    if not task.get("result_commit"):
-        inspect_result(store, task, trust_clean_commit=True)
-    success = task.get("status") == READY and integrate_task(store, task)
+    with store.lock(f"task:{args.task_id}", blocking=False):
+        task = store.load(args.task_id)
+        if process_alive(task.get("process")):
+            raise AgentTaskError("coding agent is still running")
+        if not task.get("result_commit"):
+            inspect_result(store, task, trust_clean_commit=True)
+        success = task.get("status") == READY and integrate_task(store, task)
     print(f"{task['task_id']}: {task['status']}")
     return 0 if success else 2
 
 
 def command_recover(args: argparse.Namespace, store: Store) -> int:
-    task = store.load(args.task_id)
-    if process_alive(task.get("process")):
-        raise AgentTaskError("coding agent is still running")
-    if task.get("integrated_commit"):
-        raise AgentTaskError("result is already integrated; use cleanup for retained artifacts")
-    recreate_worktree(store, task)
-    context = prepare_recovery(task)
-    agent = args.agent or task.get("agent", "codex")
-    if agent == "custom" and not args.command:
-        raise AgentTaskError("custom agents require a command after --")
-    task["agent"] = agent
-    store.save(task)
-    prompt = f"Recover agent-task {task['task_id']}: {task.get('description', '')}\n\n{context}"
-    command = list(args.command) or default_agent_command(agent, prompt)
-    exit_code = launch_for_task(store, task, command, integrate=not args.no_integrate)
+    with store.lock(f"task:{args.task_id}", blocking=False):
+        task = store.load(args.task_id)
+        if process_alive(task.get("process")):
+            raise AgentTaskError("coding agent is still running")
+        if task.get("integrated_commit"):
+            raise AgentTaskError("result is already integrated; use cleanup for retained artifacts")
+        recreate_worktree(store, task)
+        context = prepare_recovery(task)
+        agent = args.agent or task.get("agent", "codex")
+        if agent == "custom" and not args.command:
+            raise AgentTaskError("custom agents require a command after --")
+        task["agent"] = agent
+        store.save(task)
+        prompt = f"Recover agent-task {task['task_id']}: {task.get('description', '')}\n\n{context}"
+        command = list(args.command) or default_agent_command(agent, prompt)
+        exit_code = launch_for_task(store, task, command, integrate=not args.no_integrate, task_locked=True)
     print(f"{task['task_id']}: {task['status']}")
     return 0 if task.get("integrated_commit") or (args.no_integrate and task["status"] == READY) else (exit_code or 2)
 
@@ -1044,11 +1130,18 @@ def command_cleanup(args: argparse.Namespace, store: Store) -> int:
     tasks = store.all() if args.all else [store.load(args.task_id)]
     failed = False
     for task in tasks:
-        if process_alive(task.get("process")):
-            print(f"{task['task_id']}: active; skipped")
+        try:
+            with store.lock(f"task:{task['task_id']}", blocking=False):
+                task = store.load(task["task_id"])
+                if process_alive(task.get("process")):
+                    print(f"{task['task_id']}: active; skipped")
+                    failed = True
+                    continue
+                cleaned = cleanup_task(store, task)
+        except LockBusy:
+            print(f"{task['task_id']}: busy; skipped")
             failed = True
             continue
-        cleaned = cleanup_task(store, task, discard_ignored=args.discard_ignored)
         print(f"{task['task_id']}: {'cleaned' if cleaned else 'preserved'}")
         failed = failed or not cleaned
     return 2 if failed else 0
@@ -1090,13 +1183,14 @@ def record_orphans(store: Store) -> None:
 
 
 def reconcile_one(store: Store, task: dict[str, Any], *, integrate: bool) -> None:
+    if process_alive(task.get("process")):
+        return
     status = task.get("status")
     if status == RUNNING:
-        if process_alive(task.get("process")):
-            return
         task.pop("process", None)
         finalize_task(store, task, integrate=integrate, trust_clean_commit=True)
     elif status == CREATED:
+        task.pop("process", None)
         finalize_task(store, task, integrate=integrate, trust_clean_commit=True)
     elif status == READY and integrate:
         integrate_task(store, task)
@@ -1105,27 +1199,36 @@ def reconcile_one(store: Store, task: dict[str, Any], *, integrate: bool) -> Non
 
 
 def command_reconcile(args: argparse.Namespace, store: Store) -> int:
+    failed = False
     try:
         with store.lock("reconcile", blocking=False):
             record_orphans(store)
             repositories: set[Path] = set()
             for task in store.all():
                 try:
-                    reconcile_one(store, task, integrate=not args.no_integrate)
-                    repositories.add(Path(task["repository"]))
+                    with store.lock(f"task:{task['task_id']}", blocking=False):
+                        task = store.load(task["task_id"])
+                        reconcile_one(store, task, integrate=not args.no_integrate)
+                        repositories.add(Path(task["repository"]))
+                except LockBusy:
+                    continue
                 except Exception as error:
+                    failed = True
                     task["reconcile_error"] = str(error)
                     store.save(task)
-                    if not args.quiet:
-                        print(f"{task['task_id']}: {error}", file=sys.stderr)
+                    print(f"{task['task_id']}: {error}", file=sys.stderr)
             for repository in repositories:
                 if repository.exists():
                     git(repository, "worktree", "prune", check=False)
     except LockBusy:
         return 0
+    recovery = [task for task in store.all() if task.get("status") == RECOVERY]
+    if recovery:
+        failed = True
+        print(f"agent-task: {len(recovery)} task(s) require recovery", file=sys.stderr)
     if not args.quiet:
         command_list(args, store)
-    return 0
+    return 2 if failed else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1158,7 +1261,6 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup_target = cleanup.add_mutually_exclusive_group(required=True)
     cleanup_target.add_argument("task_id", nargs="?")
     cleanup_target.add_argument("--all", action="store_true")
-    cleanup.add_argument("--discard-ignored", action="store_true", help="discard only ignored artifacts")
     cleanup.set_defaults(func=command_cleanup)
     reconcile = subparsers.add_parser("reconcile", help="resume lifecycle and prune stale metadata")
     reconcile.add_argument("--no-integrate", action="store_true")
