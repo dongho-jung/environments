@@ -1,8 +1,10 @@
 # agent-task
 
-`agent-task` runs each Codex or Claude coding session in a temporary branch and
-worktree. The agent owns file edits and commits; the harness owns integration
-and cleanup.
+`agent-task` runs explicitly managed Codex or Claude work in a temporary branch
+and worktree. Normal launcher sessions stay in the current checkout; the harness
+is only used when parallel worktree isolation is requested. The agent owns file
+edits and commits, while the harness owns integration and cleanup for its one
+assigned repository.
 
 ```text
 open -> interrupted task -------------------------> resume the native chat
@@ -20,17 +22,23 @@ original conversation is restored without remembering a session ID.
 
 ## Use
 
-The installed shell functions launch managed sessions:
+The installed shell functions preserve the native CLIs by default and opt into
+managed worktrees with a flag:
 
 ```sh
-o implement the login timeout
-c implement the login timeout
-o                         # resume interrupted Codex work, or start fresh
-c --new new parallel task # intentionally bypass an interrupted Claude task
+o implement the login timeout       # normal Codex session in this checkout
+c implement the login timeout       # normal Claude session in this checkout
+o                                   # /resume sees this checkout's saved chats
+o resume --all                      # native cross-directory session picker
+o --new implement a parallel task   # new managed Codex worktree
+c --new implement a parallel task   # new managed Claude worktree
+o --task                            # resume/create a managed Codex task
+c --task                            # resume/create a managed Claude task
 ```
 
-Outside a Git repository, or when the first argument is a native CLI flag, the
-launchers preserve the direct Codex/Claude behavior.
+Without `--new` or `--task`, every argument and native subcommand is forwarded
+directly to Codex or Claude. Managed recovery still reuses the exact worktree
+path and native conversation recorded for that task.
 
 Operator commands are available directly:
 
@@ -85,13 +93,14 @@ Invalid memory is archived in task state without blocking code integration, and
 not authority; it must not contain secrets, guesses, or new transient task
 progress, and remembered tools never authorize external mutation.
 
-## Safety and cleanup
+## Lifecycle and cleanup
 
-- Bubblewrap exposes only the assigned worktree, shared Git data, and the
-  selected agent's state as writable host paths.
-- The command wrapper blocks branch/worktree/ref/config operations and
-  Terraform/OpenTofu mutation commands. It guards accidental misuse, not a
-  deliberately hostile process or every possible remote API.
+- Managed agents start in the assigned worktree but run with normal filesystem
+  access. There is no Bubblewrap mount namespace, path allowlist, or Git command
+  wrapper.
+- The harness owns only its assigned repository. If the requested outcome needs
+  another repository, the agent may work there normally under that repository's
+  instructions and must keep its changes and commits separate.
 - Integration is serialized per repository and target branch, while coding
   remains parallel.
 - The target ref advances only after a clean merge candidate and configured

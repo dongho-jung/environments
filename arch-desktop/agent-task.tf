@@ -1,8 +1,3 @@
-# Coding agents run inside an externally enforced disposable-worktree sandbox.
-resource "host_package_pacman" "bubblewrap" {
-  name = "bubblewrap"
-}
-
 resource "host_dir" "local_bin" {
   path = "~/.local/bin"
   mode = "0755"
@@ -19,23 +14,18 @@ resource "host_link" "agent_task" {
   stage_source = true
 
   depends_on = [
-    host_package_pacman.bubblewrap,
     host_package_pacman.git,
   ]
 }
 
-# Keep the familiar one-letter launchers. In a Git repository they reopen the
-# interrupted task for that agent or create a new managed task. Outside Git, and
-# for explicit CLI flags, they preserve the original direct-launch behavior.
+# Keep ordinary sessions identical to the native CLIs. Managed worktrees are an
+# explicit parallel-work option: --new starts one and --task resumes or creates
+# one through the harness.
 resource "host_file_block" "agent_task_functions" {
   block = host_file.zshrc.blocks.functions
 
   content = <<-EOT
     o() {
-      if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 || [[ "$${1-}" == -* && "$${1-}" != "--new" ]]; then
-        command codex --dangerously-bypass-approvals-and-sandbox "$@"
-        return
-      fi
       if [[ "$${1-}" == "--new" ]]; then
         shift
         if (( $# )); then
@@ -45,18 +35,19 @@ resource "host_file_block" "agent_task_functions" {
         fi
         return
       fi
-      if (( $# )); then
-        agent-task open --agent codex "$*"
-      else
-        agent-task open --agent codex
+      if [[ "$${1-}" == "--task" ]]; then
+        shift
+        if (( $# )); then
+          agent-task open --agent codex "$*"
+        else
+          agent-task open --agent codex
+        fi
+        return
       fi
+      command codex --dangerously-bypass-approvals-and-sandbox "$@"
     }
 
     c() {
-      if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 || [[ "$${1-}" == -* && "$${1-}" != "--new" ]]; then
-        command env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
-        return
-      fi
       if [[ "$${1-}" == "--new" ]]; then
         shift
         if (( $# )); then
@@ -66,11 +57,16 @@ resource "host_file_block" "agent_task_functions" {
         fi
         return
       fi
-      if (( $# )); then
-        agent-task open --agent claude "$*"
-      else
-        agent-task open --agent claude
+      if [[ "$${1-}" == "--task" ]]; then
+        shift
+        if (( $# )); then
+          agent-task open --agent claude "$*"
+        else
+          agent-task open --agent claude
+        fi
+        return
       fi
+      command env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
     }
   EOT
 }

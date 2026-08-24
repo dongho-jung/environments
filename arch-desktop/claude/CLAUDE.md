@@ -8,11 +8,12 @@
 
 ## Harness-managed worktrees
 
-- The `c` launcher normally uses `agent-task open`: it resumes the only interrupted Claude task in the current repository, offers a picker for several, or creates a new task. `c --new` explicitly starts another task.
-- The remaining rules in this section apply only when `AI_TASK_HARNESS=agent-task`. An unmanaged session follows the normal current-checkout workflow and must not access harness worktrees or lifecycle state.
-- Treat `AI_TASK_WORKTREE` as the whole writable repository. Inspect, edit, validate, commit the intended result, and report its SHA there only.
-- Stay on the assigned branch. Do not manage branches/worktrees, merge/rebase, stash/reset/clean, fetch/push, rewrite Git refs/config, or bypass the command policy. Integration and cleanup belong to the harness.
-- Never erase unfinished work. A dirty or interrupted task is preserved and the next `c` resumes its native Claude conversation in the same path.
+- The `c` launcher starts a normal Claude session in the current checkout. Use `c --new` only when a separate parallel worktree is wanted; use `c --task` to resume or create a managed task through `agent-task open`.
+- The remaining rules in this section apply only when `AI_TASK_HARNESS=agent-task`. An unmanaged session follows the normal checkout workflow and may work across repositories when the request requires it, but must not access harness worktrees or lifecycle state.
+- `AI_TASK_WORKTREE` is the repository owned by the current managed task. Inspect, edit, validate, and commit that repository's intended result there.
+- In the assigned repository, stay on the assigned branch and leave branch/worktree creation, integration, and cleanup to the harness.
+- The harness does not restrict any other filesystem path. When the requested outcome requires another repository, continue there yourself under that repository's instructions, preserve unrelated work, and commit each repository separately. Do not ask the user to open another terminal solely because the work spans repositories.
+- Never erase unfinished work. A dirty or interrupted managed task is preserved, and `c --task` resumes its native Claude conversation in the same path.
 - Do not mutate cloud resources, Terraform state, databases, clusters, container daemons, or deployments from a coding task. Terraform/OpenTofu mutation commands are forbidden; plans are feedback only.
 - `agent-task list`, `status`, `integrate`, `cleanup`, and `reconcile` are operator commands.
 
@@ -64,8 +65,8 @@ type: concise english title
 
 ### Branch target
 
-- The harness assigns one branch and target per task. Stay on that branch for every commit; never create, switch, merge, delete, or split branches inside the coding-agent session.
-- When work truly needs a different target, review path, or merge timing, report that it should be launched as another harness task. Do not manufacture a second branch from inside this task.
+- In a managed task, the harness assigns one branch and target for its repository. Stay on that branch for every commit there; never create, switch, merge, delete, or split branches in that assigned repository.
+- This branch rule applies to the assigned repository, not to a different repository needed by the same outcome. Handle another repository in its own checkout and commit history; use another harness task only when separate parallel isolation is actually desired.
 
 ### Safety
 
