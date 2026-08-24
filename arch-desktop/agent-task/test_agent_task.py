@@ -4,7 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -18,6 +18,68 @@ SPEC = importlib.util.spec_from_file_location("agent_task_under_test", SCRIPT)
 assert SPEC and SPEC.loader
 AGENT_TASK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(AGENT_TASK)
+
+
+class LaunchBehaviorTest(unittest.TestCase):
+    def test_agent_process_runs_directly_in_the_task_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = Path(directory)
+            nested = worktree / "nested"
+            nested.mkdir()
+            task = {
+                "task_id": "test-task",
+                "worktree_path": str(worktree),
+                "workdir_relative": "nested",
+                "branch": "ai/codex/test-task",
+                "target_branch": "main",
+            }
+            process = mock.Mock(pid=12345)
+            process.wait.return_value = 0
+            store = mock.Mock()
+
+            with (
+                mock.patch.object(AGENT_TASK.subprocess, "Popen", return_value=process) as popen,
+                mock.patch.object(AGENT_TASK, "process_start", return_value="start"),
+            ):
+                exit_code = AGENT_TASK.launch_agent(store, task, ["custom-agent", "instruction"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(popen.call_args.args[0], ["custom-agent", "instruction"])
+        self.assertEqual(popen.call_args.kwargs["cwd"], nested)
+        self.assertEqual(popen.call_args.kwargs["env"]["AI_TASK_WORKTREE"], str(worktree))
+
+    def test_shell_launchers_use_managed_worktrees_only_on_request(self) -> None:
+        configuration = SCRIPT.parent.parent.joinpath("agent-task.tf").read_text()
+
+        self.assertIn('if [[ "$${1-}" == "--new" ]]', configuration)
+        self.assertIn('if [[ "$${1-}" == "--task" ]]', configuration)
+        self.assertIn("agent-task open --managed --new --agent codex", configuration)
+        self.assertIn("agent-task open --managed --agent codex", configuration)
+        self.assertIn('command codex --dangerously-bypass-approvals-and-sandbox "$@"', configuration)
+        self.assertIn('command env IS_DEMO=1 claude', configuration)
+        self.assertNotIn('resource "host_package_pacman" "bubblewrap"', configuration)
+
+    def test_legacy_open_invocation_launches_the_native_agent(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "continue here", "--agent", "codex"])
+        arguments.command = []
+        environment = {
+            "AI_TASK_HARNESS": "agent-task",
+            "AI_TASK_WORKTREE": "/managed/worktree",
+            "AGENT_TASK_POLICY": "/managed/policy.json",
+        }
+        completed = mock.Mock(returncode=0)
+
+        with (
+            mock.patch.dict(os.environ, environment, clear=True),
+            mock.patch.object(AGENT_TASK.subprocess, "run", return_value=completed) as run,
+        ):
+            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(run.call_args.args[0][0], "codex")
+        self.assertEqual(run.call_args.args[0][-1], "continue here")
+        self.assertNotIn("AI_TASK_HARNESS", run.call_args.kwargs["env"])
+        self.assertNotIn("AGENT_TASK_POLICY", run.call_args.kwargs["env"])
 
 
 class HarnessTest(unittest.TestCase):
@@ -294,6 +356,7 @@ class HarnessTest(unittest.TestCase):
         resumed = self.cli(
             "open",
             "finish it",
+            "--managed",
             "--agent",
             "custom",
             "--",
@@ -324,7 +387,7 @@ class HarnessTest(unittest.TestCase):
                 f"printf '{name}\\n' > {name}.txt",
             )
 
-        opened = self.cli("open", "another instruction", "--agent", "custom", "--", "true")
+        opened = self.cli("open", "another instruction", "--managed", "--agent", "custom", "--", "true")
 
         self.assertEqual(opened.returncode, 2)
         self.assertIn("multiple interrupted tasks require a terminal selection", opened.stderr)
@@ -502,47 +565,46 @@ class HarnessTest(unittest.TestCase):
         self.cli("integrate", str(task["task_id"]), check=True)
         self.assertEqual((self.repository / "locked.txt").read_text(), "locked\n")
 
-    def test_policy_blocks_git_lifecycle_and_terraform_apply(self) -> None:
-        switched = self.cli(
+    def test_managed_agent_can_work_in_another_repository(self) -> None:
+        dependency = self.repository.parent / "dependency"
+        self.git("init", "-b", "main", str(dependency), cwd=self.repository.parent)
+        self.git("config", "user.name", "Test Agent", cwd=dependency)
+        self.git("config", "user.email", "agent@example.com", cwd=dependency)
+        self.git("config", "commit.gpgsign", "false", cwd=dependency)
+        (dependency / "dependency.txt").write_text("base\n")
+        self.git("add", "dependency.txt", cwd=dependency)
+        self.git("commit", "-m", "base", cwd=dependency)
+
+        dependency_argument = shlex.quote(str(dependency))
+        dependency_file = shlex.quote(str(dependency / "dependency.txt"))
+        result = self.cli(
             "start",
-            "attempt branch switch",
+            "update two repositories",
             "--agent",
             "custom",
             "--",
-            "git",
-            "switch",
-            "main",
+            "sh",
+            "-lc",
+            (
+                "printf 'primary\\n' > primary.txt && "
+                "git add primary.txt && git commit -m 'feat: update primary' && "
+                f"git -C {dependency_argument} switch -c cross-repo-change && "
+                f"printf 'dependency\\n' > {dependency_file} && "
+                f"git -C {dependency_argument} add dependency.txt && "
+                f"git -C {dependency_argument} commit -m 'feat: update dependency'"
+            ),
+            check=True,
         )
-        self.assertEqual(switched.returncode, 126)
-        self.assertIn("denied: git switch", switched.stderr)
+        task = self.task_from(result)
 
-        self.git("config", "alias.co", "checkout")
-        aliased = self.cli(
-            "start",
-            "attempt aliased branch switch",
-            "--agent",
-            "custom",
-            "--",
-            "git",
-            "co",
-            "main",
+        self.assertEqual(task["status"], "INTEGRATED")
+        self.assertEqual((self.repository / "primary.txt").read_text(), "primary\n")
+        self.assertEqual((dependency / "dependency.txt").read_text(), "dependency\n")
+        self.assertEqual(self.git("branch", "--show-current", cwd=dependency).stdout.strip(), "cross-repo-change")
+        self.assertEqual(
+            self.git("log", "-1", "--format=%s", cwd=dependency).stdout.strip(),
+            "feat: update dependency",
         )
-        self.assertEqual(aliased.returncode, 126)
-        self.assertIn("Git aliases are unavailable", aliased.stderr)
-
-        if shutil.which("terraform"):
-            applied = self.cli(
-                "start",
-                "attempt terraform apply",
-                "--agent",
-                "custom",
-                "--",
-                "terraform",
-                "apply",
-                "-auto-approve",
-            )
-            self.assertEqual(applied.returncode, 126)
-            self.assertIn("denied: terraform apply", applied.stderr)
 
 
 if __name__ == "__main__":

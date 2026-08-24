@@ -355,235 +355,13 @@ def sync_memory(store: Store, task: dict[str, Any]) -> None:
     store.save(task)
 
 
-# The wrapper is an accidental-misuse guard, not a hostile-code sandbox. The
-# real binaries remain available to the wrapper inside the mount namespace.
-GIT_DENIED = {
-    "am",
-    "bisect",
-    "branch",
-    "checkout",
-    "cherry-pick",
-    "clean",
-    "clone",
-    "config",
-    "fetch",
-    "gc",
-    "init",
-    "maintenance",
-    "merge",
-    "notes",
-    "pull",
-    "push",
-    "rebase",
-    "reflog",
-    "remote",
-    "replace",
-    "reset",
-    "restore",
-    "revert",
-    "sparse-checkout",
-    "stash",
-    "submodule",
-    "switch",
-    "symbolic-ref",
-    "tag",
-    "update-ref",
-    "worktree",
-}
-
-
-def deny(message: str) -> int:
-    print(f"agent-task policy: denied: {message}", file=sys.stderr)
-    return 126
-
-
-def git_command(args: Sequence[str], worktree: Path) -> tuple[str | None, list[str]]:
-    index = 0
-    while index < len(args):
-        value = args[index]
-        if value == "-C":
-            if index + 1 >= len(args):
-                return None, []
-            target = (Path.cwd() / args[index + 1]).resolve()
-            if not target.is_relative_to(worktree):
-                return "__outside__", []
-            index += 2
-        elif value.startswith("-C") and len(value) > 2:
-            target = (Path.cwd() / value[2:]).resolve()
-            if not target.is_relative_to(worktree):
-                return "__outside__", []
-            index += 1
-        elif value in ("-c", "--config-env", "--git-dir", "--work-tree"):
-            return "__config__", []
-        elif value.startswith(("-c", "--config-env=", "--git-dir=", "--work-tree=", "--exec-path")):
-            return "__config__", []
-        elif value.startswith("-"):
-            index += 1
-        else:
-            return value, list(args[index + 1 :])
-    return None, []
-
-
-def policy_main(tool: str) -> int:
-    policy_path = os.environ.get("AGENT_TASK_POLICY")
-    if not policy_path:
-        return deny("managed command used without task policy")
-    policy = json.loads(Path(policy_path).read_text())
-    real = policy.get("real", {}).get(tool)
-    if not real:
-        return deny(f"{tool} is unavailable")
-    args = sys.argv[1:]
-
-    if tool == "git":
-        command, tail = git_command(args, Path(policy["worktree"]))
-        if command == "__outside__":
-            return deny("git -C outside the assigned worktree")
-        if command == "__config__":
-            return deny("Git directory/config overrides")
-        alias = None
-        if command:
-            configured = subprocess.run(
-                [real, "config", "--get", f"alias.{command}"],
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            alias = configured.stdout.strip() if configured.returncode == 0 else None
-        if alias:
-            return deny(f"Git aliases are unavailable in managed tasks: {command}")
-        if command == "branch" and tail in ([], ["--show-current"]):
-            pass
-        elif command == "maintenance" and tail and tail[0] == "run" and "--auto" in tail:
-            pass
-        elif command in GIT_DENIED:
-            return deny(f"git {command}")
-        if command == "commit" and any(value in ("--amend", "--no-verify") for value in tail):
-            return deny("commit --amend/--no-verify")
-
-    if tool in ("terraform", "tofu"):
-        if any(value == "-chdir" or value.startswith("-chdir=") for value in args):
-            return deny(f"{tool} -chdir")
-        command = next((value for value in args if not value.startswith("-")), "version")
-        allowed = {"fmt", "validate", "version", "providers", "show", "output", "graph", "init", "plan"}
-        if command not in allowed:
-            return deny(f"{tool} {command}")
-        args = list(args)
-        if command == "init":
-            if not any(value.startswith("-backend") for value in args):
-                args.append("-backend=false")
-            if not any(value.startswith("-input") for value in args):
-                args.append("-input=false")
-        if command == "plan":
-            if not any(value.startswith("-lock") for value in args):
-                args.append("-lock=false")
-            if not any(value.startswith("-input") for value in args):
-                args.append("-input=false")
-
-    return subprocess.run([real, *args], check=False).returncode
-
-
-def agent_state_paths(agent: str) -> list[Path]:
-    if agent == "codex":
-        candidates = [Path.home() / ".codex"]
-    elif agent == "claude":
-        candidates = [Path.home() / ".claude", Path.home() / ".claude.json"]
-    else:
-        candidates = []
-    return [path.resolve() for path in candidates if path.exists()]
-
-
-def sandbox_command(store: Store, task: dict[str, Any], command: Sequence[str], *, agent_state: bool) -> list[str]:
-    bwrap = shutil.which("bwrap")
-    if not bwrap:
-        raise AgentTaskError("bubblewrap is required")
+def task_working_directory(task: dict[str, Any]) -> Path:
     worktree = Path(task["worktree_path"]).resolve()
-    common = Path(task["git_common_dir"]).resolve()
     relative = Path(task.get("workdir_relative") or ".")
     working_directory = (worktree / relative).resolve()
     if not working_directory.is_relative_to(worktree) or not working_directory.is_dir():
-        working_directory = worktree
-
-    scratch = store.scratch / task["task_id"]
-    scratch.mkdir(parents=True, exist_ok=True)
-    wrapper = Path(__file__).resolve()
-    real: dict[str, str] = {}
-    mounts: list[str] = []
-    for tool in ("git", "terraform", "tofu"):
-        visible_value = shutil.which(tool)
-        if not visible_value:
-            continue
-        visible = Path(visible_value)
-        private_source = scratch / f"real-{tool}"
-        private_source.touch(exist_ok=True)
-        private = Path("/run/agent-task") / f"real-{tool}"
-        mounts.extend(("--ro-bind", str(visible.resolve()), str(private)))
-        mounts.extend(("--ro-bind", str(wrapper), str(visible)))
-        real[tool] = str(private)
-
-    policy = scratch / "policy.json"
-    policy.write_text(json.dumps({"worktree": str(worktree), "real": real}))
-    argv = [
-        bwrap,
-        "--die-with-parent",
-        "--unshare-pid",
-        "--ro-bind",
-        "/",
-        "/",
-        "--dev",
-        "/dev",
-        "--proc",
-        "/proc",
-        "--tmpfs",
-        "/tmp",
-        "--tmpfs",
-        "/run",
-        "--dir",
-        "/run/agent-task",
-        "--ro-bind",
-        str(scratch),
-        "/run/agent-task",
-        "--dir",
-        "/tmp/runtime",
-        "--bind",
-        str(worktree),
-        str(worktree),
-        "--bind",
-        str(common),
-        str(common),
-        *mounts,
-    ]
-    if agent_state:
-        for path in agent_state_paths(task.get("agent", "custom")):
-            argv.extend(("--bind", str(path), str(path)))
-
-    ssh_socket = os.environ.get("SSH_AUTH_SOCK")
-    if ssh_socket and Path(ssh_socket).exists() and Path(ssh_socket).is_relative_to(Path("/run")):
-        socket_parent = Path(ssh_socket).parent
-        parents = [path for path in socket_parent.parents if path != Path("/") and path.is_relative_to(Path("/run"))]
-        for path in reversed(parents):
-            if path != Path("/run"):
-                argv.extend(("--dir", str(path)))
-        argv.extend(("--dir", str(socket_parent), "--ro-bind", str(socket_parent), str(socket_parent)))
-
-    argv.extend(
-        (
-            "--setenv",
-            "AGENT_TASK_POLICY",
-            "/run/agent-task/policy.json",
-            "--setenv",
-            "TMPDIR",
-            "/tmp",
-            "--setenv",
-            "XDG_RUNTIME_DIR",
-            "/tmp/runtime",
-            "--chdir",
-            str(working_directory),
-            "--",
-            *command,
-        )
-    )
-    return argv
+        return worktree
+    return working_directory
 
 
 def default_agent_command(agent: str, prompt: str | None) -> list[str]:
@@ -607,6 +385,30 @@ def default_agent_command(agent: str, prompt: str | None) -> list[str]:
     if prompt:
         result.append(prompt)
     return result
+
+
+def native_agent_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    for name in (
+        "AGENT_TASK_POLICY",
+        "AI_REPO_MEMORY",
+        "AI_REPO_MEMORY_SOURCE",
+        "AI_TASK_BRANCH",
+        "AI_TASK_HARNESS",
+        "AI_TASK_ID",
+        "AI_TASK_TARGET_BRANCH",
+        "AI_TASK_WORKTREE",
+    ):
+        environment.pop(name, None)
+    return environment
+
+
+def launch_native_agent(args: argparse.Namespace) -> int:
+    explicit = list(args.command)
+    if args.agent == "custom" and not explicit:
+        raise AgentTaskError("custom agents require a command after --")
+    command = explicit or default_agent_command(args.agent, args.description)
+    return subprocess.run(command, cwd=Path.cwd(), env=native_agent_environment(), check=False).returncode
 
 
 def default_recovery_command(agent: str, prompt: str) -> list[str]:
@@ -768,8 +570,11 @@ def cleanup_task(store: Store, task: dict[str, Any]) -> bool:
 
 
 def launch_agent(store: Store, task: dict[str, Any], command: Sequence[str]) -> int:
-    sandboxed = sandbox_command(store, task, command, agent_state=True)
-    process = subprocess.Popen(sandboxed, env=task_environment(task))
+    process = subprocess.Popen(
+        list(command),
+        cwd=task_working_directory(task),
+        env=task_environment(task),
+    )
     task["process"] = {"pid": process.pid, "start": process_start(process.pid)}
     set_status(store, task, RUNNING)
     try:
@@ -877,7 +682,12 @@ def validate_candidate(store: Store, task: dict[str, Any], candidate: Path, targ
     candidate_task["workdir_relative"] = "."
     for command in validation_commands(task, candidate, target_sha):
         print(f"validate: {shlex.join(command)}")
-        result = subprocess.run(sandbox_command(store, candidate_task, command, agent_state=False), check=False)
+        result = subprocess.run(
+            command,
+            cwd=task_working_directory(candidate_task),
+            env=task_environment(candidate_task),
+            check=False,
+        )
         if result.returncode:
             task["validation_failure"] = {"command": command, "exit_code": result.returncode}
             return False
@@ -1177,6 +987,8 @@ def choose_recovery_task(tasks: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 def command_open(args: argparse.Namespace, store: Store) -> int:
+    if not args.managed and not args.new:
+        return launch_native_agent(args)
     checkout = repo_root(Path.cwd().resolve())
     repository = primary_worktree(checkout)
     tasks = refresh_interrupted_tasks(store, repository)
@@ -1391,13 +1203,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-task", description="Run coding agents in disposable Git worktrees.")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
-    opening = subparsers.add_parser("open", help="resume interrupted work or start a new managed session")
+    opening = subparsers.add_parser("open", help="launch natively, or open a managed session on request")
     opening.add_argument("description", nargs="?")
     opening.add_argument("--task", help="task description for a custom command")
     opening.add_argument("--agent", choices=("codex", "claude", "custom"), default="codex")
     opening.add_argument("--target", help="local integration target branch")
     opening.add_argument("--check", action="append", default=[], help="post-merge check; repeatable")
     opening.add_argument("--no-integrate", action="store_true")
+    opening.add_argument("--managed", action="store_true", help="resume or create a managed worktree task")
     opening.add_argument("--new", action="store_true", help="start separately even when interrupted work exists")
     opening.add_argument("--new-session", action="store_true", help="recover files in a fresh agent conversation")
     opening.set_defaults(func=command_open)
@@ -1452,9 +1265,6 @@ def cli_main() -> int:
 
 def main() -> int:
     try:
-        invoked = Path(sys.argv[0]).name
-        if invoked in ("git", "terraform", "tofu") and os.environ.get("AGENT_TASK_POLICY"):
-            return policy_main(invoked)
         return cli_main()
     except AgentTaskError as error:
         print(f"agent-task: {error}", file=sys.stderr)

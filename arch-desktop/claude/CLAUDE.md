@@ -8,12 +8,14 @@
 
 ## Harness-managed worktrees
 
-- The `c` launcher normally uses `agent-task open`: it resumes the only interrupted Claude task in the current repository, offers a picker for several, or creates a new task. `c --new` explicitly starts another task.
-- The remaining rules in this section apply only when `AI_TASK_HARNESS=agent-task`. An unmanaged session follows the normal current-checkout workflow and must not access harness worktrees or lifecycle state.
-- Treat `AI_TASK_WORKTREE` as the whole writable repository. Inspect, edit, validate, commit the intended result, and report its SHA there only.
-- Stay on the assigned branch. Do not manage branches/worktrees, merge/rebase, stash/reset/clean, fetch/push, rewrite Git refs/config, or bypass the command policy. Integration and cleanup belong to the harness.
-- Never erase unfinished work. A dirty or interrupted task is preserved and the next `c` resumes its native Claude conversation in the same path.
-- Do not mutate cloud resources, Terraform state, databases, clusters, container daemons, or deployments from a coding task. Terraform/OpenTofu mutation commands are forbidden; plans are feedback only.
+- The `c` launcher starts a normal Claude session in the current checkout. Use `c --new` only when a separate parallel worktree is wanted; use `c --task` to resume or create a managed task through `agent-task open --managed`.
+- The remaining rules in this section apply only when `AI_TASK_HARNESS=agent-task`. An unmanaged session follows the normal checkout workflow and must not access harness worktrees or lifecycle state.
+- The harness is a Git worktree lifecycle coordinator, not a filesystem, network, remote-service, or cross-repository security boundary. It adds no blanket restriction on normal tools or user-authorized operations.
+- `AI_TASK_WORKTREE` is the repository owned by the current managed task. Inspect, edit, validate, and commit that repository's intended result there. Stay on its assigned branch and leave its branch/worktree creation, integration, and cleanup to the harness.
+- Remote inspection is allowed. Use the appropriate live read-only tool such as `gh pr view`, an API/MCP query, `git ls-remote`, or `git fetch` when current remote state matters. Never claim the harness blocks a check unless an attempted command returned an actual policy error; report that command and error.
+- When the requested outcome requires another path, repository, service, deployment, database, container runtime, or Terraform operation, continue there yourself under its instructions and the user's authorization. Preserve unrelated work and keep repository commits separate. Do not ask the user to open another terminal solely because the work spans repositories.
+- Never erase unfinished work. A dirty or interrupted managed task is preserved, and `c --task` resumes its native Claude conversation in the same path.
+- External mutations follow the user request and ordinary safety rules; `AI_TASK_HARNESS` does not independently forbid them. Read-only verification does not require separate permission.
 - `agent-task list`, `status`, `integrate`, `cleanup`, and `reconcile` are operator commands.
 
 ### Repository memory
@@ -64,10 +66,10 @@ type: concise english title
 
 ### Branch target
 
-- The harness assigns one branch and target per task. Stay on that branch for every commit; never create, switch, merge, delete, or split branches inside the coding-agent session.
-- When work truly needs a different target, review path, or merge timing, report that it should be launched as another harness task. Do not manufacture a second branch from inside this task.
+- In a managed task, the harness assigns one branch and target for its repository. Stay on that branch for every commit there; never create, switch, merge, delete, or split branches in that assigned repository.
+- This branch rule applies to the assigned repository, not to a different repository needed by the same outcome. Handle another repository in its own checkout and commit history; use another harness task only when separate parallel isolation is actually desired.
 
 ### Safety
 
-- Never run destructive Git commands, force-push, or use `--no-verify`. Do not work around a policy denial.
+- Never run destructive Git commands, force-push, or use `--no-verify`. Respect a real system or policy denial, but do not assume one without attempting safe, in-scope checks.
 - If a commit hook or allowed Git command fails, show `git status` and fix only task-local causes. Leave lifecycle recovery to the harness.
