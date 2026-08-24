@@ -3,11 +3,6 @@ resource "host_package_pacman" "codex" {
   name = "openai-codex"
 }
 
-resource "host_file_block" "codex_aliases" {
-  block   = host_file.zshrc.blocks.alias
-  content = "alias o='codex --dangerously-bypass-approvals-and-sandbox'"
-}
-
 resource "host_link" "codex_keybindings" {
   source       = "codex/keybindings.json"
   destination  = "~/.codex/keybindings.json"

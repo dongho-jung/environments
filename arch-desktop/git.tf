@@ -48,18 +48,6 @@ resource "host_git_repo" "terraform_provider_host" {
   ]
 }
 
-# Ignored in every repository, whatever its own .gitignore says. `.ai-agent-lock`
-# is the repository-root mutex AI coding agents take before writing (see
-# claude/CLAUDE.md and codex/AGENTS.md) -- session-local state that must never
-# reach a commit, in repositories this machine does not own the .gitignore of.
-resource "host_file" "global_gitignore" {
-  path = "~/.config/git/ignore"
-
-  content = <<-EOT
-    .ai-agent-lock
-  EOT
-}
-
 # GitHub verifies signatures against the signing key registered on the
 # account; this file is what lets `git log --show-signature` do the same
 # locally.
@@ -87,7 +75,6 @@ resource "host_file" "gitconfig" {
       editor = nvim
       autocrlf = input
       quotePath = false
-      excludesFile = ${host_file.global_gitignore.path_resolved}
     [commit]
       verbose = true
       gpgsign = true

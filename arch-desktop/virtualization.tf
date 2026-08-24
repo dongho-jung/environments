@@ -49,11 +49,6 @@ resource "host_package_aur" "virtio_win" {
 
 # A repeatable Windows 11 domain specification and launcher. Stage the script
 # before linking it so temporary Terraform worktrees can be safely retired.
-resource "host_dir" "local_bin" {
-  path = "~/.local/bin"
-  mode = "0755"
-}
-
 resource "host_link" "windows11_vm_launcher" {
   source       = "libvirt/windows11-vm"
   destination  = "${host_dir.local_bin.path}/windows11-vm"
@@ -82,11 +77,6 @@ resource "host_link" "archlinux_vm_launcher" {
     host_package_pacman.swtpm,
     host_package_pacman.virt_manager,
   ]
-}
-
-resource "host_file_block" "local_bin_path" {
-  block   = host_file.zshrc.blocks.path
-  content = "export PATH=\"$HOME/.local/bin:$PATH\""
 }
 
 # AdGuard Home already owns port 53 on every host interface. Keep libvirt's
