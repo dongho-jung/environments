@@ -48,6 +48,17 @@ resource "host_git_repo" "terraform_provider_host" {
   ]
 }
 
+# Repository-local memory for coding agents is intentionally machine-local.
+# The harness copies it into temporary worktrees and merges verified updates
+# back without ever staging it in repositories we may not own.
+resource "host_file" "global_gitignore" {
+  path = "~/.config/git/ignore"
+
+  content = <<-EOT
+    .ai-metadata
+  EOT
+}
+
 # GitHub verifies signatures against the signing key registered on the
 # account; this file is what lets `git log --show-signature` do the same
 # locally.
@@ -75,6 +86,7 @@ resource "host_file" "gitconfig" {
       editor = nvim
       autocrlf = input
       quotePath = false
+      excludesFile = ${host_file.global_gitignore.path_resolved}
     [commit]
       verbose = true
       gpgsign = true

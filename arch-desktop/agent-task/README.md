@@ -44,6 +44,38 @@ merged candidate. Changed Terraform files also get `terraform fmt -check` when
 Terraform is installed. There is intentionally no general language/build
 command guessing in v1.
 
+## Repository memory
+
+Each repository gets a globally ignored `.ai-metadata` JSON file. The harness
+creates it on first use, gives every task a private worktree copy, and merges
+valid edits back when the agent exits cleanly. Different JSON fields merge
+optimistically; competing edits to the same field preserve the task for
+recovery instead of choosing a winner.
+
+```json
+{
+  "schema_version": 1,
+  "branching": {
+    "target_branch": "main",
+    "strategy": null
+  },
+  "deployment": {
+    "strategy": null,
+    "environments": {},
+    "required_mcp_tools": [],
+    "notes": []
+  },
+  "repository_notes": []
+}
+```
+
+Without `--target`, new tasks use `branching.target_branch`. Agents review the
+file every session and update it only for stable facts confirmed by repository
+state, documentation, CI, or the user. It is local memory rather than an
+instruction source: recorded tools and deployment steps do not grant authority
+to perform external mutations. Secrets and transient task state do not belong
+in this file.
+
 ## Safety boundary
 
 Bubblewrap makes the host filesystem read-only except for the assigned
@@ -66,8 +98,9 @@ or shared-state mutation from coding sessions.
 - A dirty target queues the result instead of touching the checkout.
 - Dirty, conflicted, and validation-failed task worktrees are preserved for
   `recover`.
-- Cleanup never removes uncommitted or ignored files. Ignored artifacts require
-  an explicit `cleanup --discard-ignored` after inspection.
+- Cleanup never removes uncommitted or ignored files. The managed
+  `.ai-metadata` copy is synchronized first; other ignored artifacts require an
+  explicit `cleanup --discard-ignored` after inspection.
 - Task metadata lives in `${XDG_STATE_HOME:-~/.local/state}/agent-task`.
 - The hourly reconciler resumes known clean tasks, prunes stale Git metadata,
   and registers unknown worktrees under its own managed directory as recovery

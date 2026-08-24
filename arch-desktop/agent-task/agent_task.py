@@ -26,6 +26,8 @@ VALIDATING = "VALIDATING"
 INTEGRATED = "INTEGRATED"
 FAILED = "FAILED"
 RECOVERY = "RECOVERY_REQUIRED"
+METADATA_NAME = ".ai-metadata"
+MISSING = object()
 
 
 class AgentTaskError(RuntimeError):
@@ -163,6 +165,179 @@ class Store:
             yield
         finally:
             os.close(descriptor)
+
+
+def validate_metadata(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise AgentTaskError(f"{METADATA_NAME} must contain a JSON object")
+    if value.get("schema_version") != 1:
+        raise AgentTaskError(f"{METADATA_NAME} schema_version must be 1")
+    branching = value.get("branching", {})
+    deployment = value.get("deployment", {})
+    if not isinstance(branching, dict) or not isinstance(deployment, dict):
+        raise AgentTaskError(f"{METADATA_NAME} branching and deployment must be JSON objects")
+    target = branching.get("target_branch")
+    if target is not None and not isinstance(target, str):
+        raise AgentTaskError(f"{METADATA_NAME} branching.target_branch must be a string or null")
+    tools = deployment.get("required_mcp_tools", [])
+    if not isinstance(tools, list) or not all(isinstance(tool, str) for tool in tools):
+        raise AgentTaskError(f"{METADATA_NAME} deployment.required_mcp_tools must be a string array")
+    return value
+
+
+def read_metadata(path: Path) -> dict[str, Any]:
+    try:
+        return validate_metadata(json.loads(path.read_text()))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise AgentTaskError(f"cannot read {path}: {error}") from error
+
+
+def metadata_bytes(value: dict[str, Any]) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+
+
+def digest(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def write_metadata(path: Path, value: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}")
+    temporary.write_bytes(metadata_bytes(value))
+    os.replace(temporary, path)
+
+
+def metadata_template(target: str | None) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "branching": {"target_branch": target, "strategy": None},
+        "deployment": {"strategy": None, "environments": {}, "required_mcp_tools": [], "notes": []},
+        "repository_notes": [],
+    }
+
+
+def primary_worktree(repository: Path) -> Path:
+    records = listed_worktrees(repository)
+    if records and records[0].get("worktree"):
+        return Path(records[0]["worktree"]).resolve()
+    return repository.resolve()
+
+
+def infer_target(repository: Path, current_branch: str) -> str | None:
+    if current_branch in ("develop", "main", "master"):
+        return current_branch
+    remote = git(repository, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", check=False)
+    if remote.returncode == 0:
+        candidate = remote.stdout.strip().removeprefix("origin/")
+        if candidate and branch_exists(repository, candidate):
+            return candidate
+    candidates = [name for name in ("develop", "main", "master") if branch_exists(repository, name)]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def ensure_metadata(store: Store, repository: Path, current_branch: str) -> tuple[Path, dict[str, Any]]:
+    root = primary_worktree(repository)
+    path = root / METADATA_NAME
+    with store.lock(f"metadata:{common_dir(repository)}"):
+        if git(root, "ls-files", "--error-unmatch", METADATA_NAME, check=False).returncode == 0:
+            raise AgentTaskError(f"{path} is tracked; repository memory must remain local")
+        created = False
+        if not path.exists():
+            write_metadata(path, metadata_template(infer_target(repository, current_branch)))
+            created = True
+        if git(root, "check-ignore", "--quiet", METADATA_NAME, check=False).returncode != 0:
+            if created:
+                path.unlink()
+            raise AgentTaskError(f"{path} is not ignored; install the global {METADATA_NAME} ignore first")
+        value = read_metadata(path)
+    return path, value
+
+
+def merge_metadata(
+    base: Any,
+    current: Any,
+    proposed: Any,
+    path: str,
+    conflicts: list[str],
+) -> Any:
+    if proposed == base:
+        return current
+    if current == base or current == proposed:
+        return proposed
+    if isinstance(base, dict) and isinstance(current, dict) and isinstance(proposed, dict):
+        result: dict[str, Any] = {}
+        for key in sorted(base.keys() | current.keys() | proposed.keys()):
+            merged = merge_metadata(
+                base.get(key, MISSING),
+                current.get(key, MISSING),
+                proposed.get(key, MISSING),
+                f"{path}.{key}" if path else key,
+                conflicts,
+            )
+            if merged is not MISSING:
+                result[key] = merged
+        return result
+    conflicts.append(path or "<root>")
+    return current
+
+
+def stage_metadata(task: dict[str, Any], value: dict[str, Any]) -> None:
+    path = Path(task["worktree_path"]) / METADATA_NAME
+    write_metadata(path, value)
+    task["metadata_base"] = value
+    task["metadata_base_digest"] = digest(metadata_bytes(value))
+    task["metadata_pending"] = True
+
+
+def sync_metadata(store: Store, task: dict[str, Any]) -> bool:
+    if not task.get("metadata_pending"):
+        return True
+    proposed_path = Path(task["worktree_path"]) / METADATA_NAME
+    if not proposed_path.exists():
+        task["metadata_error"] = f"managed {METADATA_NAME} copy is missing"
+        store.save(task)
+        return False
+    try:
+        proposed = read_metadata(proposed_path)
+        base = validate_metadata(task["metadata_base"])
+    except (AgentTaskError, KeyError) as error:
+        task["metadata_error"] = str(error)
+        store.save(task)
+        return False
+    if proposed == base:
+        proposed_path.unlink()
+        task["metadata_pending"] = False
+        task.pop("metadata_error", None)
+        store.save(task)
+        return True
+
+    canonical_path = Path(task["metadata_path"])
+    with store.lock(f"metadata:{task['git_common_dir']}"):
+        try:
+            current = read_metadata(canonical_path)
+        except AgentTaskError as error:
+            task["metadata_error"] = str(error)
+            store.save(task)
+            return False
+        conflicts: list[str] = []
+        merged = validate_metadata(merge_metadata(base, current, proposed, "", conflicts))
+        if conflicts:
+            task["metadata_conflict"] = {
+                "canonical_path": str(canonical_path),
+                "fields": conflicts,
+            }
+            store.save(task)
+            return False
+        write_metadata(canonical_path, merged)
+
+    proposed_path.unlink()
+    task["metadata_base"] = merged
+    task["metadata_base_digest"] = digest(metadata_bytes(merged))
+    task["metadata_pending"] = False
+    task["metadata_updated"] = True
+    task.pop("metadata_conflict", None)
+    task.pop("metadata_error", None)
+    store.save(task)
+    return True
 
 
 # The wrapper is an accidental-misuse guard, not a hostile-code sandbox. The
@@ -414,6 +589,8 @@ def task_environment(task: dict[str, Any]) -> dict[str, str]:
             "AI_TASK_WORKTREE": task["worktree_path"],
             "AI_TASK_BRANCH": task["branch"],
             "AI_TASK_TARGET_BRANCH": task.get("target_branch") or "",
+            "AI_REPO_METADATA": METADATA_NAME,
+            "AI_REPO_METADATA_SOURCE": task.get("metadata_path") or "",
         }
     )
     return environment
@@ -432,7 +609,7 @@ def worktree_changes(path: Path) -> tuple[list[str], list[str]]:
     if not path.exists():
         return [], []
     output = git(path, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching").stdout
-    lines = [line for line in output.splitlines() if line]
+    lines = [line for line in output.splitlines() if line and line[3:] != METADATA_NAME]
     return [line for line in lines if not line.startswith("!!")], [line for line in lines if line.startswith("!!")]
 
 
@@ -457,10 +634,19 @@ def cleanup_task(store: Store, task: dict[str, Any], *, discard_ignored: bool = 
     path = Path(task["worktree_path"])
     if path.exists():
         normal, ignored = worktree_changes(path)
-        if normal or (ignored and not discard_ignored):
+        if normal:
             task.setdefault("cleanup_pending_status", task.get("status"))
-            detail = "uncommitted changes" if normal else "ignored files"
-            set_status(store, task, RECOVERY, f"cleanup preserved {detail} in {path}")
+            set_status(store, task, RECOVERY, f"cleanup preserved uncommitted changes in {path}")
+            return False
+        if not sync_metadata(store, task):
+            task.setdefault("cleanup_pending_status", task.get("status"))
+            detail = task.get("metadata_error") or f"metadata conflict: {task.get('metadata_conflict', {}).get('fields', [])}"
+            set_status(store, task, RECOVERY, f"cleanup preserved {METADATA_NAME}: {detail}")
+            return False
+        _normal, ignored = worktree_changes(path)
+        if ignored and not discard_ignored:
+            task.setdefault("cleanup_pending_status", task.get("status"))
+            set_status(store, task, RECOVERY, f"cleanup preserved ignored files in {path}")
             return False
         unlock_worktree(Path(task["repository"]), path)
         arguments = ["worktree", "remove"]
@@ -516,6 +702,10 @@ def inspect_result(store: Store, task: dict[str, Any], *, trust_clean_commit: bo
         branch = git(path, "branch", "--show-current").stdout.strip()
         if branch != task.get("branch"):
             set_status(store, task, RECOVERY, f"unexpected branch {branch or '(detached)'} preserved")
+            return
+        if not sync_metadata(store, task):
+            detail = task.get("metadata_error") or f"conflicting fields: {task.get('metadata_conflict', {}).get('fields', [])}"
+            set_status(store, task, RECOVERY, f"{METADATA_NAME} update preserved: {detail}")
             return
     head = current_head(task)
     if not head or head == task.get("base_sha"):
@@ -669,17 +859,25 @@ def finalize_task(store: Store, task: dict[str, Any], *, integrate: bool, trust_
 
 def create_task(store: Store, args: argparse.Namespace) -> dict[str, Any]:
     cwd = Path.cwd().resolve()
-    repository = repo_root(cwd)
-    target = args.target or git(repository, "branch", "--show-current").stdout.strip()
+    checkout = repo_root(cwd)
+    current_branch = git(checkout, "branch", "--show-current").stdout.strip()
+    repository = primary_worktree(checkout)
+    metadata_path, metadata = ensure_metadata(store, repository, current_branch)
+    configured_target = metadata.get("branching", {}).get("target_branch")
+    target = args.target or configured_target
     if not target:
-        raise AgentTaskError("detached checkout: provide --target")
+        raise AgentTaskError(f"no target branch; set --target or branching.target_branch in {metadata_path}")
+    if not branch_exists(repository, target):
+        raise AgentTaskError(f"target branch from {metadata_path} does not exist locally: {target}")
+    if git(repository, "cat-file", "-e", f"refs/heads/{target}:{METADATA_NAME}", check=False).returncode == 0:
+        raise AgentTaskError(f"{METADATA_NAME} is tracked on target branch {target}; repository memory must remain local")
     base = ref(repository, f"refs/heads/{target}")
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     random = os.urandom(3).hex()
     task_id = f"{stamp}-{random}"
     branch = f"ai/{args.agent}/{task_id}"
     worktree = store.worktrees / repo_key(repository) / task_id
-    relative = cwd.relative_to(repository)
+    relative = cwd.relative_to(checkout)
     task: dict[str, Any] = {
         "task_id": task_id,
         "repository": str(repository),
@@ -689,6 +887,10 @@ def create_task(store: Store, args: argparse.Namespace) -> dict[str, Any]:
         "branch": branch,
         "worktree_path": str(worktree),
         "workdir_relative": str(relative),
+        "metadata_path": str(metadata_path),
+        "metadata_base": metadata,
+        "metadata_base_digest": digest(metadata_bytes(metadata)),
+        "metadata_pending": False,
         "agent": args.agent,
         "description": args.task or args.description or "interactive agent task",
         "checks": args.check,
@@ -700,6 +902,8 @@ def create_task(store: Store, args: argparse.Namespace) -> dict[str, Any]:
     try:
         git(repository, "worktree", "add", "-b", branch, str(worktree), base)
         git(repository, "worktree", "lock", "--reason", f"agent-task:{task_id}", str(worktree))
+        stage_metadata(task, metadata)
+        store.save(task)
     except Exception as error:
         set_status(store, task, FAILED, str(error))
         raise
@@ -718,22 +922,39 @@ def recreate_worktree(store: Store, task: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     git(repository, "worktree", "add", str(path), branch)
     git(repository, "worktree", "lock", "--reason", f"agent-task:{task['task_id']}", str(path))
+    if task.get("metadata_path"):
+        stage_metadata(task, read_metadata(Path(task["metadata_path"])))
+        task.pop("metadata_conflict", None)
+        task.pop("metadata_error", None)
+        store.save(task)
 
 
 def prepare_recovery(task: dict[str, Any]) -> str:
     path = Path(task["worktree_path"])
+    notes: list[str] = []
+    if task.get("metadata_conflict"):
+        notes.append(
+            f"Reconcile {METADATA_NAME} with the read-only current copy at $AI_REPO_METADATA_SOURCE; "
+            f"conflicting fields: {task['metadata_conflict'].get('fields', [])}."
+        )
+    elif task.get("metadata_error"):
+        notes.append(f"Repair {METADATA_NAME}: {task['metadata_error']}.")
     normal, _ignored = worktree_changes(path)
     if normal or not task.get("target_branch"):
-        return "Resume the preserved files and commit the completed result."
+        notes.append("Resume the preserved files and commit the completed result.")
+        return " ".join(notes)
     repository = Path(task["repository"])
     target_sha = ref(repository, f"refs/heads/{task['target_branch']}")
     head = ref(path, "HEAD")
     if is_ancestor(repository, target_sha, head):
-        return "The task already contains the current target; finish and commit the result."
+        notes.append("The task already contains the current target; finish and commit the result.")
+        return " ".join(notes)
     merge = git(path, "-c", "commit.gpgsign=false", "merge", "--no-ff", "--no-commit", target_sha, check=False)
     if merge.returncode:
-        return "The harness prepared merge conflicts with the current target. Resolve only those conflicts and commit."
-    return "The harness staged the current target merge. Validate, make any needed fix, and commit it."
+        notes.append("The harness prepared merge conflicts with the current target. Resolve only those conflicts and commit.")
+    else:
+        notes.append("The harness staged the current target merge. Validate, make any needed fix, and commit it.")
+    return " ".join(notes)
 
 
 def launch_for_task(store: Store, task: dict[str, Any], command: Sequence[str], *, integrate: bool) -> int:

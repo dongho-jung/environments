@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,10 @@ import unittest
 
 
 SCRIPT = Path(__file__).with_name("agent_task.py")
+SPEC = importlib.util.spec_from_file_location("agent_task_under_test", SCRIPT)
+assert SPEC and SPEC.loader
+AGENT_TASK = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(AGENT_TASK)
 
 
 class HarnessTest(unittest.TestCase):
@@ -23,6 +28,8 @@ class HarnessTest(unittest.TestCase):
         self.git("config", "user.name", "Test Agent")
         self.git("config", "user.email", "agent@example.com")
         self.git("config", "commit.gpgsign", "false")
+        exclude = self.repository / ".git/info/exclude"
+        exclude.write_text(exclude.read_text() + "\n.ai-metadata\n")
         (self.repository / ".gitignore").write_text(".agent-cache/\n")
         (self.repository / "shared.txt").write_text("base\n")
         self.git("add", ".")
@@ -82,6 +89,69 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual((self.repository / "feature.txt").read_text(), "ready\n")
         self.assertFalse(Path(str(task["worktree_path"])).exists())
         self.assertNotEqual(self.git("show-ref", "--verify", "--quiet", f"refs/heads/{task['branch']}", check=False).returncode, 0)
+
+    def test_metadata_selects_target_and_persists_agent_updates(self) -> None:
+        self.git("branch", "develop")
+        metadata = {
+            "schema_version": 1,
+            "branching": {"target_branch": "develop", "strategy": "git-flow"},
+            "deployment": {"strategy": None, "environments": {}, "required_mcp_tools": [], "notes": []},
+            "repository_notes": [],
+        }
+        (self.repository / ".ai-metadata").write_text(json.dumps(metadata, indent=2) + "\n")
+        result = self.cli(
+            "start",
+            "record deployment knowledge",
+            "--agent",
+            "custom",
+            "--",
+            "sh",
+            "-lc",
+            "python -c \"import json; from pathlib import Path; p=Path('.ai-metadata'); d=json.loads(p.read_text()); d['deployment']['strategy']='release MCP'; d['deployment']['required_mcp_tools']=['mcp__release__deploy']; p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\\\\n')\" && printf 'done\\n' > metadata.txt && git add metadata.txt && git commit -m 'feat: add metadata test'",
+            check=True,
+        )
+        task = self.task_from(result)
+        updated = json.loads((self.repository / ".ai-metadata").read_text())
+
+        self.assertEqual(task["target_branch"], "develop")
+        self.assertEqual(task["status"], "INTEGRATED")
+        self.assertEqual(updated["deployment"]["strategy"], "release MCP")
+        self.assertEqual(updated["deployment"]["required_mcp_tools"], ["mcp__release__deploy"])
+        self.assertEqual(self.git("show", "develop:metadata.txt").stdout, "done\n")
+        self.assertNotEqual(self.git("show", "develop:.ai-metadata", check=False).returncode, 0)
+
+    def test_metadata_three_way_merge_preserves_parallel_fields(self) -> None:
+        base = AGENT_TASK.metadata_template("main")
+        current = json.loads(json.dumps(base))
+        proposed = json.loads(json.dumps(base))
+        current["branching"]["strategy"] = "git-flow"
+        proposed["deployment"]["required_mcp_tools"] = ["mcp__release__deploy"]
+        conflicts: list[str] = []
+
+        merged = AGENT_TASK.merge_metadata(base, current, proposed, "", conflicts)
+        self.assertEqual(conflicts, [])
+        self.assertEqual(merged["branching"]["strategy"], "git-flow")
+        self.assertEqual(merged["deployment"]["required_mcp_tools"], ["mcp__release__deploy"])
+
+        proposed["branching"]["strategy"] = "trunk"
+        conflicts = []
+        AGENT_TASK.merge_metadata(base, current, proposed, "", conflicts)
+        self.assertEqual(conflicts, ["branching.strategy"])
+
+    def test_unignored_metadata_is_refused_and_removed(self) -> None:
+        (self.repository / ".git/info/exclude").write_text("")
+        result = self.cli(
+            "start",
+            "unsafe metadata setup",
+            "--agent",
+            "custom",
+            "--",
+            "true",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("is not ignored", result.stderr)
+        self.assertFalse((self.repository / ".ai-metadata").exists())
 
     def test_dirty_exit_is_preserved(self) -> None:
         result = self.cli(
