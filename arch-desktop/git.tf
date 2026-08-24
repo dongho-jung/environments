@@ -55,7 +55,7 @@ resource "host_file" "global_gitignore" {
   path = "~/.config/git/ignore"
 
   content = <<-EOT
-    .ai-metadata
+    .ai-memory
   EOT
 }
 

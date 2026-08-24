@@ -24,26 +24,52 @@ resource "host_link" "agent_task" {
   ]
 }
 
-# Keep the familiar one-letter launchers, but make the harness the lifecycle
-# owner. Joining all arguments preserves the convenient `o fix this` form as a
-# single initial prompt; advanced invocations can call agent-task directly.
+# Keep the familiar one-letter launchers. In a Git repository they reopen the
+# interrupted task for that agent or create a new managed task. Outside Git, and
+# for explicit CLI flags, they preserve the original direct-launch behavior.
 resource "host_file_block" "agent_task_functions" {
   block = host_file.zshrc.blocks.functions
 
   content = <<-EOT
     o() {
+      if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 || [[ "$${1-}" == -* && "$${1-}" != "--new" ]]; then
+        command codex --dangerously-bypass-approvals-and-sandbox "$@"
+        return
+      fi
+      if [[ "$${1-}" == "--new" ]]; then
+        shift
+        if (( $# )); then
+          agent-task open --new --agent codex "$*"
+        else
+          agent-task open --new --agent codex
+        fi
+        return
+      fi
       if (( $# )); then
-        agent-task start --agent codex "$*"
+        agent-task open --agent codex "$*"
       else
-        agent-task start --agent codex
+        agent-task open --agent codex
       fi
     }
 
     c() {
+      if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 || [[ "$${1-}" == -* && "$${1-}" != "--new" ]]; then
+        command env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
+        return
+      fi
+      if [[ "$${1-}" == "--new" ]]; then
+        shift
+        if (( $# )); then
+          agent-task open --new --agent claude "$*"
+        else
+          agent-task open --new --agent claude
+        fi
+        return
+      fi
       if (( $# )); then
-        agent-task start --agent claude "$*"
+        agent-task open --agent claude "$*"
       else
-        agent-task start --agent claude
+        agent-task open --agent claude
       fi
     }
   EOT

@@ -31,7 +31,7 @@ class HarnessTest(unittest.TestCase):
         self.git("config", "user.email", "agent@example.com")
         self.git("config", "commit.gpgsign", "false")
         exclude = self.repository / ".git/info/exclude"
-        exclude.write_text(exclude.read_text() + "\n.ai-metadata\n")
+        exclude.write_text(exclude.read_text() + "\n.ai-memory\n")
         (self.repository / ".gitignore").write_text(".agent-cache/\n")
         (self.repository / "shared.txt").write_text("base\n")
         self.git("add", ".")
@@ -53,6 +53,8 @@ class HarnessTest(unittest.TestCase):
     def cli(self, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment["AGENT_TASK_STATE_DIR"] = str(self.state)
+        environment["GIT_CONFIG_GLOBAL"] = os.devnull
+        environment["XDG_CONFIG_HOME"] = str(self.state / "xdg")
         environment.pop("SSH_AUTH_SOCK", None)
         result = subprocess.run(
             [sys.executable, str(SCRIPT), *args],
@@ -93,71 +95,82 @@ class HarnessTest(unittest.TestCase):
         self.assertFalse((self.state / "scratch" / str(task["task_id"])).exists())
         self.assertNotEqual(self.git("show-ref", "--verify", "--quiet", f"refs/heads/{task['branch']}", check=False).returncode, 0)
 
-    def test_metadata_selects_target_and_persists_agent_updates(self) -> None:
+    def test_memory_selects_target_and_persists_general_knowledge(self) -> None:
         self.git("branch", "develop")
-        metadata = {
+        memory = {
             "schema_version": 1,
-            "branching": {"target_branch": "develop", "strategy": "git-flow"},
-            "deployment": {"strategy": None, "environments": {}, "required_mcp_tools": [], "notes": []},
-            "repository_notes": [],
+            "settings": {"integration_target": "develop"},
+            "memories": {
+                "branching.strategy": {
+                    "summary": "The repository uses Git Flow with develop as its integration branch."
+                }
+            },
         }
-        (self.repository / ".ai-metadata").write_text(json.dumps(metadata, indent=2) + "\n")
+        (self.repository / ".ai-memory").write_text(json.dumps(memory, indent=2) + "\n")
         result = self.cli(
             "start",
-            "record deployment knowledge",
+            "record repository knowledge",
             "--agent",
             "custom",
             "--",
             "sh",
             "-lc",
-            "python -c \"import json; from pathlib import Path; p=Path('.ai-metadata'); d=json.loads(p.read_text()); d['deployment']['strategy']='release MCP'; d['deployment']['required_mcp_tools']=['mcp__release__deploy']; p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\\\\n')\" && printf 'done\\n' > metadata.txt && git add metadata.txt && git commit -m 'feat: add metadata test'",
+            "python -c \"import json; from pathlib import Path; p=Path('.ai-memory'); d=json.loads(p.read_text()); d['memories']['deployment.stage']={'summary':'Stage deployments use the release MCP.','required_mcp_tools':['mcp__release__deploy']}; p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\\\\n')\" && printf 'done\\n' > memory.txt && git add memory.txt && git commit -m 'feat: add memory test'",
             check=True,
         )
         task = self.task_from(result)
-        updated = json.loads((self.repository / ".ai-metadata").read_text())
+        updated = json.loads((self.repository / ".ai-memory").read_text())
 
         self.assertEqual(task["target_branch"], "develop")
         self.assertEqual(task["status"], "INTEGRATED")
-        self.assertEqual(updated["deployment"]["strategy"], "release MCP")
-        self.assertEqual(updated["deployment"]["required_mcp_tools"], ["mcp__release__deploy"])
-        self.assertEqual(self.git("show", "develop:metadata.txt").stdout, "done\n")
-        self.assertNotEqual(self.git("show", "develop:.ai-metadata", check=False).returncode, 0)
+        self.assertEqual(updated["memories"]["deployment.stage"]["required_mcp_tools"], ["mcp__release__deploy"])
+        self.assertEqual(self.git("show", "develop:memory.txt").stdout, "done\n")
+        self.assertNotEqual(self.git("show", "develop:.ai-memory", check=False).returncode, 0)
 
-    def test_metadata_three_way_merge_preserves_parallel_fields(self) -> None:
-        base = AGENT_TASK.metadata_template("main")
+    def test_memory_three_way_merge_preserves_parallel_knowledge(self) -> None:
+        base = AGENT_TASK.memory_template("main")
         current = json.loads(json.dumps(base))
         proposed = json.loads(json.dumps(base))
-        current["branching"]["strategy"] = "git-flow"
-        proposed["deployment"]["required_mcp_tools"] = ["mcp__release__deploy"]
+        current["memories"]["branching.strategy"] = {"summary": "Use short-lived branches."}
+        proposed["memories"]["testing.command"] = {"summary": "Run make test."}
         overwrites: list[str] = []
 
-        merged = AGENT_TASK.merge_metadata(base, current, proposed, "", overwrites)
+        merged = AGENT_TASK.merge_memory(base, current, proposed, "", overwrites)
         self.assertEqual(overwrites, [])
-        self.assertEqual(merged["branching"]["strategy"], "git-flow")
-        self.assertEqual(merged["deployment"]["required_mcp_tools"], ["mcp__release__deploy"])
+        self.assertEqual(merged["memories"]["branching.strategy"]["summary"], "Use short-lived branches.")
+        self.assertEqual(merged["memories"]["testing.command"]["summary"], "Run make test.")
 
-        proposed["branching"]["strategy"] = "trunk"
+        proposed["memories"]["branching.strategy"] = {"summary": "Use trunk-based development."}
         overwrites = []
-        merged = AGENT_TASK.merge_metadata(base, current, proposed, "", overwrites)
-        self.assertEqual(overwrites, ["branching.strategy"])
-        self.assertEqual(merged["branching"]["strategy"], "trunk")
+        merged = AGENT_TASK.merge_memory(base, current, proposed, "", overwrites)
+        self.assertEqual(overwrites, ["memories.branching.strategy"])
+        self.assertEqual(merged["memories"]["branching.strategy"]["summary"], "Use trunk-based development.")
 
-    def test_metadata_race_does_not_retain_worktrees(self) -> None:
+    def test_memory_entries_require_a_summary(self) -> None:
+        memory = AGENT_TASK.memory_template("main")
+        memory["memories"]["testing.command"] = {"details": "make test"}
+
+        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "non-empty summary"):
+            AGENT_TASK.validate_memory(memory)
+
+    def test_memory_race_does_not_retain_worktrees(self) -> None:
         environment = os.environ.copy()
         environment["AGENT_TASK_STATE_DIR"] = str(self.state)
+        environment["GIT_CONFIG_GLOBAL"] = os.devnull
+        environment["XDG_CONFIG_HOME"] = str(self.state / "xdg")
         environment.pop("SSH_AUTH_SOCK", None)
         first = subprocess.Popen(
             [
                 sys.executable,
                 str(SCRIPT),
                 "start",
-                "first metadata writer",
+                "first memory writer",
                 "--agent",
                 "custom",
                 "--",
                 "sh",
                 "-lc",
-                "python -c \"import json; from pathlib import Path; p=Path('.ai-metadata'); d=json.loads(p.read_text()); d['branching']['strategy']='first'; p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\\\\n')\" && printf 'first\\n' > first.txt && git add first.txt && git commit -m 'feat: add first' && sleep 1",
+                "python -c \"import json; from pathlib import Path; p=Path('.ai-memory'); d=json.loads(p.read_text()); d['memories']['workflow.review']={'summary':'Use the first review workflow.'}; p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\\\\n')\" && printf 'first\\n' > first.txt && git add first.txt && git commit -m 'feat: add first' && sleep 1",
             ],
             cwd=self.repository,
             env=environment,
@@ -176,13 +189,13 @@ class HarnessTest(unittest.TestCase):
 
         second = self.cli(
             "start",
-            "second metadata writer",
+            "second memory writer",
             "--agent",
             "custom",
             "--",
             "sh",
             "-lc",
-            "python -c \"import json; from pathlib import Path; p=Path('.ai-metadata'); d=json.loads(p.read_text()); d['branching']['strategy']='second'; p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\\\\n')\" && printf 'second\\n' > second.txt && git add second.txt && git commit -m 'feat: add second'",
+            "python -c \"import json; from pathlib import Path; p=Path('.ai-memory'); d=json.loads(p.read_text()); d['memories']['workflow.review']={'summary':'Use the second review workflow.'}; p.write_text(json.dumps(d, indent=2, sort_keys=True) + '\\\\n')\" && printf 'second\\n' > second.txt && git add second.txt && git commit -m 'feat: add second'",
             check=True,
         )
         first_stdout, first_stderr = first.communicate(timeout=10)
@@ -193,43 +206,43 @@ class HarnessTest(unittest.TestCase):
             task["description"]: task
             for task in (json.loads(path.read_text()) for path in (self.state / "tasks").glob("*.json"))
         }
-        first_task = tasks["first metadata writer"]
+        first_task = tasks["first memory writer"]
         second_task = self.task_from(second)
-        metadata = json.loads((self.repository / ".ai-metadata").read_text())
+        memory = json.loads((self.repository / ".ai-memory").read_text())
 
         self.assertEqual(first_task["status"], "INTEGRATED")
-        self.assertEqual(first_task["metadata_overwrites"]["fields"], ["branching.strategy"])
+        self.assertEqual(first_task["memory_overwrites"]["fields"], ["memories.workflow.review"])
         self.assertEqual(second_task["status"], "INTEGRATED")
-        self.assertEqual(metadata["branching"]["strategy"], "first")
+        self.assertEqual(memory["memories"]["workflow.review"]["summary"], "Use the first review workflow.")
         self.assertFalse(Path(first_task["worktree_path"]).exists())
         self.assertFalse(Path(str(second_task["worktree_path"])).exists())
 
-    def test_invalid_metadata_is_recorded_without_blocking_code(self) -> None:
+    def test_invalid_memory_is_recorded_without_blocking_code(self) -> None:
         result = self.cli(
             "start",
-            "write invalid metadata",
+            "write invalid memory",
             "--agent",
             "custom",
             "--",
             "sh",
             "-lc",
-            "printf '{invalid' > .ai-metadata && printf 'done\\n' > valid.txt && git add valid.txt && git commit -m 'feat: add valid result'",
+            "printf '{invalid' > .ai-memory && printf 'done\\n' > valid.txt && git add valid.txt && git commit -m 'feat: add valid result'",
             check=True,
         )
         task = self.task_from(result)
-        canonical = json.loads((self.repository / ".ai-metadata").read_text())
+        canonical = json.loads((self.repository / ".ai-memory").read_text())
 
         self.assertEqual(task["status"], "INTEGRATED")
-        self.assertIn("metadata_warning", task)
-        self.assertIn("{invalid", task["metadata_proposal"]["proposal"])
+        self.assertIn("memory_warning", task)
+        self.assertIn("{invalid", task["memory_proposal"]["proposal"])
         self.assertEqual(canonical["schema_version"], 1)
         self.assertFalse(Path(str(task["worktree_path"])).exists())
 
-    def test_unignored_metadata_is_refused_and_removed(self) -> None:
+    def test_unignored_memory_is_refused_and_removed(self) -> None:
         (self.repository / ".git/info/exclude").write_text("")
         result = self.cli(
             "start",
-            "unsafe metadata setup",
+            "unsafe memory setup",
             "--agent",
             "custom",
             "--",
@@ -238,7 +251,7 @@ class HarnessTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("is not ignored", result.stderr)
-        self.assertFalse((self.repository / ".ai-metadata").exists())
+        self.assertFalse((self.repository / ".ai-memory").exists())
 
     def test_dirty_exit_is_preserved(self) -> None:
         result = self.cli(
@@ -263,6 +276,95 @@ class HarnessTest(unittest.TestCase):
         reconciled = self.cli("reconcile", "--quiet")
         self.assertEqual(reconciled.returncode, 2)
         self.assertIn("1 task(s) require recovery", reconciled.stderr)
+
+    def test_open_resumes_the_only_interrupted_task(self) -> None:
+        started = self.cli(
+            "start",
+            "resume this task",
+            "--agent",
+            "custom",
+            "--",
+            "sh",
+            "-lc",
+            "printf 'unfinished\n' > resumed.txt",
+        )
+        task = self.task_from(started)
+        worktree = Path(str(task["worktree_path"]))
+
+        resumed = self.cli(
+            "open",
+            "finish it",
+            "--agent",
+            "custom",
+            "--",
+            "sh",
+            "-lc",
+            "git add resumed.txt && git commit -m 'feat: resume task'",
+            check=True,
+        )
+        updated = json.loads((self.state / "tasks" / f"{task['task_id']}.json").read_text())
+
+        self.assertIn(f"resuming: {task['task_id']}", resumed.stdout)
+        self.assertEqual(updated["status"], "INTEGRATED")
+        self.assertEqual((self.repository / "resumed.txt").read_text(), "unfinished\n")
+        self.assertEqual(len(list((self.state / "tasks").glob("*.json"))), 1)
+        self.assertEqual(worktree.parent.name, AGENT_TASK.repo_key(self.repository))
+        self.assertTrue(worktree.parent.name.startswith("repo-"))
+
+    def test_open_does_not_guess_between_interrupted_tasks_without_a_tty(self) -> None:
+        for name in ("first", "second"):
+            self.cli(
+                "start",
+                f"{name} interrupted task",
+                "--agent",
+                "custom",
+                "--",
+                "sh",
+                "-lc",
+                f"printf '{name}\\n' > {name}.txt",
+            )
+
+        opened = self.cli("open", "another instruction", "--agent", "custom", "--", "true")
+
+        self.assertEqual(opened.returncode, 2)
+        self.assertIn("multiple interrupted tasks require a terminal selection", opened.stderr)
+        self.assertEqual(len(list((self.state / "tasks").glob("*.json"))), 2)
+
+    def test_reconcile_never_integrates_an_interrupted_clean_commit(self) -> None:
+        started = self.cli(
+            "start",
+            "commit before interruption",
+            "--agent",
+            "custom",
+            "--no-integrate",
+            "--",
+            "sh",
+            "-lc",
+            "printf 'checkpoint\n' > checkpoint.txt && git add checkpoint.txt && git commit -m 'chore: checkpoint'",
+            check=True,
+        )
+        task = self.task_from(started)
+        task_path = self.state / "tasks" / f"{task['task_id']}.json"
+        task["status"] = "RUNNING"
+        task["process"] = {"pid": 99999999, "start": "missing"}
+        task.pop("integrated_commit", None)
+        task_path.write_text(json.dumps(task, indent=2, sort_keys=True) + "\n")
+
+        reconciled = self.cli("reconcile", "--quiet")
+        updated = json.loads(task_path.read_text())
+
+        self.assertEqual(reconciled.returncode, 2)
+        self.assertEqual(updated["status"], "RECOVERY_REQUIRED")
+        self.assertIn("interrupted_at", updated)
+        self.assertFalse((self.repository / "checkpoint.txt").exists())
+        self.assertFalse(updated.get("integrated_commit"))
+
+    def test_native_recovery_commands_reuse_the_task_working_directory(self) -> None:
+        codex = AGENT_TASK.default_recovery_command("codex", "continue")
+        claude = AGENT_TASK.default_recovery_command("claude", "continue")
+
+        self.assertEqual(codex[:3], ["codex", "resume", "--last"])
+        self.assertIn("--continue", claude)
 
     def test_conflict_recreates_worktree_only_for_recovery(self) -> None:
         started = self.cli(
@@ -329,7 +431,7 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(task["discarded_ignored_artifacts"]["count"], 1)
         self.assertFalse(worktree.exists())
 
-    def test_tracked_metadata_never_reaches_target(self) -> None:
+    def test_tracked_memory_never_reaches_target(self) -> None:
         result = self.cli(
             "start",
             "try to commit repository memory",
@@ -338,15 +440,15 @@ class HarnessTest(unittest.TestCase):
             "--",
             "sh",
             "-lc",
-            "git add -f .ai-metadata && git commit -m 'chore: track metadata'",
+            "git add -f .ai-memory && git commit -m 'chore: track memory'",
         )
         task = self.task_from(result)
 
         self.assertEqual(result.returncode, 2)
         self.assertEqual(task["status"], "RECOVERY_REQUIRED")
-        self.assertIn("tracks forbidden .ai-metadata", task["status_reason"])
+        self.assertIn("tracks forbidden .ai-memory", task["status_reason"])
         self.assertFalse(Path(str(task["worktree_path"])).exists())
-        self.assertNotEqual(self.git("cat-file", "-e", "main:.ai-metadata", check=False).returncode, 0)
+        self.assertNotEqual(self.git("cat-file", "-e", "main:.ai-memory", check=False).returncode, 0)
         self.assertEqual(
             self.git("show-ref", "--verify", "--quiet", f"refs/heads/{task['branch']}", check=False).returncode,
             0,
