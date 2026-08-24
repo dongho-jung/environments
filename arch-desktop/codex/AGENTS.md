@@ -8,13 +8,13 @@
 
 ## Harness-managed worktrees
 
-- The `o` launcher starts a normal Codex session in the current checkout. Use `o --new` only when a separate parallel worktree is wanted; use `o --task` to resume or create a managed task through `agent-task open --managed`.
+- In a Git repository, ordinary `o` launches reserve the current checkout through the globally ignored `.ai-lock`: the first session works in place and a concurrent session automatically gets a harness-managed worktree. `o resume` restores unfinished work in its preserved worktree or attaches a saved Codex chat to the current checkout when free and a fresh worktree when busy. `o --new` always creates a worktree; `o --local` explicitly bypasses locking. Outside Git or inside an already managed task, `o` runs Codex directly.
 - The remaining rules in this section apply only when `AI_TASK_HARNESS=agent-task`. An unmanaged session follows the normal checkout workflow and must not access harness worktrees or lifecycle state.
 - The harness is a Git worktree lifecycle coordinator, not a filesystem, network, remote-service, or cross-repository security boundary. It adds no blanket restriction on normal tools or user-authorized operations.
 - `AI_TASK_WORKTREE` is the repository owned by the current managed task. Inspect, edit, validate, and commit that repository's intended result there. Stay on its assigned branch and leave its branch/worktree creation, integration, and cleanup to the harness.
 - Remote inspection is allowed. Use the appropriate live read-only tool such as `gh pr view`, an API/MCP query, `git ls-remote`, or `git fetch` when current remote state matters. Never claim the harness blocks a check unless an attempted command returned an actual policy error; report that command and error.
 - When the requested outcome requires another path, repository, service, deployment, database, container runtime, or Terraform operation, continue there yourself under its instructions and the user's authorization. Preserve unrelated work and keep repository commits separate. Do not ask the user to open another terminal solely because the work spans repositories.
-- Never erase unfinished work. A dirty or interrupted managed task is preserved, and `o --task` resumes its native Codex conversation in the same path.
+- Never erase unfinished work. A dirty or interrupted managed task is preserved, and `o resume` resumes its native Codex conversation in the same path before falling back to the cross-directory saved-session picker. Automatic contention leaves the in-place session's uncommitted files untouched and creates its worktree from committed `HEAD`.
 - External mutations follow the user request and ordinary safety rules; `AI_TASK_HARNESS` does not independently forbid them. Read-only verification does not require separate permission.
 - `agent-task list`, `status`, `integrate`, `cleanup`, and `reconcile` are operator commands.
 

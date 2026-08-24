@@ -29,21 +29,27 @@ resource "host_link" "agent_task" {
   ]
 }
 
-# Keep ordinary sessions identical to the native CLIs. Managed worktrees are an
-# explicit parallel-work option: --new starts one and --task resumes or creates
-# one through the harness.
+# Codex reserves the current checkout with an ignored .ai-lock. The first
+# session works in place; concurrent sessions fall back to isolated managed
+# worktrees. Administration commands stay direct, and Claude keeps its existing
+# opt-in behavior.
 resource "host_file_block" "agent_task_functions" {
   block = host_file.zshrc.blocks.functions
 
   content = <<-EOT
     o() {
-      if [[ "$${1-}" == "--new" ]]; then
+      if [[ "$${1-}" == "--local" ]]; then
         shift
-        if (( $# )); then
-          agent-task open --managed --new --agent codex "$*"
-        else
-          agent-task open --managed --new --agent codex
-        fi
+        command codex --dangerously-bypass-approvals-and-sandbox "$@"
+        return
+      fi
+      if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 || [[ "$${AI_TASK_HARNESS-}" == "agent-task" ]]; then
+        command codex --dangerously-bypass-approvals-and-sandbox "$@"
+        return
+      fi
+      if [[ "$${1-}" == "resume" ]]; then
+        shift
+        agent-task resume --agent codex "$@"
         return
       fi
       if [[ "$${1-}" == "--task" ]]; then
@@ -55,7 +61,30 @@ resource "host_file_block" "agent_task_functions" {
         fi
         return
       fi
-      command codex --dangerously-bypass-approvals-and-sandbox "$@"
+      if [[ "$${1-}" == "--new" ]]; then
+        shift
+        if [[ "$${1-}" == -* ]]; then
+          agent-task start --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+        elif (( $# )); then
+          agent-task open --managed --new --agent codex "$*"
+        else
+          agent-task open --managed --new --agent codex
+        fi
+        return
+      fi
+      case "$${1-}" in
+        exec|e|review|login|logout|mcp|plugin|mcp-server|app-server|remote-control|completion|update|doctor|sandbox|debug|apply|a|archive|delete|migrate-rollouts|unarchive|fork|cloud|exec-server|features|help|-h|--help|-V|--version)
+          command codex --dangerously-bypass-approvals-and-sandbox "$@"
+          return
+          ;;
+      esac
+      if [[ "$${1-}" == -* ]]; then
+        agent-task open --auto --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+      elif (( $# )); then
+        agent-task open --auto --agent codex "$*"
+      else
+        agent-task open --auto --agent codex
+      fi
     }
 
     c() {

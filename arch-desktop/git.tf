@@ -48,14 +48,15 @@ resource "host_git_repo" "terraform_provider_host" {
   ]
 }
 
-# Repository-local memory for coding agents is intentionally machine-local.
-# The harness copies it into temporary worktrees and merges verified updates
-# back without ever staging it in repositories we may not own.
+# Repository-local agent memory and checkout leases are intentionally
+# machine-local. The harness copies memory into temporary worktrees and uses
+# .ai-lock only as an OS-backed advisory lock, never as tracked repository data.
 resource "host_file" "global_gitignore" {
   path = "~/.config/git/ignore"
 
   content = <<-EOT
     .ai-memory
+    .ai-lock
   EOT
 }
 

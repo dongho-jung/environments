@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -48,22 +49,162 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(popen.call_args.kwargs["cwd"], nested)
         self.assertEqual(popen.call_args.kwargs["env"]["AI_TASK_WORKTREE"], str(worktree))
 
-    def test_shell_launchers_use_managed_worktrees_only_on_request(self) -> None:
+    def test_codex_launcher_uses_a_worktree_only_when_busy(self) -> None:
         configuration = SCRIPT.parent.parent.joinpath("agent-task.tf").read_text()
 
+        self.assertIn('if [[ "$${1-}" == "--local" ]]', configuration)
+        self.assertIn('if [[ "$${1-}" == "resume" ]]', configuration)
         self.assertIn('if [[ "$${1-}" == "--new" ]]', configuration)
         self.assertIn('if [[ "$${1-}" == "--task" ]]', configuration)
+        self.assertIn("agent-task open --auto --agent codex", configuration)
         self.assertIn("agent-task open --managed --new --agent codex", configuration)
+        self.assertIn("agent-task resume --agent codex", configuration)
         self.assertIn("agent-task open --managed --agent codex", configuration)
         self.assertIn('command codex --dangerously-bypass-approvals-and-sandbox "$@"', configuration)
         self.assertIn('command env IS_DEMO=1 claude', configuration)
         self.assertNotIn('resource "host_package_pacman" "bubblewrap"', configuration)
+
+    def test_checkout_lock_detects_contention_and_releases_automatically(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory)
+            with AGENT_TASK.checkout_session_lock(checkout) as first:
+                with AGENT_TASK.checkout_session_lock(checkout) as second:
+                    self.assertTrue(first)
+                    self.assertFalse(second)
+            with AGENT_TASK.checkout_session_lock(checkout) as after_release:
+                self.assertTrue(after_release)
+            self.assertTrue((checkout / ".ai-lock").exists())
+
+    def test_auto_open_uses_the_current_checkout_when_available(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "work here", "--auto"])
+        arguments.command = []
+        completed = mock.Mock(returncode=0)
+
+        with (
+            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(
+                AGENT_TASK,
+                "checkout_session_lock",
+                return_value=contextlib.nullcontext(True),
+            ),
+            mock.patch.object(AGENT_TASK.subprocess, "run", return_value=completed) as run,
+        ):
+            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(run.call_args.args[0][-1], "work here")
+
+    def test_auto_open_falls_back_to_a_worktree_when_busy(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "parallel work", "--auto"])
+        arguments.command = []
+
+        with (
+            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(
+                AGENT_TASK,
+                "checkout_session_lock",
+                return_value=contextlib.nullcontext(False),
+            ),
+            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
+            mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
+        ):
+            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(start.call_args.args[0].allow_dirty_source)
+        self.assertTrue(start.call_args.args[0].new)
+
+    def test_cross_worktree_resume_uses_the_current_new_worktree(self) -> None:
+        command = AGENT_TASK.default_chat_resume_command(
+            "codex",
+            None,
+            last=False,
+            include_non_interactive=False,
+        )
+
+        self.assertEqual(command[:2], ["codex", "resume"])
+        self.assertIn("--all", command)
+        self.assertIn('tui.resume_cwd="current"', command)
+        self.assertIn("--dangerously-bypass-approvals-and-sandbox", command)
+
+    def test_resume_prefers_a_preserved_task_before_the_global_picker(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["resume"])
+        task = {
+            "task_id": "preserved-task",
+            "agent": "codex",
+            "status": AGENT_TASK.RECOVERY,
+            "worktree_path": "/state/worktrees/preserved-task",
+        }
+
+        with (
+            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[task]),
+            mock.patch.object(AGENT_TASK, "command_recover", return_value=0) as recover,
+        ):
+            exit_code = AGENT_TASK.command_resume(arguments, mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(recover.call_args.args[0].task_id, "preserved-task")
+        self.assertEqual(recover.call_args.args[0].command, [])
+
+    def test_resume_without_preserved_work_uses_the_available_checkout(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["resume"])
+        completed = mock.Mock(returncode=0)
+
+        with (
+            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
+            mock.patch.object(
+                AGENT_TASK,
+                "checkout_session_lock",
+                return_value=contextlib.nullcontext(True),
+            ),
+            mock.patch.object(AGENT_TASK.subprocess, "run", return_value=completed) as run,
+        ):
+            exit_code = AGENT_TASK.command_resume(arguments, mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        command = run.call_args.args[0]
+        self.assertEqual(command[:2], ["codex", "resume"])
+        self.assertIn("--all", command)
+        self.assertIn('tui.resume_cwd="current"', command)
+
+    def test_resume_uses_a_fresh_worktree_when_the_checkout_is_busy(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["resume"])
+
+        with (
+            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
+            mock.patch.object(
+                AGENT_TASK,
+                "checkout_session_lock",
+                return_value=contextlib.nullcontext(False),
+            ),
+            mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
+        ):
+            exit_code = AGENT_TASK.command_resume(arguments, mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(start.call_args.args[0].allow_dirty_source)
+        command = start.call_args.args[0].command
+        self.assertEqual(command[:2], ["codex", "resume"])
 
     def test_bubblewrap_is_forgotten_without_removing_the_package(self) -> None:
         configuration = SCRIPT.parent.parent.joinpath("agent-task.tf").read_text()
 
         self.assertIn("from = host_package_pacman.bubblewrap", configuration)
         self.assertIn("destroy = false", configuration)
+
+    def test_agent_lock_is_globally_ignored(self) -> None:
+        configuration = SCRIPT.parent.parent.joinpath("git.tf").read_text()
+
+        self.assertIn(".ai-memory", configuration)
+        self.assertIn(".ai-lock", configuration)
 
     def test_legacy_open_invocation_launches_the_native_agent(self) -> None:
         arguments = AGENT_TASK.build_parser().parse_args(["open", "continue here", "--agent", "codex"])
@@ -99,7 +240,7 @@ class HarnessTest(unittest.TestCase):
         self.git("config", "user.email", "agent@example.com")
         self.git("config", "commit.gpgsign", "false")
         exclude = self.repository / ".git/info/exclude"
-        exclude.write_text(exclude.read_text() + "\n.ai-memory\n")
+        exclude.write_text(exclude.read_text() + "\n.ai-memory\n.ai-lock\n")
         (self.repository / ".gitignore").write_text(".agent-cache/\n")
         (self.repository / "shared.txt").write_text("base\n")
         self.git("add", ".")
@@ -140,6 +281,53 @@ class HarnessTest(unittest.TestCase):
     def task_from(self, result: subprocess.CompletedProcess[str]) -> dict[str, object]:
         task_id = next(line.removeprefix("task: ") for line in result.stdout.splitlines() if line.startswith("task: "))
         return json.loads((self.state / "tasks" / f"{task_id}.json").read_text())
+
+    def test_auto_open_runs_natively_when_the_checkout_is_free(self) -> None:
+        result = self.cli(
+            "open",
+            "--auto",
+            "--agent",
+            "custom",
+            "--",
+            "sh",
+            "-lc",
+            f"test \"$PWD\" = {shlex.quote(str(self.repository))}",
+            check=True,
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(list((self.state / "tasks").glob("*.json")), [])
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+
+    def test_auto_open_isolates_busy_dirty_work_and_queues_integration(self) -> None:
+        local_only = self.repository / "local-only.txt"
+        local_only.write_text("owned by the in-place session\n")
+        with AGENT_TASK.checkout_session_lock(self.repository) as acquired:
+            self.assertTrue(acquired)
+            result = self.cli(
+                "open",
+                "--auto",
+                "--agent",
+                "custom",
+                "--task",
+                "parallel work",
+                "--",
+                "sh",
+                "-lc",
+                "printf 'parallel\\n' > parallel.txt && git add parallel.txt && git commit -m 'feat: add parallel result'",
+            )
+            task = self.task_from(result)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(task["status"], AGENT_TASK.READY)
+        self.assertTrue(local_only.exists())
+        self.assertFalse((self.repository / "parallel.txt").exists())
+
+        local_only.unlink()
+        self.cli("reconcile", check=True)
+        task = json.loads((self.state / "tasks" / f"{task['task_id']}.json").read_text())
+        self.assertEqual(task["status"], AGENT_TASK.INTEGRATED)
+        self.assertEqual((self.repository / "parallel.txt").read_text(), "parallel\n")
 
     def test_clean_commit_integrates_and_cleans(self) -> None:
         result = self.cli(

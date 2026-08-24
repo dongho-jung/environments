@@ -1,18 +1,19 @@
 # agent-task
 
-`agent-task` runs explicitly managed Codex or Claude work in a temporary branch
-and worktree. Normal launcher sessions stay in the current checkout; the harness
-is only used when parallel worktree isolation is requested. The agent owns file
-edits and commits, while the harness owns integration and cleanup for its one
-assigned repository.
+`agent-task` lets the first Codex session use the current checkout and moves
+only concurrent sessions into temporary branches and worktrees. An ignored
+`.ai-lock` at the checkout root is held with `flock` for the life of the agent,
+so exits and crashes release ownership automatically even though the empty file
+remains. Claude keeps an explicit opt-in launcher. The agent owns file edits and
+commits, while the harness owns integration and cleanup for its one assigned
+repository.
 
 ```text
-open --managed -> interrupted task ----------------> resume the native chat
-               -> new task -> dirty agent exit ----> RECOVERY_REQUIRED
-                           -> process disappears ---> RECOVERY_REQUIRED (never auto-integrate)
-                           -> clean commit ---------> integrate
-                                                     |-- success -> cleanup
-                                                     `-- conflict/check failure -> recovery
+open --auto -> checkout free ----------------------> native Codex session
+            -> checkout busy -> managed worktree --> clean commit -> integrate
+                                                    |-- success -> cleanup
+                                                    `-- conflict/check failure -> recovery
+                              -> interrupted ------> resume the native chat
 ```
 
 Task state is keyed by repository and agent. One interrupted task resumes
@@ -20,25 +21,37 @@ automatically; several produce a small picker. Recovery reuses the exact
 worktree path and runs `codex resume --last` or `claude --continue`, so the
 original conversation is restored without remembering a session ID.
 
+Codex's built-in `/resume` picker is scoped to the current working directory.
+It therefore works normally for the first, in-place session. Use `o resume` to
+cross a worktree boundary: it first offers preserved tasks from the current
+repository, then runs the all-directory picker with `tui.resume_cwd=current`.
+The selected chat attaches to the current checkout when its `.ai-lock` is free,
+or to a fresh worktree when another agent is already using that checkout.
+
 ## Use
 
-The installed shell functions preserve the native CLIs by default and opt into
-managed worktrees with a flag:
+The Codex launcher makes isolation automatic only on contention:
 
 ```sh
-o implement the login timeout       # normal Codex session in this checkout
-c implement the login timeout       # normal Claude session in this checkout
-o                                   # /resume sees this checkout's saved chats
-o resume --all                      # native cross-directory session picker
-o --new implement a parallel task   # new managed Codex worktree
+o                                   # current checkout, or a worktree if busy
+o implement the login timeout       # same automatic checkout selection
+o resume                            # preserved task, or all saved Codex chats
+o resume SESSION_ID                 # current checkout, or a worktree if busy
+o --local                           # bypass .ai-lock and run here explicitly
+o --new                             # force a new managed worktree
+o --task                            # compatibility path for managed recovery
+
+c implement the login timeout       # native Claude session in this checkout
 c --new implement a parallel task   # new managed Claude worktree
-o --task                            # resume/create a managed Codex task
 c --task                            # resume/create a managed Claude task
 ```
 
-Without `--new` or `--task`, every argument and native subcommand is forwarded
-directly to Codex or Claude. Managed recovery still reuses the exact worktree
-path and native conversation recorded for that task.
+Outside Git, inside an already managed task, with `o --local`, or for Codex
+administration subcommands such as `doctor`, `login`, and `mcp`, `o` runs Codex
+directly. Ordinary repository sessions use `agent-task open --auto`: an
+available checkout runs natively and a busy one gets a new worktree. Claude
+arguments and native subcommands still pass through directly unless `--new` or
+`--task` is present.
 
 For compatibility with shell functions loaded before this change,
 `agent-task open` also launches the requested agent natively unless `--managed`
@@ -49,8 +62,10 @@ Operator commands are available directly:
 
 ```sh
 agent-task open "implement feature X" --agent codex # native compatibility path
+agent-task open --auto "implement feature X" --agent codex
 agent-task open --managed "implement feature X" --agent codex
 agent-task open --managed --new "parallel feature" --agent codex
+agent-task resume --agent codex
 agent-task start "implement feature X" --agent codex
 agent-task start "implement feature X" --agent claude --target develop
 agent-task start --agent custom --task "custom run" -- ./runner
@@ -116,8 +131,12 @@ progress, and remembered tools never authorize external mutation.
   deploy, or apply Terraform; the launched agent can perform user-authorized
   remote or operational work normally.
 - A new task starts from the current checkout's `HEAD`; the memory setting names
-  its integration target. A dirty checkout is refused rather than silently
-  leaving its work out of the temporary worktree.
+  its integration target. Explicit worktree requests refuse a dirty checkout.
+  Automatic contention deliberately leaves the active session's uncommitted
+  files in place and starts the parallel task from committed `HEAD`.
+- Integration never advances a checked-out target while its `.ai-lock` is held.
+  The completed managed task is queued until the in-place agent exits and the
+  target checkout is clean.
 - Uncommitted tracked or untracked work keeps its worktree. After a clean commit,
   ignored build artifacts are disposable and are recorded by path before removal.
 - Per-task locks keep foreground commands and the hourly reconciler from

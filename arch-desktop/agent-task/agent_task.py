@@ -28,6 +28,7 @@ INTEGRATED = "INTEGRATED"
 FAILED = "FAILED"
 RECOVERY = "RECOVERY_REQUIRED"
 MEMORY_NAME = ".ai-memory"
+SESSION_LOCK_NAME = ".ai-lock"
 MISSING = object()
 
 
@@ -221,6 +222,24 @@ def primary_worktree(repository: Path) -> Path:
     if records and records[0].get("worktree"):
         return Path(records[0]["worktree"]).resolve()
     return repository.resolve()
+
+
+@contextlib.contextmanager
+def checkout_session_lock(checkout: Path) -> Iterator[bool]:
+    """Try to reserve one checkout without leaving a stale ownership marker."""
+    descriptor = os.open(checkout / SESSION_LOCK_NAME, os.O_CREAT | os.O_RDWR, 0o600)
+    acquired = False
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except BlockingIOError:
+            pass
+        yield acquired
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def infer_target(repository: Path, current_branch: str) -> str | None:
@@ -438,6 +457,35 @@ def default_recovery_command(agent: str, prompt: str) -> list[str]:
     raise AgentTaskError("custom agents require a recovery command after --")
 
 
+def default_chat_resume_command(
+    agent: str,
+    session_id: str | None,
+    *,
+    last: bool,
+    include_non_interactive: bool,
+) -> list[str]:
+    if agent != "codex":
+        raise AgentTaskError("saved-chat resume is currently supported only for Codex")
+    if session_id and last:
+        raise AgentTaskError("choose a session id or --last, not both")
+    command = [
+        "codex",
+        "resume",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-c",
+        'tui.resume_cwd="current"',
+    ]
+    if session_id:
+        command.append(session_id)
+    else:
+        command.append("--all")
+        if last:
+            command.append("--last")
+    if include_non_interactive:
+        command.append("--include-non-interactive")
+    return command
+
+
 def resume_hint(agent: str) -> str | None:
     if agent == "codex":
         return "codex resume --last"
@@ -478,7 +526,11 @@ def worktree_changes(path: Path) -> tuple[list[str], list[str]]:
     lines = [
         line
         for line in output.splitlines()
-        if line and not (line[:2] in ("??", "!!") and line[3:] == MEMORY_NAME)
+        if line
+        and not (
+            line[:2] in ("??", "!!")
+            and line[3:] in (MEMORY_NAME, SESSION_LOCK_NAME)
+        )
     ]
     return [line for line in lines if not line.startswith("!!")], [line for line in lines if line.startswith("!!")]
 
@@ -530,6 +582,11 @@ def cleanup_task(store: Store, task: dict[str, Any]) -> bool:
             if normal or ignored:
                 set_status(store, task, RECOVERY, f"cleanup found new changes in {path}")
                 return False
+        try:
+            (path / SESSION_LOCK_NAME).unlink(missing_ok=True)
+        except OSError as error:
+            set_status(store, task, RECOVERY, f"session lock cleanup failed: {error}")
+            return False
         unlock_worktree(Path(task["repository"]), path)
         result = git(Path(task["repository"]), "worktree", "remove", str(path), check=False)
         if result.returncode:
@@ -710,6 +767,21 @@ def integrate_task(store: Store, task: dict[str, Any]) -> bool:
     if commit_tracks_memory(repository, result_commit):
         return defer_integration(store, task, RECOVERY, f"result commit tracks forbidden {MEMORY_NAME}")
 
+    checkout = target_checkout(repository, target)
+    checkout_lock = checkout_session_lock(checkout) if checkout else contextlib.nullcontext(True)
+    with checkout_lock as checkout_available:
+        if not checkout_available:
+            return defer_integration(store, task, READY, f"target checkout has an active agent; integration queued: {checkout}")
+        return integrate_task_with_checkout_reserved(store, task, repository, target, result_commit)
+
+
+def integrate_task_with_checkout_reserved(
+    store: Store,
+    task: dict[str, Any],
+    repository: Path,
+    target: str,
+    result_commit: str,
+) -> bool:
     with store.lock(f"integrate:{common_dir(repository)}:{target}"):
         target_ref = f"refs/heads/{target}"
         if not branch_exists(repository, target):
@@ -790,11 +862,14 @@ def create_task(store: Store, args: argparse.Namespace) -> dict[str, Any]:
     current_branch = git(checkout, "branch", "--show-current").stdout.strip()
     repository = primary_worktree(checkout)
     dirty, _ignored = worktree_changes(checkout)
-    if dirty:
+    allow_dirty_source = bool(getattr(args, "allow_dirty_source", False))
+    if dirty and not allow_dirty_source:
         raise AgentTaskError(
             f"current checkout has uncommitted work that a new worktree would not inherit: {checkout}\n"
             "Commit or finish that work first; the harness will not silently omit it."
         )
+    if dirty:
+        print(f"checkout is already in use; its uncommitted work stays in {checkout}")
     memory_path, memory = ensure_memory(store, repository, current_branch)
     configured_target = memory.get("settings", {}).get("integration_target")
     target = args.target or configured_target
@@ -912,13 +987,17 @@ def launch_for_task(
         current = store.load(task["task_id"])
         task.clear()
         task.update(current)
-        try:
-            exit_code = launch_agent(store, task, command)
-        except Exception as error:
-            task.pop("process", None)
-            set_status(store, task, FAILED, f"agent launch failed: {error}")
-            cleanup_task(store, task)
-            raise
+        worktree = Path(task["worktree_path"])
+        with checkout_session_lock(worktree) as checkout_available:
+            if not checkout_available:
+                raise AgentTaskError(f"worktree already has an active agent: {worktree}")
+            try:
+                exit_code = launch_agent(store, task, command)
+            except Exception as error:
+                task.pop("process", None)
+                set_status(store, task, FAILED, f"agent launch failed: {error}")
+                cleanup_task(store, task)
+                raise
         finalize_task(store, task, integrate=integrate)
         return exit_code
 
@@ -987,10 +1066,17 @@ def choose_recovery_task(tasks: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 def command_open(args: argparse.Namespace, store: Store) -> int:
-    if not args.managed and not args.new:
+    if not args.auto and not args.managed and not args.new:
         return launch_native_agent(args)
     checkout = repo_root(Path.cwd().resolve())
     repository = primary_worktree(checkout)
+    if args.auto:
+        with checkout_session_lock(checkout) as checkout_available:
+            if checkout_available:
+                return launch_native_agent(args)
+        print(f"checkout already has an active agent: {checkout}\nstarting an isolated worktree")
+        args.allow_dirty_source = True
+        args.new = True
     tasks = refresh_interrupted_tasks(store, repository)
     if not args.new:
         active = [
@@ -1026,6 +1112,46 @@ def command_open(args: argparse.Namespace, store: Store) -> int:
                     command=list(args.command),
                 )
                 return command_recover(recovery_args, store)
+    return command_start(args, store)
+
+
+def command_resume(args: argparse.Namespace, store: Store) -> int:
+    checkout = repo_root(Path.cwd().resolve())
+    repository = primary_worktree(checkout)
+    tasks = refresh_interrupted_tasks(store, repository)
+
+    if not args.session_id and not args.last:
+        recoverable = [
+            task for task in tasks if task.get("agent") == args.agent and task.get("status") == RECOVERY
+        ]
+        if recoverable:
+            selected = choose_recovery_task(recoverable)
+            if selected:
+                print(f"resuming task: {selected['task_id']}\nworktree: {selected['worktree_path']}")
+                recovery_args = argparse.Namespace(
+                    task_id=selected["task_id"],
+                    agent=args.agent,
+                    no_integrate=args.no_integrate,
+                    new_session=False,
+                    prompt=None,
+                    command=[],
+                )
+                return command_recover(recovery_args, store)
+
+    args.description = "resume a saved Codex session"
+    args.task = args.description
+    args.command = default_chat_resume_command(
+        args.agent,
+        args.session_id,
+        last=args.last,
+        include_non_interactive=args.include_non_interactive,
+    )
+    with checkout_session_lock(checkout) as checkout_available:
+        if checkout_available:
+            print(f"resuming in checkout: {checkout}")
+            return launch_native_agent(args)
+    print(f"checkout already has an active agent: {checkout}\nresuming in an isolated worktree")
+    args.allow_dirty_source = True
     return command_start(args, store)
 
 
@@ -1203,17 +1329,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-task", description="Run coding agents in disposable Git worktrees.")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
-    opening = subparsers.add_parser("open", help="launch natively, or open a managed session on request")
+    opening = subparsers.add_parser("open", help="launch natively, or isolate automatically when the checkout is busy")
     opening.add_argument("description", nargs="?")
     opening.add_argument("--task", help="task description for a custom command")
     opening.add_argument("--agent", choices=("codex", "claude", "custom"), default="codex")
     opening.add_argument("--target", help="local integration target branch")
     opening.add_argument("--check", action="append", default=[], help="post-merge check; repeatable")
     opening.add_argument("--no-integrate", action="store_true")
+    opening.add_argument("--auto", action="store_true", help="use this checkout when free, otherwise create a worktree")
     opening.add_argument("--managed", action="store_true", help="resume or create a managed worktree task")
     opening.add_argument("--new", action="store_true", help="start separately even when interrupted work exists")
     opening.add_argument("--new-session", action="store_true", help="recover files in a fresh agent conversation")
     opening.set_defaults(func=command_open)
+
+    resuming = subparsers.add_parser(
+        "resume",
+        help="resume preserved work or attach a saved Codex chat to an available checkout",
+    )
+    resuming.add_argument("session_id", nargs="?", help="Codex session id or name")
+    resuming.add_argument("--agent", choices=("codex",), default="codex")
+    resuming.add_argument("--last", action="store_true", help="resume the latest saved chat across all directories")
+    resuming.add_argument("--all", action="store_true", help="accepted for parity; the picker always searches all directories")
+    resuming.add_argument("--include-non-interactive", action="store_true")
+    resuming.add_argument("--target", help="local integration target branch")
+    resuming.add_argument("--check", action="append", default=[], help="post-merge check; repeatable")
+    resuming.add_argument("--no-integrate", action="store_true")
+    resuming.set_defaults(func=command_resume)
 
     start = subparsers.add_parser("start", help="create a worktree and launch an agent")
     start.add_argument("description", nargs="?")
