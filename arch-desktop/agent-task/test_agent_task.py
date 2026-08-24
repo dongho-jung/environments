@@ -59,6 +59,12 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn('command env IS_DEMO=1 claude', configuration)
         self.assertNotIn('resource "host_package_pacman" "bubblewrap"', configuration)
 
+    def test_bubblewrap_is_forgotten_without_removing_the_package(self) -> None:
+        configuration = SCRIPT.parent.parent.joinpath("agent-task.tf").read_text()
+
+        self.assertIn("from = host_package_pacman.bubblewrap", configuration)
+        self.assertIn("destroy = false", configuration)
+
     def test_legacy_open_invocation_launches_the_native_agent(self) -> None:
         arguments = AGENT_TASK.build_parser().parse_args(["open", "continue here", "--agent", "codex"])
         arguments.command = []
