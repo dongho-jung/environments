@@ -14,6 +14,12 @@ resource "host_dir" "local_bin" {
   mode = "0755"
 }
 
+# The Codex App Server notification bridge uses its supported WebSocket RPC
+# endpoint to steer an active turn or start a new turn in an idle TUI.
+resource "host_package_pacman" "python_websockets" {
+  name = "python-websockets"
+}
+
 resource "host_file_block" "local_bin_path" {
   block   = host_file.zshrc.blocks.path
   content = "export PATH=\"$HOME/.local/bin:$PATH\""
@@ -26,6 +32,7 @@ resource "host_link" "agent_task" {
 
   depends_on = [
     host_package_pacman.git,
+    host_package_pacman.python_websockets,
   ]
 }
 

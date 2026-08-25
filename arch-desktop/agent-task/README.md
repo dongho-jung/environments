@@ -17,6 +17,7 @@ harness owns integration and cleanup for its one assigned repository.
 open --auto -> checkout free ----------------------> native agent session
             -> checkout busy -> managed worktree --> clean commit -> integrate
                                                     |-- success -> cleanup
+                                                    |-- active lease -> inbox + handoff
                                                     `-- conflict/check failure -> recovery
                               -> interrupted ------> resume the native chat
 ```
@@ -32,6 +33,41 @@ cross a worktree boundary: it first offers preserved tasks from the current
 repository, then runs the all-directory picker with `tui.resume_cwd=current`.
 The selected chat attaches to the current checkout when its external lease is
 free, or to a fresh worktree when another agent is already using that checkout.
+
+## Session handoff
+
+When a completed managed task cannot integrate because another harness session
+still owns a repository lease, `agent-task` writes a deduplicated event to that
+session's private inbox under `~/.local/state/agent-task/inboxes/` and rings its
+supervisor with `SIGUSR1`. The signal is only a doorbell; the durable JSON event
+is the source of truth. A supervisor advertises protocol support before it can
+be signalled, so sessions launched by an older version are never sent a signal
+they do not handle.
+
+For Codex, every new interactive harness session gets its own `codex app-server`
+Unix socket. The supervisor uses the supported JSON-RPC interface to
+`turn/steer` the current turn or `turn/start` an idle one. For Claude, `Stop` and
+`UserPromptSubmit` hooks inject the same inbox event at the next safe lifecycle
+point; the supervisor also prints a terminal alert. Claude does not currently
+offer an equivalent supported local API for waking an already idle TUI.
+
+The receiving agent finishes the smallest safe checkpoint and runs the command
+included in the event:
+
+```sh
+agent-task inbox
+agent-task handoff ready-0123456789abcdef01234567
+```
+
+`handoff` records acceptance, asks the supervisor to end the foreground CLI,
+releases the checkout lease through the normal lifecycle, finalizes any current
+managed task, and retries each queued integration. It does not ask either agent
+to merge, cherry-pick, switch branches, or clean worktrees. A graceful ordinary
+exit (`/exit` or the TUI's normal `Ctrl+C` exit path) also drains auto-integrate
+tasks for that repository immediately after releasing its lease; handoff is the
+active mechanism that asks a still-working agent to checkpoint and yield.
+Abrupt launcher death or a hard kill still leaves task records for the scheduled
+`reconcile` fallback.
 
 ## Use
 
@@ -96,6 +132,8 @@ agent-task start --agent custom --task "custom run" -- ./runner
 
 agent-task list
 agent-task status TASK_ID
+agent-task inbox
+agent-task handoff EVENT_ID
 agent-task integrate TASK_ID
 agent-task recover TASK_ID
 agent-task recover TASK_ID --new-session
