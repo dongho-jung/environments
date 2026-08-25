@@ -3,6 +3,30 @@
   "enabledPlugins": {
     "ralph-loop@claude-plugins-official": true
   },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-task __inbox-hook",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-task __inbox-hook",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto"

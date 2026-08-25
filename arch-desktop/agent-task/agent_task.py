@@ -20,7 +20,7 @@ import stat
 import subprocess
 import sys
 import time
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 
 CREATED = "CREATED"
@@ -37,13 +37,20 @@ SESSION_LOCK_NAME = ".ai-lock"
 FORBIDDEN_LOCAL_PATHS = (MEMORY_NAME, SESSION_LOCK_NAME)
 SESSION_LOCK_SCHEMA = 1
 TASK_RECORD_SCHEMA = 2
+INBOX_SCHEMA = 1
 MAX_JSON_FILE_BYTES = 8 * 1024 * 1024
 MAX_MEMORY_BYTES = 1024 * 1024
+MAX_INBOX_BYTES = 1024 * 1024
 DEFAULT_CHECK_TIMEOUT_SECONDS = 3600.0
+HANDOFF_EXIT_CODE = 75
+NOTIFICATION_PROTOCOL = 1
 LOCK_EXEC_SUBCOMMAND = "__lock-exec"
+INBOX_HOOK_SUBCOMMAND = "__inbox-hook"
 LOCK_FDS_ENV = "AGENT_TASK_INHERITED_LOCK_FDS"
 LOCK_SESSION_PATH_ENV = "AGENT_TASK_LOCK_SESSION_PATH"
 LOCK_SESSION_ID_ENV = "AGENT_TASK_LOCK_SESSION_ID"
+AGENT_SESSION_PATH_ENV = "AGENT_TASK_SESSION_PATH"
+AGENT_SESSION_ID_ENV = "AGENT_TASK_SESSION_ID"
 MISSING = object()
 
 
@@ -67,6 +74,14 @@ def positive_seconds(value: str) -> float:
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be greater than zero")
     return parsed
+
+
+def validate_identifier(value: str, label: str) -> str:
+    if not value or any(
+        char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for char in value
+    ):
+        raise AgentTaskError(f"invalid {label}: {value!r}")
+    return value
 
 
 def run(
@@ -265,8 +280,7 @@ def validate_task_record(value: Any, *, expected_task_id: str | None = None) -> 
     task_id = value.get("task_id")
     if not isinstance(task_id, str) or not task_id:
         raise AgentTaskError("task registry entry has no task id")
-    if any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for char in task_id):
-        raise AgentTaskError(f"invalid task id in registry: {task_id!r}")
+    validate_identifier(task_id, "task id in registry")
     if expected_task_id is not None and task_id != expected_task_id:
         raise AgentTaskError(f"task registry id mismatch: expected {expected_task_id!r}, found {task_id!r}")
     schema = value.get("schema_version")
@@ -286,6 +300,8 @@ class Store:
         self.scratch = self.root / "scratch"
         self.locks = self.root / "locks"
         self.sessions = self.root / "sessions"
+        self.inboxes = self.root / "inboxes"
+        self.controls = self.root / "controls"
         self.proposals = self.root / "memory-proposals"
         for path in (
             self.root,
@@ -295,6 +311,8 @@ class Store:
             self.scratch,
             self.locks,
             self.sessions,
+            self.inboxes,
+            self.controls,
             self.proposals,
         ):
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -305,8 +323,7 @@ class Store:
                 path.chmod(0o700)
 
     def task_path(self, task_id: str) -> Path:
-        if not task_id or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for char in task_id):
-            raise AgentTaskError(f"invalid task id: {task_id!r}")
+        validate_identifier(task_id, "task id")
         return self.tasks / f"{task_id}.json"
 
     def save(self, task: dict[str, Any]) -> None:
@@ -351,6 +368,14 @@ class Store:
         key = hashlib.sha256(self.checkout_identity(checkout).encode()).hexdigest()
         return self.sessions / f"{key}.json"
 
+    def inbox_path(self, session_id: str) -> Path:
+        validate_identifier(session_id, "session id")
+        return self.inboxes / f"{session_id}.json"
+
+    def control_socket_path(self, session_id: str) -> Path:
+        validate_identifier(session_id, "session id")
+        return self.controls / f"{session_id}.sock"
+
     def repository_activity_path(self, repository: Path) -> Path:
         return self.lock_path(f"repository-activity:{common_dir(repository)}")
 
@@ -367,6 +392,179 @@ class Store:
         finally:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
+
+
+def empty_inbox(session_id: str) -> dict[str, Any]:
+    validate_identifier(session_id, "session id")
+    return {
+        "schema_version": INBOX_SCHEMA,
+        "session_id": session_id,
+        "messages": [],
+        "updated_at": now(),
+    }
+
+
+def validate_inbox(value: Any, *, expected_session_id: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise AgentTaskError("session inbox must be a JSON object")
+    if value.get("schema_version") != INBOX_SCHEMA:
+        raise AgentTaskError(f"unsupported session inbox schema: {value.get('schema_version')!r}")
+    session_id = value.get("session_id")
+    if session_id != expected_session_id:
+        raise AgentTaskError(
+            f"session inbox id mismatch: expected {expected_session_id!r}, found {session_id!r}"
+        )
+    messages = value.get("messages")
+    if not isinstance(messages, list):
+        raise AgentTaskError("session inbox messages must be a JSON array")
+    for message in messages:
+        if not isinstance(message, dict):
+            raise AgentTaskError("session inbox message must be a JSON object")
+        event_id = message.get("id")
+        if not isinstance(event_id, str):
+            raise AgentTaskError("session inbox message has no event id")
+        validate_identifier(event_id, "inbox event id")
+        if message.get("status") not in ("pending", "delivered", "accepted", "resolved"):
+            raise AgentTaskError(f"invalid inbox event status: {message.get('status')!r}")
+        if not isinstance(message.get("prompt"), str) or not message["prompt"].strip():
+            raise AgentTaskError("session inbox message has no prompt")
+    return value
+
+
+def read_session_inbox(store: Store, session_id: str) -> dict[str, Any]:
+    path = store.inbox_path(session_id)
+    if not os.path.lexists(path):
+        return empty_inbox(session_id)
+    try:
+        return validate_inbox(
+            read_json_file_safely(path, max_bytes=MAX_INBOX_BYTES),
+            expected_session_id=session_id,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as error:
+        raise AgentTaskError(f"cannot safely read session inbox {path}: {error}") from error
+
+
+def write_session_inbox(store: Store, inbox: dict[str, Any]) -> None:
+    session_id = inbox.get("session_id")
+    if not isinstance(session_id, str):
+        raise AgentTaskError("session inbox has no session id")
+    validate_inbox(inbox, expected_session_id=session_id)
+    inbox["updated_at"] = now()
+    payload = (json.dumps(inbox, indent=2, sort_keys=True) + "\n").encode()
+    if len(payload) > MAX_INBOX_BYTES:
+        raise AgentTaskError(f"session inbox is too large: {session_id}")
+    atomic_write_private(store.inbox_path(session_id), payload)
+
+
+def inbox_event_id(session_id: str, task_id: str) -> str:
+    digest = hashlib.sha256(f"integration-ready\0{session_id}\0{task_id}".encode()).hexdigest()[:24]
+    return f"ready-{digest}"
+
+
+def integration_notice_prompt(task: dict[str, Any], event_id: str) -> str:
+    task_id = task["task_id"]
+    return (
+        f"agent-task event {event_id}: managed task {task_id} is complete and waiting for harness integration, "
+        "but this session currently owns a repository lease. Finish the smallest safe checkpoint for your "
+        "current work. Do not merge, cherry-pick, switch branches, or clean worktrees manually. Then run "
+        f"`agent-task handoff {event_id}` so the harness can release this session, finalize any "
+        "managed work, and retry the queued integration automatically. Use `agent-task inbox` to inspect "
+        "the durable event before handing off."
+    )
+
+
+def enqueue_integration_notice(store: Store, session: dict[str, Any], task: dict[str, Any]) -> str:
+    session_id = session.get("session_id")
+    if not isinstance(session_id, str):
+        raise AgentTaskError("active session has no session id")
+    task_id = task.get("task_id")
+    if not isinstance(task_id, str):
+        raise AgentTaskError("integration notice has no task id")
+    event_id = inbox_event_id(session_id, task_id)
+    with store.lock(f"inbox:{session_id}"):
+        inbox = read_session_inbox(store, session_id)
+        existing = next((message for message in inbox["messages"] if message.get("id") == event_id), None)
+        if existing is None:
+            inbox["messages"].append(
+                {
+                    "id": event_id,
+                    "type": "integration_ready",
+                    "status": "pending",
+                    "task_id": task_id,
+                    "target_branch": task.get("target_branch"),
+                    "repository": task.get("repository"),
+                    "prompt": integration_notice_prompt(task, event_id),
+                    "created_at": now(),
+                }
+            )
+        elif existing.get("status") == "resolved":
+            existing["status"] = "pending"
+            existing["prompt"] = integration_notice_prompt(task, event_id)
+            existing["requeued_at"] = now()
+            existing.pop("resolved_at", None)
+        write_session_inbox(store, inbox)
+    return event_id
+
+
+def pending_inbox_messages(
+    store: Store,
+    session_id: str,
+    *,
+    include_delivered: bool = False,
+) -> list[dict[str, Any]]:
+    states = {"pending", "delivered"} if include_delivered else {"pending"}
+    with store.lock(f"inbox:{session_id}"):
+        inbox = read_session_inbox(store, session_id)
+        return [dict(message) for message in inbox["messages"] if message.get("status") in states]
+
+
+def update_inbox_event(
+    store: Store,
+    session_id: str,
+    event_id: str,
+    status: str,
+    *,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    if status not in ("delivered", "accepted", "resolved"):
+        raise AgentTaskError(f"unsupported inbox event transition: {status}")
+    with store.lock(f"inbox:{session_id}"):
+        inbox = read_session_inbox(store, session_id)
+        message = next((item for item in inbox["messages"] if item.get("id") == event_id), None)
+        if message is None:
+            raise AgentTaskError(f"unknown inbox event: {event_id}")
+        current = message.get("status")
+        allowed = {
+            "delivered": {"pending", "delivered"},
+            "accepted": {"pending", "delivered", "accepted"},
+            "resolved": {"pending", "delivered", "accepted", "resolved"},
+        }[status]
+        if current not in allowed:
+            raise AgentTaskError(f"inbox event {event_id} cannot move from {current} to {status}")
+        message["status"] = status
+        message[f"{status}_at"] = now()
+        if detail:
+            message[f"{status}_via"] = detail
+        write_session_inbox(store, inbox)
+        return dict(message)
+
+
+def resolve_task_notices(store: Store, task_id: str) -> None:
+    for path in store.inboxes.glob("*.json"):
+        session_id = path.stem
+        try:
+            with store.lock(f"inbox:{session_id}"):
+                inbox = read_session_inbox(store, session_id)
+                changed = False
+                for message in inbox["messages"]:
+                    if message.get("task_id") == task_id and message.get("status") != "resolved":
+                        message["status"] = "resolved"
+                        message["resolved_at"] = now()
+                        changed = True
+                if changed:
+                    write_session_inbox(store, inbox)
+        except AgentTaskError as error:
+            print(f"agent-task: cannot resolve inbox {path}: {error}", file=sys.stderr)
 
 
 def validate_memory(value: Any) -> dict[str, Any]:
@@ -420,11 +618,20 @@ def primary_worktree(repository: Path) -> Path:
     return repository.resolve()
 
 
-def checkout_session_metadata(checkout: Path, session_id: str) -> dict[str, Any]:
+def checkout_session_metadata(
+    checkout: Path,
+    session_id: str,
+    *,
+    agent: str | None = None,
+    task_id: str | None = None,
+    working_directory: Path | None = None,
+    inbox_path: Path | None = None,
+    control_socket: Path | None = None,
+) -> dict[str, Any]:
     owner = process_record(os.getpid(), role="launcher")
     if owner is None:
         raise AgentTaskError("cannot record checkout session process identity")
-    return {
+    metadata: dict[str, Any] = {
         "schema_version": SESSION_LOCK_SCHEMA,
         "kind": "agent-session",
         "session_id": session_id,
@@ -435,6 +642,18 @@ def checkout_session_metadata(checkout: Path, session_id: str) -> dict[str, Any]
         "process": owner,
         "recorded_at": now(),
     }
+    if agent:
+        metadata["agent"] = agent
+    if task_id:
+        metadata["task_id"] = task_id
+    if working_directory is not None:
+        metadata["working_directory"] = str(working_directory.resolve())
+    if inbox_path is not None:
+        metadata["notification_protocol"] = NOTIFICATION_PROTOCOL
+        metadata["inbox_path"] = str(inbox_path)
+    if control_socket is not None:
+        metadata["control_socket"] = str(control_socket)
+    return metadata
 
 
 def valid_checkout_session(value: Any, checkout: Path) -> bool:
@@ -549,6 +768,7 @@ class CheckoutReservation:
         self.released = False
         self.session_path: Path | None = None
         self.session_id: str | None = None
+        self.handoff_task_ids: list[str] = []
 
     def __bool__(self) -> bool:
         return bool(self.descriptors)
@@ -572,6 +792,21 @@ class CheckoutReservation:
             return
         transfer_checkout_session_owner(self.session_path, self.session_id, pid)
 
+    def capture_handoff_tasks(self) -> list[str]:
+        if self.session_path is None or self.session_id is None:
+            return []
+        try:
+            value = read_json_file_safely(self.session_path)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return []
+        if not isinstance(value, dict) or value.get("session_id") != self.session_id:
+            return []
+        raw = value.get("handoff_task_ids")
+        if not isinstance(raw, list):
+            return []
+        self.handoff_task_ids = [item for item in raw if isinstance(item, str)]
+        return list(self.handoff_task_ids)
+
 
 def transfer_checkout_session_owner(path: Path, session_id: str, pid: int) -> None:
     owner = process_record(pid, role="lock-supervisor")
@@ -585,6 +820,8 @@ def transfer_checkout_session_owner(path: Path, session_id: str, pid: int) -> No
         raise AgentTaskError("checkout session metadata changed before agent launch")
     value["process"] = owner
     value["supervised_at"] = now()
+    value["notification_ready"] = False
+    value["notification_state"] = "starting"
     atomic_write_private(path, (json.dumps(value, sort_keys=True) + "\n").encode())
 
 
@@ -594,6 +831,8 @@ def remove_session_metadata(store: Store, checkout: Path, session_id: str) -> No
         value = read_json_file_safely(path)
         if isinstance(value, dict) and value.get("session_id") == session_id:
             path.unlink(missing_ok=True)
+            store.inbox_path(session_id).unlink(missing_ok=True)
+            store.control_socket_path(session_id).unlink(missing_ok=True)
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return
 
@@ -604,6 +843,9 @@ def checkout_session_lock(
     checkout: Path,
     *,
     record_session_base: bool = False,
+    agent: str | None = None,
+    task_id: str | None = None,
+    working_directory: Path | None = None,
 ) -> Iterator[CheckoutReservation | None]:
     """Reserve a checkout under the repository activity gate."""
     with repository_activity_lock(store, checkout, exclusive=False, blocking=True) as activity_available:
@@ -617,7 +859,21 @@ def checkout_session_lock(
             session_id = os.urandom(16).hex()
             if record_session_base:
                 session_path = store.checkout_session_path(checkout)
-                payload = json.dumps(checkout_session_metadata(checkout, session_id), sort_keys=True) + "\n"
+                inbox_path = store.inbox_path(session_id)
+                control_socket = store.control_socket_path(session_id)
+                write_session_inbox(store, empty_inbox(session_id))
+                payload = json.dumps(
+                    checkout_session_metadata(
+                        checkout,
+                        session_id,
+                        agent=agent,
+                        task_id=task_id,
+                        working_directory=working_directory or checkout,
+                        inbox_path=inbox_path,
+                        control_socket=control_socket,
+                    ),
+                    sort_keys=True,
+                ) + "\n"
                 atomic_write_private(session_path, payload.encode())
                 checkout_reservation.attach_session(session_path, session_id)
             try:
@@ -991,6 +1247,8 @@ def native_agent_environment() -> dict[str, str]:
         LOCK_FDS_ENV,
         LOCK_SESSION_PATH_ENV,
         LOCK_SESSION_ID_ENV,
+        AGENT_SESSION_PATH_ENV,
+        AGENT_SESSION_ID_ENV,
         "AI_REPO_MEMORY",
         "AI_REPO_MEMORY_SOURCE",
         "AI_TASK_BRANCH",
@@ -1033,6 +1291,322 @@ def become_child_subreaper() -> None:
         raise AgentTaskError(f"cannot enable descendant supervision: {error}") from error
 
 
+def update_session_metadata(path: Path, session_id: str, updates: dict[str, Any]) -> None:
+    try:
+        value = read_json_file_safely(path)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise AgentTaskError(f"cannot update checkout session metadata: {error}") from error
+    if not isinstance(value, dict) or value.get("session_id") != session_id:
+        raise AgentTaskError("checkout session metadata changed unexpectedly")
+    value.update(updates)
+    atomic_write_private(path, (json.dumps(value, sort_keys=True) + "\n").encode())
+
+
+def codex_remote_command(command: Sequence[str], socket_path: Path) -> list[str] | None:
+    executable = command_executable_index(command, "codex")
+    if executable is None or codex_subcommand(command) not in (None, "resume", "fork"):
+        return None
+    if any(
+        value == "--remote" or value.startswith("--remote=")
+        for value in command[executable + 1 :]
+    ):
+        return None
+    result = list(command)
+    result[executable + 1 : executable + 1] = ["--remote", f"unix://{socket_path}"]
+    return result
+
+
+def start_codex_app_server(
+    command: Sequence[str],
+    socket_path: Path,
+    inherited_descriptors: Sequence[int],
+) -> tuple[int, list[str]] | None:
+    remote_command = codex_remote_command(command, socket_path)
+    if remote_command is None:
+        return None
+    executable = command_executable_index(command, "codex")
+    assert executable is not None
+    socket_path.unlink(missing_ok=True)
+    server_command = [*command[: executable + 1], "app-server", "--listen", f"unix://{socket_path}"]
+    try:
+        server_pid = os.fork()
+    except OSError as error:
+        raise AgentTaskError(f"cannot start Codex App Server: {error}") from error
+    if server_pid == 0:
+        for descriptor in inherited_descriptors:
+            os.close(descriptor)
+        try:
+            os.setsid()
+            devnull = os.open(os.devnull, os.O_RDWR)
+            for descriptor in (0, 1, 2):
+                os.dup2(devnull, descriptor)
+            if devnull > 2:
+                os.close(devnull)
+            os.execvpe(server_command[0], server_command, os.environ)
+        except OSError:
+            os._exit(127)
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if socket_path.exists():
+            return server_pid, remote_command
+        try:
+            finished, status = os.waitpid(server_pid, os.WNOHANG)
+        except ChildProcessError:
+            finished, status = server_pid, 0
+        if finished:
+            detail = os.waitstatus_to_exitcode(status)
+            raise AgentTaskError(f"Codex App Server exited before opening its control socket ({detail})")
+        time.sleep(0.02)
+    try:
+        os.killpg(server_pid, signal.SIGTERM)
+    except OSError:
+        pass
+    raise AgentTaskError("Codex App Server did not open its control socket")
+
+
+async def _codex_rpc_request(
+    websocket: Any,
+    request_id: int,
+    method: str,
+    params: dict[str, Any],
+) -> Any:
+    await websocket.send(json.dumps({"id": request_id, "method": method, "params": params}))
+    deadline = time.monotonic() + 3.0
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AgentTaskError(f"Codex App Server timed out during {method}")
+        import asyncio
+
+        raw = await asyncio.wait_for(websocket.recv(), timeout=remaining)
+        response = json.loads(raw)
+        if response.get("id") != request_id:
+            continue
+        if response.get("error") is not None:
+            raise AgentTaskError(f"Codex App Server rejected {method}: {response['error']}")
+        return response.get("result")
+
+
+def codex_status_type(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        status_type = value.get("type")
+        return status_type if isinstance(status_type, str) else None
+    return None
+
+
+async def _deliver_codex_prompt(
+    socket_path: Path,
+    working_directory: Path,
+    prompt: str,
+    connector: Callable[[], Any] | None,
+) -> None:
+    if connector is None:
+        try:
+            from websockets.asyncio.client import unix_connect
+        except ImportError as error:
+            raise AgentTaskError("python-websockets is required for Codex session notifications") from error
+
+        def default_connector() -> Any:
+            return unix_connect(
+                str(socket_path),
+                uri="ws://localhost/rpc",
+                compression=None,
+                user_agent_header=None,
+                open_timeout=2,
+                close_timeout=1,
+            )
+
+        connector = default_connector
+
+    async with connector() as websocket:
+        request_id = 1
+        await _codex_rpc_request(
+            websocket,
+            request_id,
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "agent-task",
+                    "title": "agent-task notification bridge",
+                    "version": "1",
+                }
+            },
+        )
+        await websocket.send(json.dumps({"method": "initialized", "params": {}}))
+        request_id += 1
+        for _attempt in range(3):
+            listed = await _codex_rpc_request(
+                websocket,
+                request_id,
+                "thread/list",
+                {"cwd": str(working_directory.resolve()), "sourceKinds": ["cli", "appServer"]},
+            )
+            request_id += 1
+            threads = listed.get("data", []) if isinstance(listed, dict) else []
+            exact = [
+                thread
+                for thread in threads
+                if isinstance(thread, dict)
+                and isinstance(thread.get("id"), str)
+                and thread.get("cwd") == str(working_directory.resolve())
+            ]
+            if not exact:
+                raise AgentTaskError("Codex App Server has no CLI thread for this checkout")
+            receivable = [
+                thread
+                for thread in exact
+                if codex_status_type(thread.get("status")) in ("active", "idle")
+            ]
+            if not receivable:
+                raise AgentTaskError("Codex App Server has no loaded CLI thread for this checkout")
+            thread = next(
+                (thread for thread in receivable if codex_status_type(thread.get("status")) == "active"),
+                receivable[0],
+            )
+            thread_id = thread["id"]
+            status_type = codex_status_type(thread.get("status"))
+            try:
+                if status_type == "active":
+                    detail = await _codex_rpc_request(
+                        websocket,
+                        request_id,
+                        "thread/read",
+                        {"threadId": thread_id, "includeTurns": True},
+                    )
+                    request_id += 1
+                    loaded = detail.get("thread", {}) if isinstance(detail, dict) else {}
+                    turns = loaded.get("turns", []) if isinstance(loaded, dict) else []
+                    active_turn = next(
+                        (
+                            turn
+                            for turn in reversed(turns)
+                            if isinstance(turn, dict)
+                            and isinstance(turn.get("id"), str)
+                            and codex_status_type(turn.get("status")) in ("inProgress", "active")
+                        ),
+                        turns[-1] if turns and isinstance(turns[-1], dict) else None,
+                    )
+                    if not isinstance(active_turn, dict) or not isinstance(active_turn.get("id"), str):
+                        raise AgentTaskError("Codex active thread has no steerable turn")
+                    await _codex_rpc_request(
+                        websocket,
+                        request_id,
+                        "turn/steer",
+                        {
+                            "threadId": thread_id,
+                            "expectedTurnId": active_turn["id"],
+                            "input": [{"type": "text", "text": prompt}],
+                        },
+                    )
+                    return
+                if status_type == "idle":
+                    await _codex_rpc_request(
+                        websocket,
+                        request_id,
+                        "turn/start",
+                        {
+                            "threadId": thread_id,
+                            "input": [{"type": "text", "text": prompt}],
+                        },
+                    )
+                    return
+                raise AgentTaskError(f"Codex thread cannot receive a notification while {status_type or 'unknown'}")
+            except AgentTaskError:
+                if _attempt == 2:
+                    raise
+                request_id += 1
+
+
+def deliver_codex_prompt(
+    socket_path: Path,
+    working_directory: Path,
+    prompt: str,
+    *,
+    connector: Callable[[], Any] | None = None,
+) -> None:
+    import asyncio
+
+    asyncio.run(_deliver_codex_prompt(socket_path, working_directory, prompt, connector))
+
+
+def deliver_pending_codex_notifications(
+    store: Store,
+    session_id: str,
+    socket_path: Path,
+    working_directory: Path,
+) -> None:
+    pending = pending_inbox_messages(store, session_id)
+    for message in pending:
+        deliver_codex_prompt(socket_path, working_directory, message["prompt"])
+        update_inbox_event(store, session_id, message["id"], "delivered", detail="codex-app-server")
+
+
+def terminal_inbox_alert(session_id: str, count: int) -> None:
+    message = (
+        f"\r\n\a[agent-task] {count} integration handoff event(s) are waiting in session "
+        f"{session_id}. Run: agent-task inbox\r\n"
+    ).encode()
+    try:
+        descriptor = os.open("/dev/tty", os.O_WRONLY | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        sys.stderr.write(message.decode())
+        sys.stderr.flush()
+        return
+    try:
+        write_all(descriptor, message)
+    finally:
+        os.close(descriptor)
+
+
+def accepted_handoff_tasks(store: Store, session_id: str) -> list[str]:
+    with store.lock(f"inbox:{session_id}"):
+        inbox = read_session_inbox(store, session_id)
+        authorized = any(message.get("status") == "accepted" for message in inbox["messages"])
+        changed = False
+        if authorized:
+            for message in inbox["messages"]:
+                if (
+                    message.get("type") == "integration_ready"
+                    and message.get("status") in ("pending", "delivered")
+                ):
+                    message["status"] = "accepted"
+                    message["accepted_at"] = now()
+                    message["accepted_via"] = "session-handoff"
+                    changed = True
+        if changed:
+            write_session_inbox(store, inbox)
+        return [
+            message["task_id"]
+            for message in inbox["messages"]
+            if message.get("status") == "accepted" and isinstance(message.get("task_id"), str)
+        ]
+
+
+def terminate_process_tree_child(pid: int, signum: int) -> None:
+    try:
+        os.kill(pid, signum)
+    except OSError:
+        return
+
+
+def direct_child_pids(pid: int) -> list[int]:
+    try:
+        raw = Path(f"/proc/{pid}/task/{pid}/children").read_text()
+    except OSError:
+        return []
+    result: list[int] = []
+    for value in raw.split():
+        try:
+            child = int(value)
+        except ValueError:
+            continue
+        if child > 1:
+            result.append(child)
+    return result
+
+
 def command_lock_exec(raw: Sequence[str]) -> int:
     command = list(raw)
     if command and command[0] == "--":
@@ -1051,8 +1625,43 @@ def command_lock_exec(raw: Sequence[str]) -> int:
     session_id = os.environ.pop(LOCK_SESSION_ID_ENV, "")
     if bool(session_path) != bool(session_id):
         raise AgentTaskError("lock wrapper received incomplete session metadata")
+    metadata: dict[str, Any] = {}
+    store: Store | None = None
+    control_pid: int | None = None
+    control_socket: Path | None = None
+    working_directory = Path.cwd().resolve()
     if session_path:
-        transfer_checkout_session_owner(Path(session_path), session_id, os.getpid())
+        metadata_path = Path(session_path)
+        transfer_checkout_session_owner(metadata_path, session_id, os.getpid())
+        try:
+            loaded = read_json_file_safely(metadata_path)
+            metadata = loaded if isinstance(loaded, dict) else {}
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            metadata = {}
+        store = Store()
+        working_directory = Path(str(metadata.get("working_directory") or Path.cwd())).resolve()
+        socket_value = metadata.get("control_socket")
+        if isinstance(socket_value, str):
+            control_socket = Path(socket_value)
+        if control_socket is not None:
+            try:
+                started = start_codex_app_server(command, control_socket, descriptors)
+                if started is not None:
+                    control_pid, command = started
+                    update_session_metadata(
+                        metadata_path,
+                        session_id,
+                        {"control_status": "ready", "control_started_at": now()},
+                    )
+            except AgentTaskError as error:
+                update_session_metadata(
+                    metadata_path,
+                    session_id,
+                    {"control_status": "unavailable", "control_error": str(error)},
+                )
+                print(f"agent-task: Codex notification bridge unavailable: {error}", file=sys.stderr)
+        os.environ[AGENT_SESSION_PATH_ENV] = session_path
+        os.environ[AGENT_SESSION_ID_ENV] = session_id
     try:
         agent_pid = os.fork()
     except OSError as error:
@@ -1066,30 +1675,160 @@ def command_lock_exec(raw: Sequence[str]) -> int:
             print(f"agent-task: cannot execute supervised agent: {error}", file=sys.stderr)
             os._exit(127)
 
+    notification_requested = False
+    handoff_requested = False
+
     def forward_signal(signum: int, _frame: Any) -> None:
         try:
             os.kill(agent_pid, signum)
         except OSError:
             return
 
+    def request_notification(_signum: int, _frame: Any) -> None:
+        nonlocal notification_requested
+        notification_requested = True
+
+    def request_handoff(_signum: int, _frame: Any) -> None:
+        nonlocal handoff_requested
+        handoff_requested = True
+
     previous_handlers = {
         signum: signal.signal(signum, forward_signal)
         for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
     }
+    previous_handlers[signal.SIGUSR1] = signal.signal(signal.SIGUSR1, request_notification)
+    previous_handlers[signal.SIGUSR2] = signal.signal(signal.SIGUSR2, request_handoff)
+    if session_path:
+        update_session_metadata(
+            Path(session_path),
+            session_id,
+            {
+                "notification_ready": True,
+                "notification_state": "ready",
+                "notification_ready_at": now(),
+            },
+        )
+        notification_requested = True
     main_status: int | None = None
+    control_status: int | None = None
+    intentional_handoff = False
+    handoff_deadline: float | None = None
+    descendant_deadline: float | None = None
+    notification_retry_at: float | None = None
+    notification_closed = False
     try:
         while True:
-            try:
-                child_pid, status = os.waitpid(-1, 0)
-            except InterruptedError:
-                continue
-            except ChildProcessError:
+            reaped_any = False
+            while True:
+                try:
+                    child_pid, status = os.waitpid(-1, os.WNOHANG)
+                except InterruptedError:
+                    continue
+                except ChildProcessError:
+                    child_pid = -1
+                    break
+                if child_pid == 0:
+                    break
+                reaped_any = True
+                if child_pid == agent_pid:
+                    main_status = status
+                elif control_pid is not None and child_pid == control_pid:
+                    control_status = status
+
+            if main_status is not None and session_path and not notification_closed:
+                update_session_metadata(
+                    Path(session_path),
+                    session_id,
+                    {
+                        "notification_ready": False,
+                        "notification_state": "closed",
+                        "notification_closed_at": now(),
+                    },
+                )
+                notification_closed = True
+
+            if session_path and store is not None and main_status is None:
+                if notification_requested or (
+                    notification_retry_at is not None and time.monotonic() >= notification_retry_at
+                ):
+                    notification_requested = False
+                    pending = pending_inbox_messages(store, session_id)
+                    if pending:
+                        if control_pid is not None and control_status is None and control_socket is not None:
+                            try:
+                                deliver_pending_codex_notifications(
+                                    store,
+                                    session_id,
+                                    control_socket,
+                                    working_directory,
+                                )
+                                notification_retry_at = None
+                            except (AgentTaskError, OSError, json.JSONDecodeError) as error:
+                                notification_retry_at = time.monotonic() + 10.0
+                                terminal_inbox_alert(session_id, len(pending))
+                                update_session_metadata(
+                                    Path(session_path),
+                                    session_id,
+                                    {"last_notification_error": str(error)},
+                                )
+                        else:
+                            terminal_inbox_alert(session_id, len(pending))
+                            notification_retry_at = None
+
+                if handoff_requested and not intentional_handoff:
+                    tasks = accepted_handoff_tasks(store, session_id)
+                    if tasks:
+                        intentional_handoff = True
+                        handoff_deadline = time.monotonic() + 0.5
+                        update_session_metadata(
+                            Path(session_path),
+                            session_id,
+                            {
+                                "handoff_task_ids": sorted(set(tasks)),
+                                "handoff_started_at": now(),
+                            },
+                        )
+                    handoff_requested = False
+
+                if intentional_handoff and handoff_deadline is not None and time.monotonic() >= handoff_deadline:
+                    tasks = accepted_handoff_tasks(store, session_id)
+                    update_session_metadata(
+                        Path(session_path),
+                        session_id,
+                        {"handoff_task_ids": sorted(set(tasks))},
+                    )
+                    terminate_process_tree_child(agent_pid, signal.SIGTERM)
+                    handoff_deadline = None
+
+            if main_status is not None and control_pid is not None and control_status is None:
+                try:
+                    os.killpg(control_pid, signal.SIGTERM)
+                except OSError:
+                    pass
+
+            if intentional_handoff and main_status is not None:
+                descendants = direct_child_pids(os.getpid())
+                if descendants and descendant_deadline is None:
+                    for descendant in descendants:
+                        terminate_process_tree_child(descendant, signal.SIGTERM)
+                    descendant_deadline = time.monotonic() + 1.0
+                elif descendants and descendant_deadline is not None and time.monotonic() >= descendant_deadline:
+                    for descendant in descendants:
+                        terminate_process_tree_child(descendant, signal.SIGKILL)
+                elif not descendants:
+                    descendant_deadline = None
+
+            if child_pid == -1:
                 break
-            if child_pid == agent_pid:
-                main_status = status
+            if not reaped_any:
+                time.sleep(0.05)
     finally:
         for signum, handler in previous_handlers.items():
             signal.signal(signum, handler)
+        if control_socket is not None:
+            control_socket.unlink(missing_ok=True)
+    if intentional_handoff:
+        return HANDOFF_EXIT_CODE
     return os.waitstatus_to_exitcode(main_status) if main_status is not None else 127
 
 
@@ -1220,6 +1959,8 @@ def resume_hint(agent: str) -> str | None:
 
 def task_environment(task: dict[str, Any]) -> dict[str, str]:
     environment = os.environ.copy()
+    environment.pop(AGENT_SESSION_PATH_ENV, None)
+    environment.pop(AGENT_SESSION_ID_ENV, None)
     environment.update(
         {
             "AI_TASK_HARNESS": "agent-task",
@@ -1426,9 +2167,15 @@ def launch_agent(
     command: Sequence[str],
     *,
     pass_fds: Sequence[int] = (),
+    checkout_reservation: CheckoutReservation | None = None,
 ) -> int:
     validate_foreground_agent_command(task.get("agent", "custom"), command, lock_managed=True)
-    guarded_command, environment = guarded_agent_invocation(command, task_environment(task), pass_fds)
+    guarded_command, environment = guarded_agent_invocation(
+        command,
+        task_environment(task),
+        pass_fds,
+        checkout_reservation=checkout_reservation,
+    )
     task.pop("process", None)
     store.save(task)
     try:
@@ -1716,6 +2463,61 @@ def defer_integration(
     return False
 
 
+def active_notification_sessions(store: Store, repository: Path) -> list[dict[str, Any]]:
+    repository_common_dir = str(common_dir(repository))
+    result: list[dict[str, Any]] = []
+    for path in store.sessions.glob("*.json"):
+        try:
+            value = read_json_file_safely(path)
+            if not isinstance(value, dict) or value.get("notification_protocol") != NOTIFICATION_PROTOCOL:
+                continue
+            checkout_value = value.get("checkout")
+            if not isinstance(checkout_value, str) or value.get("git_common_dir") != repository_common_dir:
+                continue
+            process = value.get("process")
+            if not isinstance(process, dict) or process.get("role") != "lock-supervisor":
+                continue
+            if value.get("notification_state") not in ("starting", "ready"):
+                continue
+            checkout = Path(checkout_value)
+            if (
+                valid_checkout_session(value, checkout)
+                and store.checkout_session_path(checkout) == path
+                and lock_file_is_busy(store.checkout_lock_path(checkout))
+            ):
+                result.append(value)
+        except (AgentTaskError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return result
+
+
+def notify_active_sessions(store: Store, repository: Path, task: dict[str, Any]) -> int:
+    notified = 0
+    for session in active_notification_sessions(store, repository):
+        try:
+            enqueue_integration_notice(store, session, task)
+            process = session.get("process")
+            if not process_alive(process):
+                continue
+            assert isinstance(process, dict)
+            if session.get("notification_state") == "ready" and session.get("notification_ready") is True:
+                os.kill(int(process["pid"]), signal.SIGUSR1)
+            notified += 1
+        except (AgentTaskError, OSError, TypeError, ValueError) as error:
+            print(
+                f"agent-task: could not notify active session {session.get('session_id')}: {error}",
+                file=sys.stderr,
+            )
+    return notified
+
+
+def queued_for_active_session_reason(store: Store, repository: Path, task: dict[str, Any], reason: str) -> str:
+    notified = notify_active_sessions(store, repository, task)
+    if notified:
+        return f"{reason}; handoff requested from {notified} active session(s)"
+    return reason
+
+
 def integrate_task(store: Store, task: dict[str, Any]) -> bool:
     repository = Path(task["repository"])
     target = task.get("target_branch")
@@ -1739,7 +2541,17 @@ def integrate_task(store: Store, task: dict[str, Any]) -> bool:
         with store.lock(f"integrate:{common_dir(repository)}:{target}", blocking=False):
             with repository_activity_lock(store, repository, exclusive=True, blocking=False) as repository_available:
                 if not repository_available:
-                    return defer_integration(store, task, READY, "repository has an active agent; integration queued")
+                    return defer_integration(
+                        store,
+                        task,
+                        READY,
+                        queued_for_active_session_reason(
+                            store,
+                            repository,
+                            task,
+                            "repository has an active agent; integration queued",
+                        ),
+                    )
                 candidate = store.integrations / repo_key(repository) / task["task_id"]
                 if not remove_integration_worktree(repository, candidate):
                     return defer_integration(
@@ -1755,7 +2567,12 @@ def integrate_task(store: Store, task: dict[str, Any]) -> bool:
                             store,
                             task,
                             READY,
-                            f"checkout has an active or legacy agent; integration queued: {busy_checkout}",
+                            queued_for_active_session_reason(
+                                store,
+                                repository,
+                                task,
+                                f"checkout has an active or legacy agent; integration queued: {busy_checkout}",
+                            ),
                             repository_reserved=True,
                         )
                     return integrate_task_with_repository_reserved(
@@ -1804,6 +2621,7 @@ def integrate_task_with_repository_reserved(
     if is_ancestor(repository, result_commit, target_sha):
         task["integrated_commit"] = target_sha
         set_status(store, task, INTEGRATED, "result was already present on target")
+        resolve_task_notices(store, task["task_id"])
         apply_memory_update(store, task)
         cleanup_task(store, task, repository_reserved=True)
         return True
@@ -1915,6 +2733,7 @@ def integrate_task_with_repository_reserved(
 
         task["integrated_commit"] = candidate_head
         set_status(store, task, INTEGRATED)
+        resolve_task_notices(store, task["task_id"])
         apply_memory_update(store, task)
     finally:
         terminate_owned_process(task.get("validation_process"))
@@ -2198,13 +3017,35 @@ def launch_for_task(
         task.update(current)
         worktree = managed_worktree_path(store, task)
         launch_error: BaseException | None = None
-        with checkout_session_lock(store, worktree) as checkout_reservation:
+        handoff_task_ids: list[str] = []
+        session_id: str | None = None
+        with checkout_session_lock(
+            store,
+            worktree,
+            record_session_base=True,
+            agent=str(task.get("agent") or "custom"),
+            task_id=task["task_id"],
+            working_directory=task_working_directory(task),
+        ) as checkout_reservation:
             if not checkout_reservation:
                 raise AgentTaskError(f"worktree already has an active agent: {worktree}")
             try:
-                inherited = tuple(checkout_reservation) if isinstance(checkout_reservation, CheckoutReservation) else ()
-                exit_code = launch_agent(store, task, command, pass_fds=inherited)
                 if isinstance(checkout_reservation, CheckoutReservation):
+                    session_id = checkout_reservation.session_id
+                inherited = tuple(checkout_reservation) if isinstance(checkout_reservation, CheckoutReservation) else ()
+                exit_code = launch_agent(
+                    store,
+                    task,
+                    command,
+                    pass_fds=inherited,
+                    checkout_reservation=(
+                        checkout_reservation
+                        if isinstance(checkout_reservation, CheckoutReservation)
+                        else None
+                    ),
+                )
+                if isinstance(checkout_reservation, CheckoutReservation):
+                    handoff_task_ids = checkout_reservation.capture_handoff_tasks()
                     checkout_reservation.release()
             except BaseException as error:
                 launch_error = error
@@ -2216,7 +3057,34 @@ def launch_for_task(
                 set_status(store, task, FAILED, f"agent launch failed: {launch_error}")
                 cleanup_task(store, task)
             raise launch_error
+        if exit_code == HANDOFF_EXIT_CODE and handoff_task_ids:
+            task["agent_exit_code"] = 0
+            task["handoff_completed_at"] = now()
+            store.save(task)
+            exit_code = 0
         finalize_task(store, task, integrate=integrate)
+        if session_id is not None:
+            attachment_results = finalize_session_attachments(store, session_id, exit_code)
+            if attachment_results:
+                task["attachments"] = [result["task_id"] for result in attachment_results]
+                failures = [
+                    result
+                    for result in attachment_results
+                    if result["status"] not in (INTEGRATED, COMPLETED)
+                    and not (result["status"] == READY and not result["auto_integrate"])
+                ]
+                if failures:
+                    task["attachment_failures"] = failures
+                else:
+                    task.pop("attachment_failures", None)
+                store.save(task)
+        if handoff_task_ids:
+            retry_handoff_integrations(store, handoff_task_ids)
+        retry_ready_integrations_for_repository(
+            store,
+            Path(task["repository"]),
+            exclude_task_ids=(task["task_id"],),
+        )
         return exit_code
 
 
@@ -2241,6 +3109,8 @@ def command_start(args: argparse.Namespace, store: Store) -> int:
         print(f"result: {task['result_commit']}")
     if task.get("integrated_commit"):
         print(f"integrated: {task['integrated_commit']} -> {task['target_branch']}")
+    if task.get("attachment_failures"):
+        return 2
     if task["status"] == COMPLETED:
         return 0
     if task["status"] == READY and not task.get("auto_integrate", True):
@@ -2396,10 +3266,18 @@ def command_open(args: argparse.Namespace, store: Store) -> int:
     checkout = repo_root(Path(args.launch_cwd).resolve())
     repository = primary_worktree(checkout)
     if args.auto:
-        with checkout_session_lock(store, checkout, record_session_base=True) as checkout_reservation:
+        native_exit_code: int | None = None
+        handoff_task_ids: list[str] = []
+        with checkout_session_lock(
+            store,
+            checkout,
+            record_session_base=True,
+            agent=args.agent,
+            working_directory=Path(args.launch_cwd),
+        ) as checkout_reservation:
             if checkout_reservation:
                 inherited = tuple(checkout_reservation) if isinstance(checkout_reservation, CheckoutReservation) else ()
-                exit_code = launch_native_with_memory(
+                native_exit_code = launch_native_with_memory(
                     args,
                     store,
                     repository,
@@ -2412,8 +3290,15 @@ def command_open(args: argparse.Namespace, store: Store) -> int:
                     ),
                 )
                 if isinstance(checkout_reservation, CheckoutReservation):
+                    handoff_task_ids = checkout_reservation.capture_handoff_tasks()
                     checkout_reservation.release()
-                return exit_code
+        if native_exit_code is not None:
+            if native_exit_code == HANDOFF_EXIT_CODE and handoff_task_ids:
+                handoff_success = retry_handoff_integrations(store, handoff_task_ids)
+                retry_ready_integrations_for_repository(store, repository)
+                return 0 if handoff_success else 2
+            retry_ready_integrations_for_repository(store, repository)
+            return native_exit_code
         if getattr(args, "require_current", False):
             raise AgentTaskError(
                 f"current checkout is busy; refusing to run this command against a different snapshot: {checkout}"
@@ -2436,30 +3321,28 @@ def command_open(args: argparse.Namespace, store: Store) -> int:
         ]
         if active:
             task = max(active, key=lambda item: item.get("updated_at", ""))
-            raise AgentTaskError(
+            print(
                 f"{args.agent} task {task['task_id']} is already running in {task['worktree_path']}\n"
-                "Use --new only when a separate parallel task is intentional."
+                "starting a separate managed worktree"
             )
-        recoverable = [
-            task for task in tasks if task.get("agent") == args.agent and task.get("status") == RECOVERY
-        ]
-        if recoverable:
-            selected = choose_recovery_task(recoverable)
-            if selected:
-                print(
-                    f"resuming: {selected['task_id']}\n"
-                    f"worktree: {selected['worktree_path']}\n"
-                    "Use --new next time to start a separate task."
-                )
-                recovery_args = argparse.Namespace(
-                    task_id=selected["task_id"],
-                    agent=args.agent,
-                    integration_policy=False if args.no_integrate else None,
-                    new_session=args.new_session,
-                    prompt=args.description,
-                    command=list(args.command),
-                )
-                return command_recover(recovery_args, store)
+            args.new = True
+        if not args.new:
+            recoverable = [
+                task for task in tasks if task.get("agent") == args.agent and task.get("status") == RECOVERY
+            ]
+            if recoverable:
+                selected = choose_recovery_task(recoverable)
+                if selected:
+                    print(f"resuming: {selected['task_id']}\nworktree: {selected['worktree_path']}")
+                    recovery_args = argparse.Namespace(
+                        task_id=selected["task_id"],
+                        agent=args.agent,
+                        integration_policy=False if args.no_integrate else None,
+                        new_session=args.new_session,
+                        prompt=args.description,
+                        command=list(args.command),
+                    )
+                    return command_recover(recovery_args, store)
     return command_start(args, store)
 
 
@@ -2505,31 +3388,7 @@ def command_resume(args: argparse.Namespace, store: Store) -> int:
                 )
                 return command_recover(recovery_args, store)
 
-    with checkout_session_lock(store, checkout, record_session_base=True) as checkout_reservation:
-        if checkout_reservation:
-            print(f"resuming in checkout: {checkout}")
-            inherited = tuple(checkout_reservation) if isinstance(checkout_reservation, CheckoutReservation) else ()
-            exit_code = launch_native_with_memory(
-                args,
-                store,
-                repository,
-                checkout,
-                pass_fds=inherited,
-                checkout_reservation=(
-                    checkout_reservation
-                    if isinstance(checkout_reservation, CheckoutReservation)
-                    else None
-                ),
-            )
-            if isinstance(checkout_reservation, CheckoutReservation):
-                checkout_reservation.release()
-            return exit_code
-    active_session = read_active_checkout_session(store, checkout)
-    args.isolate_from_active_checkout = True
-    args.active_session_base_sha = active_session.get("base_sha") if active_session else None
-    args.active_session_source_branch = active_session.get("source_branch") if active_session else None
-    args.active_session_recorded_at = active_session.get("recorded_at") if active_session else None
-    print(f"checkout already has an active agent: {checkout}\nresuming in an isolated worktree")
+    print(f"resuming in a fresh managed worktree from: {checkout}")
     return command_start(args, store)
 
 
@@ -2595,6 +3454,7 @@ def recognize_result_already_on_target(store: Store, task: dict[str, Any]) -> bo
     task["integrated_commit"] = target_sha
     task.pop("legacy_integration_interrupted", None)
     set_status(store, task, INTEGRATED, "recorded result is already present on target")
+    resolve_task_notices(store, task["task_id"])
     apply_memory_update(store, task)
     cleanup_task(store, task)
     return True
@@ -2650,9 +3510,46 @@ def command_integrate(args: argparse.Namespace, store: Store) -> int:
             recover_interrupted_integration(store, task, integrate=False, allow_legacy_retry=True)
         if not task.get("result_commit"):
             inspect_result(store, task, trust_clean_commit=True)
-        success = task.get("status") == INTEGRATED or (task.get("status") == READY and integrate_task(store, task))
+        if task.get("status") == INTEGRATED:
+            resolve_task_notices(store, task["task_id"])
+            success = True
+        else:
+            success = task.get("status") == READY and integrate_task(store, task)
     print(f"{task['task_id']}: {task['status']}")
     return 0 if success else 2
+
+
+def retry_handoff_integrations(store: Store, task_ids: Sequence[str]) -> bool:
+    success = True
+    for task_id in dict.fromkeys(task_ids):
+        try:
+            result = command_integrate(argparse.Namespace(task_id=task_id), store)
+        except (AgentTaskError, LockBusy) as error:
+            print(f"agent-task: handoff integration for {task_id} remains queued: {error}", file=sys.stderr)
+            success = False
+        else:
+            success = result == 0 and success
+    return success
+
+
+def retry_ready_integrations_for_repository(
+    store: Store,
+    repository: Path,
+    *,
+    exclude_task_ids: Sequence[str] = (),
+) -> bool:
+    excluded = set(exclude_task_ids)
+    repository_common_dir = common_dir(repository)
+    ready = [
+        task["task_id"]
+        for task in sorted(store.all(), key=lambda item: item.get("created_at", ""))
+        if task.get("task_id") not in excluded
+        and task_belongs_to_repository(task, repository_common_dir)
+        and task.get("status") == READY
+        and bool(task.get("auto_integrate", True))
+        and not process_alive(task.get("process"))
+    ]
+    return retry_handoff_integrations(store, ready)
 
 
 def command_recover(args: argparse.Namespace, store: Store) -> int:
@@ -2769,7 +3666,19 @@ def reconcile_one(store: Store, task: dict[str, Any], *, integrate: bool) -> Non
     if task.get("integration_candidate") and status not in (INTEGRATING, VALIDATING):
         clear_interrupted_integration(store, task)
     if status == RUNNING:
-        preserve_interrupted_task(store, task)
+        if task.get("attachment_session_id"):
+            task.pop("process", None)
+            task["attachment_reconciled_at"] = now()
+            task["agent_exit_code"] = 0
+            store.save(task)
+            finalize_task(
+                store,
+                task,
+                integrate=integrate and bool(task.get("auto_integrate", True)),
+                trust_clean_commit=True,
+            )
+        else:
+            preserve_interrupted_task(store, task)
     elif status == CREATED:
         preserve_interrupted_task(store, task)
     elif status in (INTEGRATING, VALIDATING):
@@ -2819,6 +3728,245 @@ def command_reconcile(args: argparse.Namespace, store: Store) -> int:
     return 2 if failed else 0
 
 
+def current_agent_session(store: Store, session_id: str | None = None) -> tuple[str, Path, dict[str, Any]]:
+    selected = session_id or os.environ.get(AGENT_SESSION_ID_ENV)
+    if not selected:
+        raise AgentTaskError("this command must run inside a managed agent session, or use --session")
+    validate_identifier(selected, "session id")
+    configured_path = os.environ.get(AGENT_SESSION_PATH_ENV) if session_id is None else None
+    if configured_path:
+        path = Path(configured_path).resolve()
+    else:
+        matches: list[Path] = []
+        for candidate in store.sessions.glob("*.json"):
+            try:
+                value = read_json_file_safely(candidate)
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if isinstance(value, dict) and value.get("session_id") == selected:
+                matches.append(candidate.resolve())
+        if len(matches) != 1:
+            raise AgentTaskError(f"cannot find one active session record for {selected}")
+        path = matches[0]
+    if path.parent != store.sessions.resolve():
+        raise AgentTaskError(f"refused session metadata outside the state directory: {path}")
+    try:
+        value = read_json_file_safely(path)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise AgentTaskError(f"cannot read current session metadata: {error}") from error
+    if not isinstance(value, dict) or value.get("session_id") != selected:
+        raise AgentTaskError("current session metadata no longer matches this process")
+    return selected, path, value
+
+
+def attachment_tasks(store: Store, session_id: str) -> list[dict[str, Any]]:
+    return sorted(
+        [task for task in store.all() if task.get("attachment_session_id") == session_id],
+        key=lambda task: task.get("created_at", ""),
+    )
+
+
+def finalize_session_attachments(
+    store: Store,
+    session_id: str,
+    agent_exit_code: int,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for snapshot in attachment_tasks(store, session_id):
+        try:
+            with store.lock(f"task:{snapshot['task_id']}", blocking=False):
+                task = store.load(snapshot["task_id"])
+                if task.get("status") in (CREATED, RUNNING):
+                    task.pop("process", None)
+                    task["agent_exit_code"] = agent_exit_code
+                    task["attachment_finished_at"] = now()
+                    store.save(task)
+                    finalize_task(
+                        store,
+                        task,
+                        integrate=bool(task.get("auto_integrate", True)),
+                    )
+                results.append(
+                    {
+                        "task_id": task["task_id"],
+                        "status": task.get("status"),
+                        "auto_integrate": bool(task.get("auto_integrate", True)),
+                    }
+                )
+                print(f"attachment {task['task_id']}: {task.get('status')}")
+        except LockBusy:
+            results.append(
+                {
+                    "task_id": snapshot["task_id"],
+                    "status": snapshot.get("status"),
+                    "auto_integrate": bool(snapshot.get("auto_integrate", True)),
+                    "reason": "attachment lifecycle is busy",
+                }
+            )
+    return results
+
+
+def command_attach(args: argparse.Namespace, store: Store) -> int:
+    session_id, _session_path, session = current_agent_session(store)
+    parent_task_id = session.get("task_id")
+    if not isinstance(parent_task_id, str):
+        raise AgentTaskError("secondary repositories can only attach to a managed task")
+    parent = store.load(parent_task_id)
+    owner = session.get("process")
+    parent_owner = parent.get("process")
+    if (
+        not isinstance(owner, dict)
+        or owner.get("role") != "lock-supervisor"
+        or not process_alive(owner)
+        or not isinstance(parent_owner, dict)
+        or parent_owner.get("pid") != owner.get("pid")
+        or parent_owner.get("start") != owner.get("start")
+    ):
+        raise AgentTaskError("managed task supervisor is no longer active")
+
+    requested = Path(args.path).expanduser().resolve()
+    if not requested.is_dir():
+        raise AgentTaskError(f"secondary repository path does not exist: {requested}")
+    checkout = repo_root(requested)
+    repository = primary_worktree(checkout)
+    repository_common_dir = common_dir(repository)
+    if repository_common_dir == Path(parent["git_common_dir"]).resolve():
+        raise AgentTaskError("the requested path belongs to the task's existing repository")
+
+    lock_name = f"attachment:{session_id}:{repository_common_dir}"
+    with store.lock(lock_name):
+        for existing in attachment_tasks(store, session_id):
+            recorded_common_dir = existing.get("git_common_dir")
+            recorded_worktree = existing.get("worktree_path")
+            if (
+                isinstance(recorded_common_dir, str)
+                and Path(recorded_common_dir).resolve() == repository_common_dir
+                and existing.get("status") in (CREATED, RUNNING)
+                and isinstance(recorded_worktree, str)
+                and Path(recorded_worktree).is_dir()
+            ):
+                print(
+                    f"task: {existing['task_id']}\n"
+                    f"worktree: {existing['worktree_path']}\n"
+                    f"branch: {existing['branch']}"
+                )
+                return 0
+
+        attach_args = argparse.Namespace(
+            launch_cwd=requested,
+            agent=str(parent.get("agent") or session.get("agent") or "codex"),
+            target=None,
+            check=[],
+            check_timeout=DEFAULT_CHECK_TIMEOUT_SECONDS,
+            no_integrate=not bool(parent.get("auto_integrate", True)),
+            task=f"secondary repository attached to {parent_task_id}",
+            description=f"secondary repository attached to {parent_task_id}",
+            isolate_from_active_checkout=False,
+        )
+        with repository_activity_lock(store, repository, exclusive=False, blocking=True) as available:
+            if not available:
+                raise AgentTaskError(f"secondary repository is unavailable: {repository}")
+            task = create_task(store, attach_args)
+        task["attachment_session_id"] = session_id
+        task["attachment_parent_task_id"] = parent_task_id
+        task["attachment_source_path"] = str(requested)
+        task["process"] = dict(owner)
+        set_status(store, task, RUNNING)
+
+    print(f"task: {task['task_id']}\nworktree: {task['worktree_path']}\nbranch: {task['branch']}")
+    return 0
+
+
+def command_inbox(args: argparse.Namespace, store: Store) -> int:
+    session_id, _path, _session = current_agent_session(store, getattr(args, "session", None))
+    with store.lock(f"inbox:{session_id}"):
+        inbox = read_session_inbox(store, session_id)
+    event_id = getattr(args, "event_id", None)
+    messages = inbox["messages"]
+    if event_id:
+        messages = [message for message in messages if message.get("id") == event_id]
+        if not messages:
+            raise AgentTaskError(f"unknown inbox event: {event_id}")
+    else:
+        messages = [message for message in messages if message.get("status") != "resolved"]
+    if getattr(args, "json", False):
+        print(json.dumps({"session_id": session_id, "messages": messages}, indent=2, sort_keys=True))
+        return 0
+    if not messages:
+        print(f"{session_id}: inbox empty")
+        return 0
+    for message in messages:
+        print(f"{message['id']}: {message['status']} ({message.get('type', 'message')})")
+        print(f"  {message['prompt']}")
+    return 0
+
+
+def command_handoff(args: argparse.Namespace, store: Store) -> int:
+    session_id, _path, session = current_agent_session(store)
+    if session.get("notification_protocol") != NOTIFICATION_PROTOCOL:
+        raise AgentTaskError("this session predates the handoff protocol; restart it with o or c")
+    event_id = validate_identifier(args.event_id, "inbox event id")
+    pending = pending_inbox_messages(store, session_id, include_delivered=True)
+    message = next((item for item in pending if item.get("id") == event_id), None)
+    if message is None:
+        raise AgentTaskError(f"inbox event is not pending: {event_id}")
+    if message.get("type") != "integration_ready" or not isinstance(message.get("task_id"), str):
+        raise AgentTaskError(f"inbox event cannot trigger a repository handoff: {event_id}")
+    owner = session.get("process")
+    if (
+        not isinstance(owner, dict)
+        or owner.get("role") != "lock-supervisor"
+        or session.get("notification_state") != "ready"
+        or not process_alive(owner)
+    ):
+        raise AgentTaskError("session supervisor is no longer active")
+    update_inbox_event(store, session_id, event_id, "accepted", detail="agent-command")
+    try:
+        os.kill(int(owner["pid"]), signal.SIGUSR2)
+    except OSError as error:
+        raise AgentTaskError(f"cannot notify the session supervisor: {error}") from error
+    print(
+        f"handoff accepted: {event_id}\n"
+        "agent-task will close this foreground session and retry integration after its lease is released."
+    )
+    return 0
+
+
+def command_inbox_hook() -> int:
+    session_id = os.environ.get(AGENT_SESSION_ID_ENV)
+    if not session_id:
+        return 0
+    try:
+        raw = sys.stdin.buffer.read(65537)
+        if len(raw) > 65536:
+            return 0
+        payload = json.loads(raw or b"{}")
+        event_name = payload.get("hook_event_name") if isinstance(payload, dict) else None
+        if event_name not in ("Stop", "UserPromptSubmit"):
+            return 0
+        store = Store()
+        pending = pending_inbox_messages(store, session_id)
+        if not pending:
+            return 0
+        prompt = "\n\n".join(message["prompt"] for message in pending)
+        if event_name == "Stop":
+            output = {"decision": "block", "reason": prompt}
+        else:
+            output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": prompt,
+                }
+            }
+        print(json.dumps(output))
+        sys.stdout.flush()
+        for message in pending:
+            update_inbox_event(store, session_id, message["id"], "delivered", detail=f"claude-{event_name}")
+    except (AgentTaskError, OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as error:
+        print(f"agent-task inbox hook: {error}", file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-task", description="Run coding agents in disposable Git worktrees.")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
@@ -2850,7 +3998,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     resuming = subparsers.add_parser(
         "resume",
-        help="resume preserved work or attach a saved Codex chat to an available checkout",
+        help="resume preserved work or attach a saved Codex chat to a managed worktree",
     )
     resuming.add_argument("session_id", nargs="?", help="Codex session id or name")
     resuming.add_argument("--agent", choices=("codex",), default="codex")
@@ -2891,6 +4039,17 @@ def build_parser() -> argparse.ArgumentParser:
     integrate = subparsers.add_parser("integrate", help="retry integration")
     integrate.add_argument("task_id")
     integrate.set_defaults(func=command_integrate)
+    inbox = subparsers.add_parser("inbox", help="show durable events for the current agent session")
+    inbox.add_argument("event_id", nargs="?")
+    inbox.add_argument("--session", help="inspect a specific active session")
+    inbox.add_argument("--json", action="store_true")
+    inbox.set_defaults(func=command_inbox)
+    handoff = subparsers.add_parser("handoff", help="release this session and retry a queued integration")
+    handoff.add_argument("event_id")
+    handoff.set_defaults(func=command_handoff)
+    attach = subparsers.add_parser("attach", help="attach a secondary repository to the current managed task")
+    attach.add_argument("path")
+    attach.set_defaults(func=command_attach)
     recover = subparsers.add_parser("recover", help="resume a preserved task")
     recover.add_argument("task_id")
     recover.add_argument("--agent", choices=("codex", "claude", "custom"))
@@ -2917,6 +4076,8 @@ def cli_main() -> int:
     raw = sys.argv[1:]
     if raw and raw[0] == LOCK_EXEC_SUBCOMMAND:
         return command_lock_exec(raw[1:])
+    if raw and raw[0] == INBOX_HOOK_SUBCOMMAND:
+        return command_inbox_hook()
     command: list[str] = []
     if "--" in raw:
         split = raw.index("--")
