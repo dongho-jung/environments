@@ -1,15 +1,20 @@
 # agent-task
 
-`agent-task` lets the first Codex session use the current checkout and moves
-only concurrent sessions into temporary branches and worktrees. An ignored
-`.ai-lock` at the checkout root is held with `flock` for the life of the agent,
-so exits and crashes release ownership automatically even though the empty file
-remains. Claude keeps an explicit opt-in launcher. The agent owns file edits and
-commits, while the harness owns integration and cleanup for its one assigned
-repository.
+`agent-task` lets the first Codex or Claude session use the current checkout and
+moves concurrent sessions into temporary branches and worktrees. Stable
+checkout locks and separate session metadata live under
+`~/.local/state/agent-task`; no file inside the working tree is the source of
+lock ownership. A small supervisor holds the descriptor while the foreground
+CLI and every descendant it leaves behind are alive; the agent itself does not
+inherit the descriptor. A dead shell launcher therefore cannot release a
+checkout while its agent is still alive, and a daemonized child cannot keep
+editing after the checkout has been handed to another session. The
+ignored `.ai-lock` name is inspected only to interoperate safely with a session
+started by an older harness. The agent owns file edits and commits, while the
+harness owns integration and cleanup for its one assigned repository.
 
 ```text
-open --auto -> checkout free ----------------------> native Codex session
+open --auto -> checkout free ----------------------> native agent session
             -> checkout busy -> managed worktree --> clean commit -> integrate
                                                     |-- success -> cleanup
                                                     `-- conflict/check failure -> recovery
@@ -25,44 +30,63 @@ Codex's built-in `/resume` picker is scoped to the current working directory.
 It therefore works normally for the first, in-place session. Use `o resume` to
 cross a worktree boundary: it first offers preserved tasks from the current
 repository, then runs the all-directory picker with `tui.resume_cwd=current`.
-The selected chat attaches to the current checkout when its `.ai-lock` is free,
-or to a fresh worktree when another agent is already using that checkout.
+The selected chat attaches to the current checkout when its external lease is
+free, or to a fresh worktree when another agent is already using that checkout.
 
 ## Use
 
-The Codex launcher makes isolation automatic only on contention:
+Both launchers make isolation automatic on contention:
 
 ```sh
 o                                   # current checkout, or a worktree if busy
 o implement the login timeout       # same automatic checkout selection
 o resume                            # preserved task, or all saved Codex chats
 o resume SESSION_ID                 # current checkout, or a worktree if busy
-o --local                           # bypass .ai-lock and run here explicitly
+o resume --last -m MODEL PROMPT     # Codex resume flags pass through unchanged
+o -C ../another-repo PROMPT         # reserve the repository selected by -C
+o review --uncommitted              # requires this exact checkout to be free
+o --local                           # bypass locking and run here explicitly
 o --new                             # force a new managed worktree
 o --task                            # compatibility path for managed recovery
 
-c implement the login timeout       # native Claude session in this checkout
+c implement the login timeout       # current checkout, or a worktree if busy
+c --local                            # bypass locking and run here explicitly
 c --new implement a parallel task   # new managed Claude worktree
 c --task                            # resume/create a managed Claude task
+c --bg investigate a flaky test     # Claude-managed background worktree
+c agents                            # manage Claude background sessions directly
+c -w feature-auth                   # Claude-managed explicit worktree
 ```
 
-Outside Git, inside an already managed task, with `o --local`, or for Codex
-administration subcommands such as `doctor`, `login`, and `mcp`, `o` runs Codex
-directly. Ordinary repository sessions use `agent-task open --auto`: an
-available checkout runs natively and a busy one gets a new worktree. Claude
-arguments and native subcommands still pass through directly unless `--new` or
-`--task` is present.
+Outside Git, inside an already managed task, with `o --local`/`c --local`, or
+for administrative subcommands such as `doctor`, `login`, and `mcp`, the shell
+launchers run the CLI directly. Ordinary repository sessions and mutating Codex
+subcommands use `agent-task open --auto`: an available checkout runs natively
+and a busy one gets a new worktree. Direct `agent-task open` has the same safe
+automatic default; `agent-task open --local` is its explicit bypass.
 
-For compatibility with shell functions loaded before this change,
-`agent-task open` also launches the requested agent natively unless `--managed`
-or `--new` is present. This means updating the linked `agent-task` executable is
-enough to unstick an already-open shell; re-sourcing the function is optional.
+Codex `review` and Claude `ultrareview` are tied to the exact current checkout;
+they fail if it is busy instead of silently reviewing a different worktree.
+Codex `apply`, `exec`, `fork`, `cloud`, and `sandbox` go through contention
+handling because they can create or apply local changes. Codex `-C`/`--cd` is
+resolved before lock selection. Claude background, tmux, agent-view management,
+and built-in worktree modes pass directly to Claude because they own a separate
+worktree/session lifecycle; the shell wrapper does not wrap or integrate them as
+`agent-task` tasks. For ordinary sessions, the harness supervisor keeps the
+lease until adopted background descendants exit instead of abandoning them.
+
+The personal `o` and `c` launchers intentionally retain their configured
+permission-bypass modes. That is an operator policy, not a guarantee supplied by
+this harness: `agent-task` coordinates Git lifecycle but does not turn those
+modes into an external security sandbox. `--local` changes checkout locking,
+not that configured permission policy.
 
 Operator commands are available directly:
 
 ```sh
-agent-task open "implement feature X" --agent codex # native compatibility path
+agent-task open "implement feature X" --agent codex # automatic contention handling
 agent-task open --auto "implement feature X" --agent codex
+agent-task open --local "inspect here" --agent codex
 agent-task open --managed "implement feature X" --agent codex
 agent-task open --managed --new "parallel feature" --agent codex
 agent-task resume --agent codex
@@ -79,9 +103,12 @@ agent-task cleanup TASK_ID
 agent-task reconcile
 ```
 
-Repeat `--check 'command'` to validate the merged candidate. Changed Terraform
-files also run `terraform fmt -check` when Terraform is installed. v1 does not
-guess application-specific build or test commands.
+Repeat `--check 'command'` to validate the merged candidate. A check runs from
+the task's original repository-relative directory, has a one-hour default
+timeout (override with `--check-timeout SECONDS`), and must leave both candidate
+HEAD and all tracked or non-ignored untracked files unchanged. Changed Terraform
+files also run `terraform fmt -check` from the candidate root when Terraform is
+installed. v1 does not guess application-specific build or test commands.
 
 ## Repository memory
 
@@ -110,10 +137,19 @@ conventions, deployment, dependencies, tools, or gotchas.
 
 Independent keys merge automatically. For a same-key race, the last completed
 task wins and the overwritten key remains visible in `agent-task status`.
-Invalid memory is archived in task state without blocking code integration, and
-`.ai-memory` is rejected if it appears in a result commit. Memory is context,
-not authority; it must not contain secrets, guesses, or new transient task
-progress, and remembered tools never authorize external mutation.
+Invalid memory is fingerprinted in task state and preserved as a private file
+under `memory-proposals/` without blocking code integration. Both `.ai-memory`
+and `.ai-lock` are rejected if they appear in any newly introduced commit, even
+when a later commit deletes them. A valid proposal is
+captured before its worktree is removed but is merged into canonical memory only
+after the corresponding code commit reaches the target, or after a successful
+task that made no repository change. Failed validation, conflicts, and
+`--no-integrate` code results therefore cannot publish premature facts. Memory is
+context, not authority; it must not contain secrets, guesses, or new transient
+task progress, and remembered tools never authorize external mutation.
+Native sessions in a manually created secondary Git worktree get a local memory
+copy that is merged safely back into the primary worktree when the foreground
+session exits.
 
 ## Lifecycle and cleanup
 
@@ -124,30 +160,56 @@ progress, and remembered tools never authorize external mutation.
   integration, and cleanup lifecycle. It does not restrict filesystem paths,
   network access, remote status inspection, other repositories, or otherwise
   authorized operational tools.
-- Integration is serialized per repository and target branch, while coding
-  remains parallel.
+- Coding remains parallel. Integration takes an exclusive repository activity
+  lease and queues while any harness agent is active, then reserves every known
+  checkout for the ref update and working-tree synchronization.
 - The target ref advances only after a clean merge candidate and configured
-  checks succeed. Automatic harness integration itself does not fetch, push,
-  deploy, or apply Terraform; the launched agent can perform user-authorized
-  remote or operational work normally.
-- A new task starts from the current checkout's `HEAD`; the memory setting names
-  its integration target. Explicit worktree requests refuse a dirty checkout.
-  Automatic contention deliberately leaves the active session's uncommitted
-  files in place and starts the parallel task from committed `HEAD`.
-- Integration never advances a checked-out target while its `.ai-lock` is held.
-  The completed managed task is queued until the in-place agent exits and the
-  target checkout is clean.
-- Uncommitted tracked or untracked work keeps its worktree. After a clean commit,
-  ignored build artifacts are disposable and are recorded by path before removal.
+  checks succeed. Checks cannot rewrite the candidate and time out instead of
+  holding an integration forever. Automatic harness integration itself does not
+  fetch, push, deploy, or apply Terraform; the launched agent can perform
+  user-authorized remote or operational work normally.
+- Every explicit managed task starts from the integration target's committed
+  `HEAD`, never from an arbitrary current feature branch. A dirty checkout is
+  left untouched. During automatic contention, the harness uses the active
+  branch's actual creation commit from its reflog when that branch was created
+  during the session. If no usable creation record exists, it uses a safe
+  merge-base bounded by the captured session-start commit. While the active
+  agent remains on the target branch, the captured session-start commit is used
+  directly, so its mid-session commits are not inherited. Missing or invalid
+  live-session metadata falls back to target `HEAD`.
+- Immediately before integration, the harness rechecks that the result descends
+  from its recorded base, that the target still descends from that base, that
+  the target ref has not moved, and that target checkout topology and cleanliness
+  are unchanged. A failed invariant queues or preserves the task instead of
+  moving a branch.
+- `--no-integrate` is stored on the task. The hourly reconciler keeps such a
+  result ready until an explicit `agent-task integrate TASK_ID` overrides it.
+- A successful foreground command with no repository change is recorded as
+  `COMPLETED_NO_CHANGES`, not as a failure.
+- Uncommitted tracked or untracked work keeps its worktree. After a successful
+  clean commit, ignored build artifacts are recorded in task state and removed
+  with the disposable worktree.
+- Managed worktree creation disables repository hooks, integration commits use
+  the configured Git signing policy, and their generated message follows the
+  repository's conventional commit format.
 - Per-task locks keep foreground commands and the hourly reconciler from
   changing the same registry entry concurrently.
-- Reconciliation marks dead `CREATED`/`RUNNING` processes for recovery, retries
-  explicitly ready work, removes safe terminal worktrees, and registers unknown
-  managed worktrees for inspection. It never treats a crash-time commit as done.
+- Reconciliation marks dead `CREATED`/`RUNNING` processes for recovery, resets
+  dead `INTEGRATING`/`VALIDATING` attempts, terminates their owned validation
+  process groups, detects an already-applied result, retries ready work, removes
+  safe terminal worktrees, and registers unknown managed worktrees for
+  inspection. A transient record from an older harness with no owner metadata is
+  closed automatically only when its exact result is already present on the
+  target; otherwise it is preserved for an explicit
+  `agent-task integrate TASK_ID` and never retried automatically. Reconciliation
+  never treats a crash-time agent commit as done.
 
-Everything is centralized under `~/.local/state/agent-task` by default. New
-worktrees use `worktrees/<repo-name>-<short-hash>/<task-id>/`; integration
-worktrees and scratch data live in sibling directories and are removed after
-use. The automatic lifecycle remains repository-agnostic; application-specific
-remote synchronization, deployment, and build discovery remain normal agent or
+Everything is centralized under `~/.local/state/agent-task` by default. Stable
+leases live in `locks/`, live metadata in `sessions/`, and new worktrees in
+`worktrees/<repo-name>-<short-hash>/<task-id>/`; integration worktrees and
+scratch data live in sibling directories and are removed after use. Invalid
+memory proposals remain in the private `memory-proposals/` directory for manual
+recovery. The
+automatic lifecycle remains repository-agnostic; application-specific remote
+synchronization, deployment, and build discovery remain normal agent or
 operator work according to the request.

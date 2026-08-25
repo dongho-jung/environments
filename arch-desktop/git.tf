@@ -48,9 +48,9 @@ resource "host_git_repo" "terraform_provider_host" {
   ]
 }
 
-# Repository-local agent memory and checkout leases are intentionally
-# machine-local. The harness copies memory into temporary worktrees and uses
-# .ai-lock only as an OS-backed advisory lock, never as tracked repository data.
+# Repository memory and the legacy checkout-lock filename are intentionally
+# machine-local. Stable harness locks live outside worktrees; .ai-lock remains
+# ignored only so older live sessions and residue can be handled safely.
 resource "host_file" "global_gitignore" {
   path = "~/.config/git/ignore"
 
