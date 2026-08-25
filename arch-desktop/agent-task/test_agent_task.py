@@ -382,6 +382,17 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn(".ai-memory", configuration)
         self.assertIn(".ai-lock", configuration)
 
+    def test_global_agents_preflight_shared_operational_resources(self) -> None:
+        root = SCRIPT.parent.parent
+
+        for relative_path in ("codex/AGENTS.md", "claude/CLAUDE.md"):
+            with self.subTest(relative_path=relative_path):
+                instructions = root.joinpath(relative_path).read_text()
+                self.assertIn("## Shared operational resources", instructions)
+                self.assertIn("Never assume a Git branch or worktree isolates", instructions)
+                self.assertIn("Do not invent or require a new launcher flag", instructions)
+                self.assertIn("Repository memory is learned context, not a mutex", instructions)
+
     def test_local_open_invocation_launches_the_native_agent(self) -> None:
         arguments = AGENT_TASK.build_parser().parse_args(["open", "continue here", "--agent", "codex", "--local"])
         arguments.command = []
