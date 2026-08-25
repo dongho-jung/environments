@@ -635,6 +635,23 @@ hl.window_rule({
     no_shortcuts_inhibit = true,
 })
 
+-- Keep the CertMind phone emulator available without reflowing tiled windows.
+-- The size follows the monitor height, while the phone stays tucked against the
+-- right edge and pinned across workspaces. Match the main AVD window only; the
+-- narrow Emulator toolbar remains an ordinary companion window.
+hl.window_rule({
+    name = "certmind-emulator-sticky",
+    match = {
+        class = "^Emulator$",
+        title = "^Android Emulator - certmind_api_36:[0-9]+$",
+    },
+
+    float = true,
+    pin   = true,
+    size  = "620 monitor_h-80",
+    move  = "monitor_w-w-40 40",
+})
+
 -- Layer rules also return a handle.
 -- local overlayLayerRule = hl.layer_rule({
 --     name  = "no-anim-overlay",
