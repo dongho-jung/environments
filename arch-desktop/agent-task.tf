@@ -36,10 +36,11 @@ resource "host_link" "agent_task" {
   ]
 }
 
-# Interactive Codex and Claude sessions reserve the current checkout through
-# agent-task's external state locks. The first session works in place;
-# concurrent sessions fall back to isolated managed worktrees. Administrative
-# commands stay direct and --local is the explicit bypass.
+# Interactive Codex and Claude tasks always run in isolated managed worktrees,
+# including the first task in a repository. Commands whose meaning
+# depends on inspecting the exact current checkout stay native and reserve it.
+# Lifecycle flags remain available to agent-task itself, but ordinary users
+# only need the o and c entrypoints.
 resource "host_file_block" "agent_task_functions" {
   block = host_file.zshrc.blocks.functions
 
@@ -63,7 +64,7 @@ resource "host_file_block" "agent_task_functions" {
           esac
         done
         if (( codex_has_cd )); then
-          agent-task open --auto --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+          agent-task open --managed --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
         else
           command codex --dangerously-bypass-approvals-and-sandbox "$@"
         fi
@@ -108,7 +109,7 @@ resource "host_file_block" "agent_task_functions" {
           return
           ;;
         exec|e|apply|a|fork|cloud|cloud-tasks|sandbox)
-          agent-task open --auto --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+          agent-task open --managed --new --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
           return
           ;;
         login|logout|mcp|plugin|mcp-server|app-server|remote-control|completion|update|doctor|debug|archive|delete|migrate-rollouts|unarchive|exec-server|features|help|-h|--help|-V|--version)
@@ -117,11 +118,11 @@ resource "host_file_block" "agent_task_functions" {
           ;;
       esac
       if [[ "$${1-}" == -* ]]; then
-        agent-task open --auto --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+        agent-task open --managed --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
       elif (( $# )); then
-        agent-task open --auto --agent codex "$*"
+        agent-task open --managed --agent codex "$*"
       else
-        agent-task open --auto --agent codex
+        agent-task open --managed --agent codex
       fi
     }
 
@@ -198,11 +199,11 @@ resource "host_file_block" "agent_task_functions" {
           ;;
       esac
       if [[ "$${1-}" == -* ]]; then
-        agent-task open --auto --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
+        agent-task open --managed --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
       elif (( $# )); then
-        agent-task open --auto --agent claude "$*"
+        agent-task open --managed --agent claude "$*"
       else
-        agent-task open --auto --agent claude
+        agent-task open --managed --agent claude
       fi
     }
   EOT

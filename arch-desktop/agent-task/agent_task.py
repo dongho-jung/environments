@@ -3018,6 +3018,7 @@ def launch_for_task(
         worktree = managed_worktree_path(store, task)
         launch_error: BaseException | None = None
         handoff_task_ids: list[str] = []
+        session_id: str | None = None
         with checkout_session_lock(
             store,
             worktree,
@@ -3029,6 +3030,8 @@ def launch_for_task(
             if not checkout_reservation:
                 raise AgentTaskError(f"worktree already has an active agent: {worktree}")
             try:
+                if isinstance(checkout_reservation, CheckoutReservation):
+                    session_id = checkout_reservation.session_id
                 inherited = tuple(checkout_reservation) if isinstance(checkout_reservation, CheckoutReservation) else ()
                 exit_code = launch_agent(
                     store,
@@ -3060,6 +3063,21 @@ def launch_for_task(
             store.save(task)
             exit_code = 0
         finalize_task(store, task, integrate=integrate)
+        if session_id is not None:
+            attachment_results = finalize_session_attachments(store, session_id, exit_code)
+            if attachment_results:
+                task["attachments"] = [result["task_id"] for result in attachment_results]
+                failures = [
+                    result
+                    for result in attachment_results
+                    if result["status"] not in (INTEGRATED, COMPLETED)
+                    and not (result["status"] == READY and not result["auto_integrate"])
+                ]
+                if failures:
+                    task["attachment_failures"] = failures
+                else:
+                    task.pop("attachment_failures", None)
+                store.save(task)
         if handoff_task_ids:
             retry_handoff_integrations(store, handoff_task_ids)
         retry_ready_integrations_for_repository(
@@ -3091,6 +3109,8 @@ def command_start(args: argparse.Namespace, store: Store) -> int:
         print(f"result: {task['result_commit']}")
     if task.get("integrated_commit"):
         print(f"integrated: {task['integrated_commit']} -> {task['target_branch']}")
+    if task.get("attachment_failures"):
+        return 2
     if task["status"] == COMPLETED:
         return 0
     if task["status"] == READY and not task.get("auto_integrate", True):
@@ -3301,30 +3321,28 @@ def command_open(args: argparse.Namespace, store: Store) -> int:
         ]
         if active:
             task = max(active, key=lambda item: item.get("updated_at", ""))
-            raise AgentTaskError(
+            print(
                 f"{args.agent} task {task['task_id']} is already running in {task['worktree_path']}\n"
-                "Use --new only when a separate parallel task is intentional."
+                "starting a separate managed worktree"
             )
-        recoverable = [
-            task for task in tasks if task.get("agent") == args.agent and task.get("status") == RECOVERY
-        ]
-        if recoverable:
-            selected = choose_recovery_task(recoverable)
-            if selected:
-                print(
-                    f"resuming: {selected['task_id']}\n"
-                    f"worktree: {selected['worktree_path']}\n"
-                    "Use --new next time to start a separate task."
-                )
-                recovery_args = argparse.Namespace(
-                    task_id=selected["task_id"],
-                    agent=args.agent,
-                    integration_policy=False if args.no_integrate else None,
-                    new_session=args.new_session,
-                    prompt=args.description,
-                    command=list(args.command),
-                )
-                return command_recover(recovery_args, store)
+            args.new = True
+        if not args.new:
+            recoverable = [
+                task for task in tasks if task.get("agent") == args.agent and task.get("status") == RECOVERY
+            ]
+            if recoverable:
+                selected = choose_recovery_task(recoverable)
+                if selected:
+                    print(f"resuming: {selected['task_id']}\nworktree: {selected['worktree_path']}")
+                    recovery_args = argparse.Namespace(
+                        task_id=selected["task_id"],
+                        agent=args.agent,
+                        integration_policy=False if args.no_integrate else None,
+                        new_session=args.new_session,
+                        prompt=args.description,
+                        command=list(args.command),
+                    )
+                    return command_recover(recovery_args, store)
     return command_start(args, store)
 
 
@@ -3370,46 +3388,7 @@ def command_resume(args: argparse.Namespace, store: Store) -> int:
                 )
                 return command_recover(recovery_args, store)
 
-    native_exit_code: int | None = None
-    handoff_task_ids: list[str] = []
-    with checkout_session_lock(
-        store,
-        checkout,
-        record_session_base=True,
-        agent=args.agent,
-        working_directory=Path(args.launch_cwd),
-    ) as checkout_reservation:
-        if checkout_reservation:
-            print(f"resuming in checkout: {checkout}")
-            inherited = tuple(checkout_reservation) if isinstance(checkout_reservation, CheckoutReservation) else ()
-            native_exit_code = launch_native_with_memory(
-                args,
-                store,
-                repository,
-                checkout,
-                pass_fds=inherited,
-                checkout_reservation=(
-                    checkout_reservation
-                    if isinstance(checkout_reservation, CheckoutReservation)
-                    else None
-                ),
-            )
-            if isinstance(checkout_reservation, CheckoutReservation):
-                handoff_task_ids = checkout_reservation.capture_handoff_tasks()
-                checkout_reservation.release()
-    if native_exit_code is not None:
-        if native_exit_code == HANDOFF_EXIT_CODE and handoff_task_ids:
-            handoff_success = retry_handoff_integrations(store, handoff_task_ids)
-            retry_ready_integrations_for_repository(store, repository)
-            return 0 if handoff_success else 2
-        retry_ready_integrations_for_repository(store, repository)
-        return native_exit_code
-    active_session = read_active_checkout_session(store, checkout)
-    args.isolate_from_active_checkout = True
-    args.active_session_base_sha = active_session.get("base_sha") if active_session else None
-    args.active_session_source_branch = active_session.get("source_branch") if active_session else None
-    args.active_session_recorded_at = active_session.get("recorded_at") if active_session else None
-    print(f"checkout already has an active agent: {checkout}\nresuming in an isolated worktree")
+    print(f"resuming in a fresh managed worktree from: {checkout}")
     return command_start(args, store)
 
 
@@ -3687,7 +3666,19 @@ def reconcile_one(store: Store, task: dict[str, Any], *, integrate: bool) -> Non
     if task.get("integration_candidate") and status not in (INTEGRATING, VALIDATING):
         clear_interrupted_integration(store, task)
     if status == RUNNING:
-        preserve_interrupted_task(store, task)
+        if task.get("attachment_session_id"):
+            task.pop("process", None)
+            task["attachment_reconciled_at"] = now()
+            task["agent_exit_code"] = 0
+            store.save(task)
+            finalize_task(
+                store,
+                task,
+                integrate=integrate and bool(task.get("auto_integrate", True)),
+                trust_clean_commit=True,
+            )
+        else:
+            preserve_interrupted_task(store, task)
     elif status == CREATED:
         preserve_interrupted_task(store, task)
     elif status in (INTEGRATING, VALIDATING):
@@ -3766,6 +3757,124 @@ def current_agent_session(store: Store, session_id: str | None = None) -> tuple[
     if not isinstance(value, dict) or value.get("session_id") != selected:
         raise AgentTaskError("current session metadata no longer matches this process")
     return selected, path, value
+
+
+def attachment_tasks(store: Store, session_id: str) -> list[dict[str, Any]]:
+    return sorted(
+        [task for task in store.all() if task.get("attachment_session_id") == session_id],
+        key=lambda task: task.get("created_at", ""),
+    )
+
+
+def finalize_session_attachments(
+    store: Store,
+    session_id: str,
+    agent_exit_code: int,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for snapshot in attachment_tasks(store, session_id):
+        try:
+            with store.lock(f"task:{snapshot['task_id']}", blocking=False):
+                task = store.load(snapshot["task_id"])
+                if task.get("status") in (CREATED, RUNNING):
+                    task.pop("process", None)
+                    task["agent_exit_code"] = agent_exit_code
+                    task["attachment_finished_at"] = now()
+                    store.save(task)
+                    finalize_task(
+                        store,
+                        task,
+                        integrate=bool(task.get("auto_integrate", True)),
+                    )
+                results.append(
+                    {
+                        "task_id": task["task_id"],
+                        "status": task.get("status"),
+                        "auto_integrate": bool(task.get("auto_integrate", True)),
+                    }
+                )
+                print(f"attachment {task['task_id']}: {task.get('status')}")
+        except LockBusy:
+            results.append(
+                {
+                    "task_id": snapshot["task_id"],
+                    "status": snapshot.get("status"),
+                    "auto_integrate": bool(snapshot.get("auto_integrate", True)),
+                    "reason": "attachment lifecycle is busy",
+                }
+            )
+    return results
+
+
+def command_attach(args: argparse.Namespace, store: Store) -> int:
+    session_id, _session_path, session = current_agent_session(store)
+    parent_task_id = session.get("task_id")
+    if not isinstance(parent_task_id, str):
+        raise AgentTaskError("secondary repositories can only attach to a managed task")
+    parent = store.load(parent_task_id)
+    owner = session.get("process")
+    parent_owner = parent.get("process")
+    if (
+        not isinstance(owner, dict)
+        or owner.get("role") != "lock-supervisor"
+        or not process_alive(owner)
+        or not isinstance(parent_owner, dict)
+        or parent_owner.get("pid") != owner.get("pid")
+        or parent_owner.get("start") != owner.get("start")
+    ):
+        raise AgentTaskError("managed task supervisor is no longer active")
+
+    requested = Path(args.path).expanduser().resolve()
+    if not requested.is_dir():
+        raise AgentTaskError(f"secondary repository path does not exist: {requested}")
+    checkout = repo_root(requested)
+    repository = primary_worktree(checkout)
+    repository_common_dir = common_dir(repository)
+    if repository_common_dir == Path(parent["git_common_dir"]).resolve():
+        raise AgentTaskError("the requested path belongs to the task's existing repository")
+
+    lock_name = f"attachment:{session_id}:{repository_common_dir}"
+    with store.lock(lock_name):
+        for existing in attachment_tasks(store, session_id):
+            recorded_common_dir = existing.get("git_common_dir")
+            recorded_worktree = existing.get("worktree_path")
+            if (
+                isinstance(recorded_common_dir, str)
+                and Path(recorded_common_dir).resolve() == repository_common_dir
+                and existing.get("status") in (CREATED, RUNNING)
+                and isinstance(recorded_worktree, str)
+                and Path(recorded_worktree).is_dir()
+            ):
+                print(
+                    f"task: {existing['task_id']}\n"
+                    f"worktree: {existing['worktree_path']}\n"
+                    f"branch: {existing['branch']}"
+                )
+                return 0
+
+        attach_args = argparse.Namespace(
+            launch_cwd=requested,
+            agent=str(parent.get("agent") or session.get("agent") or "codex"),
+            target=None,
+            check=[],
+            check_timeout=DEFAULT_CHECK_TIMEOUT_SECONDS,
+            no_integrate=not bool(parent.get("auto_integrate", True)),
+            task=f"secondary repository attached to {parent_task_id}",
+            description=f"secondary repository attached to {parent_task_id}",
+            isolate_from_active_checkout=False,
+        )
+        with repository_activity_lock(store, repository, exclusive=False, blocking=True) as available:
+            if not available:
+                raise AgentTaskError(f"secondary repository is unavailable: {repository}")
+            task = create_task(store, attach_args)
+        task["attachment_session_id"] = session_id
+        task["attachment_parent_task_id"] = parent_task_id
+        task["attachment_source_path"] = str(requested)
+        task["process"] = dict(owner)
+        set_status(store, task, RUNNING)
+
+    print(f"task: {task['task_id']}\nworktree: {task['worktree_path']}\nbranch: {task['branch']}")
+    return 0
 
 
 def command_inbox(args: argparse.Namespace, store: Store) -> int:
@@ -3889,7 +3998,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     resuming = subparsers.add_parser(
         "resume",
-        help="resume preserved work or attach a saved Codex chat to an available checkout",
+        help="resume preserved work or attach a saved Codex chat to a managed worktree",
     )
     resuming.add_argument("session_id", nargs="?", help="Codex session id or name")
     resuming.add_argument("--agent", choices=("codex",), default="codex")
@@ -3938,6 +4047,9 @@ def build_parser() -> argparse.ArgumentParser:
     handoff = subparsers.add_parser("handoff", help="release this session and retry a queued integration")
     handoff.add_argument("event_id")
     handoff.set_defaults(func=command_handoff)
+    attach = subparsers.add_parser("attach", help="attach a secondary repository to the current managed task")
+    attach.add_argument("path")
+    attach.set_defaults(func=command_attach)
     recover = subparsers.add_parser("recover", help="resume a preserved task")
     recover.add_argument("task_id")
     recover.add_argument("--agent", choices=("codex", "claude", "custom"))

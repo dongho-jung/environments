@@ -73,7 +73,7 @@ class LaunchBehaviorTest(unittest.TestCase):
             self.assertNotIn("process", task)
             store.save.assert_called()
 
-    def test_codex_launcher_uses_a_worktree_only_when_busy(self) -> None:
+    def test_launchers_use_managed_worktrees_by_default(self) -> None:
         configuration = SCRIPT.parent.parent.joinpath("agent-task.tf").read_text()
         claude_settings = json.loads(SCRIPT.parent.parent.joinpath("claude/settings.json").read_text())
 
@@ -81,11 +81,13 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn('if [[ "$${1-}" == "resume" ]]', configuration)
         self.assertIn('if [[ "$${1-}" == "--new" ]]', configuration)
         self.assertIn('if [[ "$${1-}" == "--task" ]]', configuration)
-        self.assertIn("agent-task open --auto --agent codex", configuration)
+        self.assertIn("agent-task open --managed --agent codex", configuration)
         self.assertIn("agent-task open --managed --new --agent codex", configuration)
         self.assertIn("agent-task resume --agent codex", configuration)
-        self.assertIn("agent-task open --managed --agent codex", configuration)
-        self.assertIn("agent-task open --auto --agent claude", configuration)
+        self.assertIn("agent-task open --managed --agent claude", configuration)
+        self.assertIn("agent-task open --managed --new --agent claude", configuration)
+        self.assertNotIn("agent-task open --auto --agent codex -- codex", configuration)
+        self.assertNotIn("agent-task open --auto --agent claude -- env", configuration)
         self.assertIn("exec|e|apply|a|fork|cloud|cloud-tasks|sandbox", configuration)
         self.assertIn("--require-current", configuration)
         self.assertIn("agent-task resume --agent codex --", configuration)
@@ -381,6 +383,30 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertTrue(start.call_args.args[0].isolate_from_active_checkout)
         self.assertIsNone(start.call_args.args[0].active_session_base_sha)
 
+    def test_managed_open_starts_separately_when_another_task_is_active(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "parallel work", "--managed"])
+        arguments.command = []
+        active = {
+            "task_id": "active-task",
+            "agent": "codex",
+            "status": AGENT_TASK.RUNNING,
+            "worktree_path": "/state/active-task",
+            "process": {"pid": 123, "start": "456"},
+            "updated_at": "now",
+        }
+
+        with (
+            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[active]),
+            mock.patch.object(AGENT_TASK, "process_alive", return_value=True),
+            mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
+        ):
+            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(start.call_args.args[0].new)
+
     def test_cross_worktree_resume_uses_the_current_new_worktree(self) -> None:
         command = AGENT_TASK.default_chat_resume_command(
             "codex",
@@ -415,53 +441,24 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(recover.call_args.args[0].task_id, "preserved-task")
         self.assertEqual(recover.call_args.args[0].command, [])
 
-    def test_resume_without_preserved_work_uses_the_available_checkout(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(["resume"])
-        completed = mock.Mock(returncode=0)
-
-        with (
-            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
-            mock.patch.object(
-                AGENT_TASK,
-                "checkout_session_lock",
-                return_value=contextlib.nullcontext(True),
-            ),
-            mock.patch.object(AGENT_TASK, "prepare_native_repository_memory"),
-            mock.patch.object(AGENT_TASK, "retry_ready_integrations_for_repository"),
-            mock.patch.object(AGENT_TASK.subprocess, "run", return_value=completed) as run,
-        ):
-            exit_code = AGENT_TASK.command_resume(arguments, mock.Mock())
-
-        self.assertEqual(exit_code, 0)
-        command = run.call_args.args[0]
-        self.assertEqual(command[:2], ["codex", "resume"])
-        self.assertIn("--all", command)
-        self.assertIn('tui.resume_cwd="current"', command)
-
-    def test_resume_uses_a_fresh_worktree_when_the_checkout_is_busy(self) -> None:
+    def test_resume_without_preserved_work_uses_a_fresh_worktree(self) -> None:
         arguments = AGENT_TASK.build_parser().parse_args(["resume"])
 
         with (
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
-            mock.patch.object(
-                AGENT_TASK,
-                "checkout_session_lock",
-                return_value=contextlib.nullcontext(False),
-            ),
-            mock.patch.object(AGENT_TASK, "read_active_checkout_session", return_value=None),
+            mock.patch.object(AGENT_TASK, "checkout_session_lock") as checkout_lock,
             mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
         ):
             exit_code = AGENT_TASK.command_resume(arguments, mock.Mock())
 
         self.assertEqual(exit_code, 0)
-        self.assertTrue(start.call_args.args[0].isolate_from_active_checkout)
-        self.assertIsNone(start.call_args.args[0].active_session_base_sha)
+        checkout_lock.assert_not_called()
         command = start.call_args.args[0].command
         self.assertEqual(command[:2], ["codex", "resume"])
+        self.assertIn("--all", command)
+        self.assertIn('tui.resume_cwd="current"', command)
 
     def test_resume_passthrough_preserves_global_options_and_prompt(self) -> None:
         command = AGENT_TASK.passthrough_chat_resume_command(
@@ -596,6 +593,8 @@ class LaunchBehaviorTest(unittest.TestCase):
                 self.assertIn("Never assume a Git branch or worktree isolates", instructions)
                 self.assertIn("Do not invent or require a new launcher flag", instructions)
                 self.assertIn("Repository memory is learned context, not a mutex", instructions)
+                self.assertIn("agent-task attach ABSOLUTE_PATH", instructions)
+                self.assertIn("never ask the operator to run it", instructions)
 
     def test_local_open_invocation_launches_the_native_agent(self) -> None:
         arguments = AGENT_TASK.build_parser().parse_args(["open", "continue here", "--agent", "codex", "--local"])
@@ -704,6 +703,96 @@ class HarnessTest(unittest.TestCase):
         memory = json.loads((self.repository / ".ai-memory").read_text())
 
         self.assertEqual(memory["settings"]["integration_target"], "main")
+
+    def test_managed_session_attaches_and_integrates_a_secondary_repository(self) -> None:
+        secondary = Path(self.temporary.name) / "secondary"
+        self.git("init", "-b", "main", str(secondary), cwd=Path(self.temporary.name))
+        self.git("config", "user.name", "Test Agent", cwd=secondary)
+        self.git("config", "user.email", "agent@example.com", cwd=secondary)
+        self.git("config", "commit.gpgsign", "false", cwd=secondary)
+        exclude = secondary / ".git/info/exclude"
+        exclude.write_text(exclude.read_text() + "\n.ai-memory\n.ai-lock\n")
+        (secondary / "base.txt").write_text("base\n")
+        self.git("add", ".", cwd=secondary)
+        self.git("commit", "-m", "base", cwd=secondary)
+
+        agent_code = (
+            "import subprocess,sys; from pathlib import Path; "
+            f"script={str(SCRIPT)!r}; secondary={str(secondary)!r}; "
+            "attached=subprocess.run([sys.executable,script,'attach',secondary],"
+            "check=True,text=True,stdout=subprocess.PIPE); "
+            "worktree=Path(next(line.removeprefix('worktree: ') for line in "
+            "attached.stdout.splitlines() if line.startswith('worktree: '))); "
+            "worktree.joinpath('secondary.txt').write_text('attached\\n'); "
+            "subprocess.run(['git','add','secondary.txt'],cwd=worktree,check=True); "
+            "subprocess.run(['git','commit','-m','feat: add attached result'],cwd=worktree,check=True)"
+        )
+        result = self.cli(
+            "open",
+            "--managed",
+            "--new",
+            "--agent",
+            "custom",
+            "--task",
+            "work in two repositories",
+            "--",
+            sys.executable,
+            "-c",
+            agent_code,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((secondary / "secondary.txt").read_text(), "attached\n")
+        self.assertEqual(self.git("branch", "--show-current", cwd=secondary).stdout.strip(), "main")
+        tasks = [json.loads(path.read_text()) for path in (self.state / "tasks").glob("*.json")]
+        attachment = next(task for task in tasks if task.get("attachment_parent_task_id"))
+        parent = next(task for task in tasks if task["task_id"] == attachment["attachment_parent_task_id"])
+        self.assertEqual(attachment["status"], AGENT_TASK.INTEGRATED)
+        self.assertIn(attachment["task_id"], parent["attachments"])
+
+    def test_secondary_attachment_preserves_uncommitted_work(self) -> None:
+        secondary = Path(self.temporary.name) / "secondary-uncommitted"
+        self.git("init", "-b", "main", str(secondary), cwd=Path(self.temporary.name))
+        self.git("config", "user.name", "Test Agent", cwd=secondary)
+        self.git("config", "user.email", "agent@example.com", cwd=secondary)
+        self.git("config", "commit.gpgsign", "false", cwd=secondary)
+        exclude = secondary / ".git/info/exclude"
+        exclude.write_text(exclude.read_text() + "\n.ai-memory\n.ai-lock\n")
+        (secondary / "base.txt").write_text("base\n")
+        self.git("add", ".", cwd=secondary)
+        self.git("commit", "-m", "base", cwd=secondary)
+
+        agent_code = (
+            "import subprocess,sys; from pathlib import Path; "
+            f"script={str(SCRIPT)!r}; secondary={str(secondary)!r}; "
+            "attached=subprocess.run([sys.executable,script,'attach',secondary],"
+            "check=True,text=True,stdout=subprocess.PIPE); "
+            "worktree=Path(next(line.removeprefix('worktree: ') for line in "
+            "attached.stdout.splitlines() if line.startswith('worktree: '))); "
+            "worktree.joinpath('unfinished.txt').write_text('preserve me\\n')"
+        )
+        result = self.cli(
+            "open",
+            "--managed",
+            "--new",
+            "--agent",
+            "custom",
+            "--task",
+            "leave secondary work unfinished",
+            "--",
+            sys.executable,
+            "-c",
+            agent_code,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        tasks = [json.loads(path.read_text()) for path in (self.state / "tasks").glob("*.json")]
+        attachment = next(task for task in tasks if task.get("attachment_parent_task_id"))
+        preserved = Path(attachment["worktree_path"])
+        self.assertEqual(attachment["status"], AGENT_TASK.RECOVERY)
+        self.assertEqual((preserved / "unfinished.txt").read_text(), "preserve me\n")
+        self.assertFalse((secondary / "unfinished.txt").exists())
+        self.assertEqual(self.git("branch", "--show-current", cwd=secondary).stdout.strip(), "main")
 
     def test_regular_exit_75_is_not_mistaken_for_a_handoff(self) -> None:
         result = self.cli(
