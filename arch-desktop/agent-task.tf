@@ -36,11 +36,11 @@ resource "host_link" "agent_task" {
   ]
 }
 
-# Interactive Codex and Claude tasks always run in isolated managed worktrees,
-# including the first task in a repository. Commands whose meaning
-# depends on inspecting the exact current checkout stay native and reserve it.
-# Lifecycle flags remain available to agent-task itself, but ordinary users
-# only need the o and c entrypoints.
+# Interactive Codex and Claude tasks follow settings.agent_task_mode in each
+# repository's ignored .ai-memory. "worktree" always isolates tasks, while
+# "current" reserves and edits the current checkout without a task branch.
+# Repositories without a recorded choice retain contention-aware compatibility
+# behavior until an agent verifies and records the durable policy.
 resource "host_file_block" "agent_task_functions" {
   block = host_file.zshrc.blocks.functions
 
@@ -64,7 +64,7 @@ resource "host_file_block" "agent_task_functions" {
           esac
         done
         if (( codex_has_cd )); then
-          agent-task open --managed --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+          agent-task open --auto --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
         else
           command codex --dangerously-bypass-approvals-and-sandbox "$@"
         fi
@@ -78,9 +78,9 @@ resource "host_file_block" "agent_task_functions" {
       if [[ "$${1-}" == "--task" ]]; then
         shift
         if (( $# )); then
-          agent-task open --managed --agent codex "$*"
+          agent-task open --auto --agent codex "$*"
         else
-          agent-task open --managed --agent codex
+          agent-task open --auto --agent codex
         fi
         return
       fi
@@ -109,7 +109,7 @@ resource "host_file_block" "agent_task_functions" {
           return
           ;;
         exec|e|apply|a|fork|cloud|cloud-tasks|sandbox)
-          agent-task open --managed --new --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+          agent-task open --auto --fresh --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
           return
           ;;
         login|logout|mcp|plugin|mcp-server|app-server|remote-control|completion|update|doctor|debug|archive|delete|migrate-rollouts|unarchive|exec-server|features|help|-h|--help|-V|--version)
@@ -118,11 +118,11 @@ resource "host_file_block" "agent_task_functions" {
           ;;
       esac
       if [[ "$${1-}" == -* ]]; then
-        agent-task open --managed --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+        agent-task open --auto --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
       elif (( $# )); then
-        agent-task open --managed --agent codex "$*"
+        agent-task open --auto --agent codex "$*"
       else
-        agent-task open --managed --agent codex
+        agent-task open --auto --agent codex
       fi
     }
 
@@ -182,9 +182,9 @@ resource "host_file_block" "agent_task_functions" {
       if [[ "$${1-}" == "--task" ]]; then
         shift
         if (( $# )); then
-          agent-task open --managed --agent claude "$*"
+          agent-task open --auto --agent claude "$*"
         else
-          agent-task open --managed --agent claude
+          agent-task open --auto --agent claude
         fi
         return
       fi
@@ -199,11 +199,11 @@ resource "host_file_block" "agent_task_functions" {
           ;;
       esac
       if [[ "$${1-}" == -* ]]; then
-        agent-task open --managed --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
+        agent-task open --auto --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
       elif (( $# )); then
-        agent-task open --managed --agent claude "$*"
+        agent-task open --auto --agent claude "$*"
       else
-        agent-task open --managed --agent claude
+        agent-task open --auto --agent claude
       fi
     }
   EOT
