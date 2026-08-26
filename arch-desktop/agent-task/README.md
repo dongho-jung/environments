@@ -203,12 +203,10 @@ WT 3 | *codex/backend@21:31[CAPE-123] | claude/web@21:18 | codex/infra@20:54+
 The current entry stays pinned. If the remaining entries do not fit the
 terminal width, they move by one character per second in a repeating marquee.
 Claude runs the lightweight `agent_statusline.py --claude` renderer through its
-native status-line API;
-the command also recognizes Claude's current built-in Git worktree from the JSON
-payload. Codex accepts only built-in footer fields, so supervised interactive
-Codex sessions instead update the Kitty terminal title while disabling Codex's
-own terminal-title writer. Kitty keeps a one-row bottom tab bar visible even for
-a single tab, making that title an equivalent persistent status row.
+native status-line API. The command also recognizes Claude's current built-in
+Git worktree from the JSON payload. Codex's native status line accepts only its
+built-in item identifiers, not an external renderer, so the harness leaves both
+the Codex footer and the terminal emulator untouched.
 
 A Jira-shaped key in the task's launch description is detected automatically.
 When an agent selects or creates the issue later, it records display-only local

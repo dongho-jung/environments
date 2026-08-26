@@ -25,7 +25,6 @@ from typing import Any, Callable, Iterator, Sequence
 try:
     from agent_statusline import (
         claude_worktree_label,
-        compact_ascii,
         render as render_worktree_statusline,
         task_for_working_directory,
     )
@@ -35,7 +34,6 @@ except ModuleNotFoundError as error:
     sys.path.insert(0, str(Path.home() / ".local/bin"))
     from agent_statusline import (
         claude_worktree_label,
-        compact_ascii,
         render as render_worktree_statusline,
         task_for_working_directory,
     )
@@ -545,24 +543,6 @@ def terminal_columns(default: int = 100) -> int:
             return max(12, int(os.environ.get("COLUMNS", "")))
         except ValueError:
             return default
-
-
-def set_terminal_title(value: str) -> None:
-    title = compact_ascii(value, fallback="agent-task", limit=1000)
-    payload = f"\x1b]2;{title}\x1b\\".encode()
-    try:
-        descriptor = os.open(
-            "/dev/tty",
-            os.O_WRONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0),
-        )
-    except OSError:
-        return
-    try:
-        write_all(descriptor, payload)
-    except OSError:
-        pass
-    finally:
-        os.close(descriptor)
 
 
 def empty_inbox(session_id: str) -> dict[str, Any]:
@@ -1358,16 +1338,6 @@ def interactive_codex_command(command: Sequence[str]) -> bool:
     )
 
 
-def codex_worktree_title_command(command: Sequence[str]) -> list[str]:
-    result = list(command)
-    if not interactive_codex_command(result):
-        return result
-    executable = command_executable_index(result, "codex")
-    assert executable is not None
-    result[executable + 1 : executable + 1] = ["-c", "tui.terminal_title=null"]
-    return result
-
-
 def managed_agent_working_directory(task: dict[str, Any], command: Sequence[str]) -> Path:
     if interactive_codex_command(command):
         return task_origin_working_directory(task)
@@ -2023,9 +1993,6 @@ def command_lock_exec(raw: Sequence[str]) -> int:
         raise AgentTaskError("lock wrapper received invalid descriptors") from error
     if not descriptors:
         raise AgentTaskError("lock wrapper received no descriptors")
-    codex_title_updates = interactive_codex_command(command)
-    if codex_title_updates:
-        command = codex_worktree_title_command(command)
     become_child_subreaper()
     session_path = os.environ.pop(LOCK_SESSION_PATH_ENV, "")
     session_id = os.environ.pop(LOCK_SESSION_ID_ENV, "")
@@ -2123,8 +2090,6 @@ def command_lock_exec(raw: Sequence[str]) -> int:
     descendant_deadline: float | None = None
     notification_retry_at: float | None = None
     notification_closed = False
-    title_refresh_at = 0.0
-    title_was_set = False
     try:
         while True:
             reaped_any = False
@@ -2155,20 +2120,6 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                     },
                 )
                 notification_closed = True
-
-            if codex_title_updates and store is not None and main_status is None:
-                current_time = time.monotonic()
-                if current_time >= title_refresh_at:
-                    line = worktree_statusline(
-                        store,
-                        width=terminal_columns(),
-                        epoch=current_time,
-                        current_directory=os.environ.get("AI_TASK_WORKDIR") or str(working_directory),
-                        current_task_id=os.environ.get("AI_TASK_ID"),
-                    )
-                    set_terminal_title(line or f"Codex | {working_directory.name}")
-                    title_was_set = True
-                    title_refresh_at = current_time + 1.0
 
             if session_path and store is not None and main_status is None:
                 if notification_requested or (
@@ -2262,8 +2213,6 @@ def command_lock_exec(raw: Sequence[str]) -> int:
             signal.signal(signum, handler)
         if control_socket is not None:
             control_socket.unlink(missing_ok=True)
-        if title_was_set:
-            set_terminal_title(working_directory.name)
     if intentional_handoff:
         return HANDOFF_EXIT_CODE
     return os.waitstatus_to_exitcode(main_status) if main_status is not None else 127

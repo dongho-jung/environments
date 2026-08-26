@@ -278,8 +278,9 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(claude_settings["statusLine"]["refreshInterval"], 1)
         self.assertIn('source       = "agent-task/agent_statusline.py"', configuration)
         kitty_configuration = SCRIPT.parent.parent.joinpath("kitty/kitty.conf").read_text()
-        self.assertIn("tab_bar_min_tabs 1", kitty_configuration)
-        self.assertIn('tab_title_template " {title} "', kitty_configuration)
+        self.assertNotIn("tab_bar_min_tabs 1", kitty_configuration)
+        self.assertNotIn('tab_title_template " {title} "', kitty_configuration)
+        self.assertNotIn("tui.terminal_title", SCRIPT.read_text())
 
     def test_repository_memory_accepts_only_durable_checkout_modes(self) -> None:
         memory = AGENT_TASK.memory_template("main")
@@ -1123,18 +1124,6 @@ class WorktreeStatuslineTest(unittest.TestCase):
         )
 
         self.assertEqual(line, "WT 1 | *claude/example@feature-demo")
-
-    def test_codex_title_updates_disable_the_builtin_terminal_title(self) -> None:
-        command = AGENT_TASK.codex_worktree_title_command(
-            ["codex", "--dangerously-bypass-approvals-and-sandbox"]
-        )
-
-        self.assertEqual(command[1:3], ["-c", "tui.terminal_title=null"])
-        self.assertTrue(AGENT_TASK.interactive_codex_command(command))
-        self.assertEqual(
-            AGENT_TASK.codex_worktree_title_command(["codex", "exec", "true"]),
-            ["codex", "exec", "true"],
-        )
 
     def test_staged_lifecycle_cli_loads_the_installed_statusline_module(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
