@@ -49,6 +49,58 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(popen.call_args.args[0], ["custom-agent", "instruction"])
         self.assertEqual(popen.call_args.kwargs["cwd"], nested)
         self.assertEqual(popen.call_args.kwargs["env"]["AI_TASK_WORKTREE"], str(worktree))
+        self.assertEqual(popen.call_args.kwargs["env"]["AI_TASK_WORKDIR"], str(nested))
+
+    def test_interactive_codex_keeps_the_original_session_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            origin = root / "original" / "nested"
+            worktree = root / "worktree"
+            task_directory = worktree / "nested"
+            origin.mkdir(parents=True)
+            task_directory.mkdir(parents=True)
+            task = {
+                "task_id": "stable-history",
+                "worktree_path": str(worktree),
+                "workdir_relative": "nested",
+                "origin_working_directory": str(origin),
+                "branch": "ai/codex/stable-history",
+                "target_branch": "main",
+                "agent": "codex",
+            }
+            process = mock.Mock(pid=12345)
+            process.wait.return_value = 0
+            store = mock.Mock()
+
+            with (
+                mock.patch.object(AGENT_TASK.subprocess, "Popen", return_value=process) as popen,
+                mock.patch.object(AGENT_TASK, "process_start", return_value="start"),
+            ):
+                exit_code = AGENT_TASK.launch_agent(
+                    store,
+                    task,
+                    ["codex", "--dangerously-bypass-approvals-and-sandbox"],
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(popen.call_args.kwargs["cwd"], origin)
+        self.assertEqual(
+            popen.call_args.args[0][:3],
+            ["codex", "--add-dir", str(worktree)],
+        )
+        self.assertEqual(popen.call_args.kwargs["env"]["AI_TASK_WORKDIR"], str(task_directory))
+
+    def test_legacy_codex_task_keeps_its_managed_worktree_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = Path(directory)
+            task = {
+                "worktree_path": str(worktree),
+                "workdir_relative": ".",
+            }
+
+            selected = AGENT_TASK.managed_agent_working_directory(task, ["codex"])
+
+        self.assertEqual(selected, worktree.resolve())
 
     def test_interactive_codex_sigint_is_recorded_as_graceful(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -226,7 +278,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "agent_task_mode"):
             AGENT_TASK.validate_memory(memory)
 
-    def test_codex_notification_starts_an_idle_thread(self) -> None:
+    def test_codex_notification_starts_an_idle_remote_tui_thread(self) -> None:
         class FakeSocket:
             def __init__(self) -> None:
                 self.responses: list[str] = []
@@ -237,14 +289,21 @@ class LaunchBehaviorTest(unittest.TestCase):
                 self.requests.append(request)
                 if "id" not in request:
                     return
+                remote_tui = {
+                    "id": "thread-1",
+                    "cwd": "/repo",
+                    "source": "vscode",
+                    "status": {"type": "idle"},
+                }
+                source_kinds = request.get("params", {}).get("sourceKinds")
+                thread_data = [
+                    {"id": "stored-thread", "cwd": "/repo", "status": {"type": "notLoaded"}},
+                ]
+                if not source_kinds or remote_tui["source"] in source_kinds:
+                    thread_data.append(remote_tui)
                 results = {
                     "initialize": {},
-                    "thread/list": {
-                        "data": [
-                            {"id": "stored-thread", "cwd": "/repo", "status": {"type": "notLoaded"}},
-                            {"id": "thread-1", "cwd": "/repo", "status": {"type": "idle"}},
-                        ]
-                    },
+                    "thread/list": {"data": thread_data},
                     "turn/start": {"turn": {"id": "turn-1"}},
                 }
                 self.responses.append(json.dumps({"id": request["id"], "result": results[request["method"]]}))
@@ -272,6 +331,8 @@ class LaunchBehaviorTest(unittest.TestCase):
 
         methods = [request.get("method") for request in socket.requests]
         self.assertEqual(methods, ["initialize", "initialized", "thread/list", "turn/start"])
+        thread_list = next(request for request in socket.requests if request.get("method") == "thread/list")
+        self.assertEqual(thread_list["params"], {"cwd": "/repo"})
         turn_start = next(request for request in socket.requests if request.get("method") == "turn/start")
         self.assertEqual(turn_start["params"]["threadId"], "thread-1")
         self.assertEqual(turn_start["params"]["input"][0]["text"], "handoff now")
@@ -336,6 +397,31 @@ class LaunchBehaviorTest(unittest.TestCase):
 
         steer = next(request for request in socket.requests if request.get("method") == "turn/steer")
         self.assertEqual(steer["params"]["expectedTurnId"], "turn-active")
+
+    def test_codex_notification_fallback_does_not_write_to_the_tui(self) -> None:
+        with mock.patch.object(AGENT_TASK, "terminal_inbox_alert") as alert:
+            AGENT_TASK.fallback_terminal_inbox_alert(
+                ["codex", "--remote", "unix:///control.sock"],
+                "codex-session",
+                2,
+            )
+            AGENT_TASK.fallback_terminal_inbox_alert(
+                ["codex", "resume", "--last"],
+                "codex-session",
+                2,
+            )
+
+        alert.assert_not_called()
+
+    def test_non_codex_notification_keeps_the_terminal_fallback(self) -> None:
+        with mock.patch.object(AGENT_TASK, "terminal_inbox_alert") as alert:
+            AGENT_TASK.fallback_terminal_inbox_alert(
+                ["claude", "--continue"],
+                "claude-session",
+                1,
+            )
+
+        alert.assert_called_once_with("claude-session", 1)
 
     def test_handoff_accepts_a_durable_inbox_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -777,6 +863,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][-1], "continue here")
         self.assertNotIn("AI_TASK_HARNESS", run.call_args.kwargs["env"])
         self.assertNotIn("AGENT_TASK_POLICY", run.call_args.kwargs["env"])
+        self.assertNotIn("AI_TASK_WORKDIR", run.call_args.kwargs["env"])
 
 
 class HarnessTest(unittest.TestCase):
@@ -882,6 +969,7 @@ class HarnessTest(unittest.TestCase):
         task = self.task_from(result)
 
         self.assertEqual(task["status"], AGENT_TASK.INTEGRATED)
+        self.assertEqual(task["origin_working_directory"], str(self.repository))
         self.assertEqual((self.repository / "policy-result.txt").read_text(), "isolated\n")
 
     def test_native_session_records_main_as_target_before_branch_contention(self) -> None:

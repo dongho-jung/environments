@@ -1079,6 +1079,15 @@ def task_working_directory(task: dict[str, Any]) -> Path:
     return working_directory
 
 
+def task_origin_working_directory(task: dict[str, Any]) -> Path:
+    value = task.get("origin_working_directory")
+    if isinstance(value, str):
+        origin = Path(value).resolve()
+        if origin.is_dir():
+            return origin
+    return task_working_directory(task)
+
+
 def command_executable_index(command: Sequence[str], executable: str) -> int | None:
     if not command:
         return None
@@ -1172,12 +1181,48 @@ def codex_subcommand(command: Sequence[str]) -> str | None:
     return None
 
 
+def interactive_codex_command(command: Sequence[str]) -> bool:
+    return command_executable_index(command, "codex") is not None and codex_subcommand(command) in (
+        None,
+        "resume",
+        "fork",
+    )
+
+
+def managed_agent_working_directory(task: dict[str, Any], command: Sequence[str]) -> Path:
+    if interactive_codex_command(command):
+        return task_origin_working_directory(task)
+    return task_working_directory(task)
+
+
+def managed_agent_command(task: dict[str, Any], command: Sequence[str]) -> list[str]:
+    result = list(command)
+    if not interactive_codex_command(result):
+        return result
+    executable = command_executable_index(result, "codex")
+    assert executable is not None
+    worktree = str(Path(task["worktree_path"]).resolve())
+    index = executable + 1
+    while index < len(result):
+        value = result[index]
+        if value == "--add-dir" and index + 1 < len(result):
+            if str(Path(result[index + 1]).resolve()) == worktree:
+                return result
+            index += 2
+            continue
+        if value.startswith("--add-dir="):
+            if str(Path(value.partition("=")[2]).resolve()) == worktree:
+                return result
+        index += 1
+    result[executable + 1 : executable + 1] = ["--add-dir", worktree]
+    return result
+
+
 def graceful_codex_interrupt(agent: str, command: Sequence[str], exit_code: int) -> bool:
     return (
         exit_code == SHELL_SIGINT_EXIT_CODE
         and agent == "codex"
-        and command_executable_index(command, "codex") is not None
-        and codex_subcommand(command) in (None, "resume", "fork")
+        and interactive_codex_command(command)
     )
 
 
@@ -1295,6 +1340,7 @@ def native_agent_environment() -> dict[str, str]:
         "AI_TASK_ID",
         "AI_TASK_TARGET_BRANCH",
         "AI_TASK_WORKTREE",
+        "AI_TASK_WORKDIR",
     ):
         environment.pop(name, None)
     return environment
@@ -1476,11 +1522,14 @@ async def _deliver_codex_prompt(
         await websocket.send(json.dumps({"method": "initialized", "params": {}}))
         request_id += 1
         for _attempt in range(3):
+            # App Server's interactive default includes both `cli` and `vscode`.
+            # A terminal UI connected with `codex --remote` currently reports the
+            # latter even when no VS Code client is involved.
             listed = await _codex_rpc_request(
                 websocket,
                 request_id,
                 "thread/list",
-                {"cwd": str(working_directory.resolve()), "sourceKinds": ["cli", "appServer"]},
+                {"cwd": str(working_directory.resolve())},
             )
             request_id += 1
             threads = listed.get("data", []) if isinstance(listed, dict) else []
@@ -1492,14 +1541,14 @@ async def _deliver_codex_prompt(
                 and thread.get("cwd") == str(working_directory.resolve())
             ]
             if not exact:
-                raise AgentTaskError("Codex App Server has no CLI thread for this checkout")
+                raise AgentTaskError("Codex App Server has no interactive thread for this checkout")
             receivable = [
                 thread
                 for thread in exact
                 if codex_status_type(thread.get("status")) in ("active", "idle")
             ]
             if not receivable:
-                raise AgentTaskError("Codex App Server has no loaded CLI thread for this checkout")
+                raise AgentTaskError("Codex App Server has no loaded interactive thread for this checkout")
             thread = next(
                 (thread for thread in receivable if codex_status_type(thread.get("status")) == "active"),
                 receivable[0],
@@ -1597,6 +1646,16 @@ def terminal_inbox_alert(session_id: str, count: int) -> None:
         write_all(descriptor, message)
     finally:
         os.close(descriptor)
+
+
+def fallback_terminal_inbox_alert(command: Sequence[str], session_id: str, count: int) -> None:
+    # A raw write races with Codex's full-screen renderer and can corrupt the
+    # alternate screen. Interactive Codex sessions keep the durable inbox and
+    # App Server retry path instead; terminal output remains the fallback for
+    # agents such as Claude that cannot wake an idle TUI through a local API.
+    if interactive_codex_command(command):
+        return
+    terminal_inbox_alert(session_id, count)
 
 
 def accepted_handoff_tasks(store: Store, session_id: str) -> list[str]:
@@ -1804,14 +1863,14 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                                 notification_retry_at = None
                             except (AgentTaskError, OSError, json.JSONDecodeError) as error:
                                 notification_retry_at = time.monotonic() + 10.0
-                                terminal_inbox_alert(session_id, len(pending))
+                                fallback_terminal_inbox_alert(command, session_id, len(pending))
                                 update_session_metadata(
                                     Path(session_path),
                                     session_id,
                                     {"last_notification_error": str(error)},
                                 )
                         else:
-                            terminal_inbox_alert(session_id, len(pending))
+                            fallback_terminal_inbox_alert(command, session_id, len(pending))
                             notification_retry_at = None
 
                 if handoff_requested and not intentional_handoff:
@@ -2005,6 +2064,7 @@ def task_environment(task: dict[str, Any]) -> dict[str, str]:
             "AI_TASK_HARNESS": "agent-task",
             "AI_TASK_ID": task["task_id"],
             "AI_TASK_WORKTREE": task["worktree_path"],
+            "AI_TASK_WORKDIR": str(task_working_directory(task)),
             "AI_TASK_BRANCH": task["branch"],
             "AI_TASK_TARGET_BRANCH": task.get("target_branch") or "",
             "AI_REPO_MEMORY": MEMORY_NAME,
@@ -2209,8 +2269,9 @@ def launch_agent(
     checkout_reservation: CheckoutReservation | None = None,
 ) -> int:
     validate_foreground_agent_command(task.get("agent", "custom"), command, lock_managed=True)
+    agent_command = managed_agent_command(task, command)
     guarded_command, environment = guarded_agent_invocation(
-        command,
+        agent_command,
         task_environment(task),
         pass_fds,
         checkout_reservation=checkout_reservation,
@@ -2220,7 +2281,7 @@ def launch_agent(
     try:
         process = subprocess.Popen(
             guarded_command,
-            cwd=task_working_directory(task),
+            cwd=managed_agent_working_directory(task, agent_command),
             env=environment,
             pass_fds=tuple(pass_fds),
         )
@@ -2243,7 +2304,11 @@ def launch_agent(
     record_agent_exit(
         task,
         exit_code,
-        graceful=graceful_codex_interrupt(str(task.get("agent") or "custom"), command, exit_code),
+        graceful=graceful_codex_interrupt(
+            str(task.get("agent") or "custom"),
+            agent_command,
+            exit_code,
+        ),
     )
     store.save(task)
     return exit_code
@@ -2944,6 +3009,7 @@ def create_task(store: Store, args: argparse.Namespace) -> dict[str, Any]:
         "branch": branch,
         "worktree_path": str(worktree),
         "workdir_relative": str(relative),
+        "origin_working_directory": str(cwd),
         "memory_path": str(memory_path),
         "memory_base": memory,
         "memory_pending": False,
@@ -3068,7 +3134,7 @@ def launch_for_task(
             record_session_base=True,
             agent=str(task.get("agent") or "custom"),
             task_id=task["task_id"],
-            working_directory=task_working_directory(task),
+            working_directory=managed_agent_working_directory(task, command),
         ) as checkout_reservation:
             if not checkout_reservation:
                 raise AgentTaskError(f"worktree already has an active agent: {worktree}")
