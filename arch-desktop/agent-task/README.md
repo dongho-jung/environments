@@ -63,8 +63,11 @@ agent-task handoff ready-0123456789abcdef01234567
 releases the checkout lease through the normal lifecycle, finalizes any current
 managed task, and retries each queued integration. It does not ask either agent
 to merge, cherry-pick, switch branches, or clean worktrees. A graceful ordinary
-exit (`/exit` or the TUI's normal `Ctrl+C` exit path) also drains auto-integrate
-tasks for that repository immediately after releasing its lease; handoff is the
+exit (`/exit` or the interactive Codex TUI's exit status 130 after `Ctrl+C`)
+also drains auto-integrate tasks for that repository immediately after releasing
+its lease. The harness retains the raw 130 in task metadata while classifying it
+as graceful only for interactive `codex`, `codex resume`, and `codex fork`
+commands; non-interactive and non-Codex exits remain failures. Handoff is the
 active mechanism that asks a still-working agent to checkpoint and yield.
 Abrupt launcher death or a hard kill still leaves task records for the scheduled
 `reconcile` fallback.

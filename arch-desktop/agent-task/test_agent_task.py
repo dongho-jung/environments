@@ -50,6 +50,113 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(popen.call_args.kwargs["cwd"], nested)
         self.assertEqual(popen.call_args.kwargs["env"]["AI_TASK_WORKTREE"], str(worktree))
 
+    def test_interactive_codex_sigint_is_recorded_as_graceful(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            task = {
+                "task_id": "codex-sigint",
+                "worktree_path": directory,
+                "workdir_relative": ".",
+                "branch": "ai/codex/codex-sigint",
+                "target_branch": "main",
+                "agent": "codex",
+            }
+            process = mock.Mock(pid=12345)
+            process.wait.return_value = AGENT_TASK.SHELL_SIGINT_EXIT_CODE
+            store = mock.Mock()
+
+            with (
+                mock.patch.object(AGENT_TASK.subprocess, "Popen", return_value=process),
+                mock.patch.object(AGENT_TASK, "process_start", return_value="start"),
+            ):
+                exit_code = AGENT_TASK.launch_agent(
+                    store,
+                    task,
+                    ["codex", "--dangerously-bypass-approvals-and-sandbox", "work here"],
+                )
+
+        self.assertEqual(exit_code, 130)
+        self.assertEqual(task["agent_exit_code"], 130)
+        self.assertIs(task["agent_exit_graceful"], True)
+        self.assertFalse(AGENT_TASK.agent_exit_failed(task))
+
+    def test_sigint_is_not_graceful_for_noninteractive_or_non_codex_commands(self) -> None:
+        exit_code = AGENT_TASK.SHELL_SIGINT_EXIT_CODE
+
+        self.assertTrue(AGENT_TASK.graceful_codex_interrupt("codex", ["codex"], exit_code))
+        self.assertTrue(
+            AGENT_TASK.graceful_codex_interrupt("codex", ["codex", "resume", "--last"], exit_code)
+        )
+        self.assertTrue(AGENT_TASK.graceful_codex_interrupt("codex", ["codex", "fork"], exit_code))
+        self.assertFalse(
+            AGENT_TASK.graceful_codex_interrupt("codex", ["codex", "exec", "echo", "done"], exit_code)
+        )
+        self.assertFalse(AGENT_TASK.graceful_codex_interrupt("custom", ["codex"], exit_code))
+        self.assertFalse(AGENT_TASK.graceful_codex_interrupt("claude", ["claude"], exit_code))
+        self.assertFalse(AGENT_TASK.graceful_codex_interrupt("codex", ["codex"], 1))
+
+        task = {"agent_exit_code": 1, "agent_exit_graceful": True}
+        self.assertTrue(AGENT_TASK.agent_exit_failed(task))
+        AGENT_TASK.record_agent_exit(task, 1)
+        self.assertNotIn("agent_exit_graceful", task)
+
+    def test_graceful_codex_sigint_completes_a_clean_unchanged_task(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "worktrees"
+            worktree = root / "repo-id" / "codex-sigint"
+            worktree.mkdir(parents=True)
+            store = mock.Mock(worktrees=root)
+            task = {
+                "task_id": "codex-sigint",
+                "worktree_path": str(worktree),
+                "repository": str(Path(directory) / "repo"),
+                "branch": "ai/codex/codex-sigint",
+                "base_sha": "base",
+                "agent_exit_code": AGENT_TASK.SHELL_SIGINT_EXIT_CODE,
+                "agent_exit_graceful": True,
+            }
+            branch = mock.Mock(stdout=f"{task['branch']}\n")
+
+            with (
+                mock.patch.object(AGENT_TASK, "worktree_changes", return_value=([], [])),
+                mock.patch.object(AGENT_TASK, "git", return_value=branch),
+                mock.patch.object(AGENT_TASK, "current_head", return_value="base"),
+                mock.patch.object(AGENT_TASK, "capture_memory_proposal"),
+                mock.patch.object(AGENT_TASK, "apply_memory_update"),
+                mock.patch.object(AGENT_TASK, "cleanup_task", return_value=True) as cleanup,
+            ):
+                AGENT_TASK.inspect_result(store, task)
+
+        self.assertEqual(task["status"], AGENT_TASK.COMPLETED)
+        cleanup.assert_called_once_with(store, task)
+
+    def test_graceful_parent_sigint_is_propagated_to_attachments(self) -> None:
+        attachment = {
+            "task_id": "attachment",
+            "status": AGENT_TASK.RUNNING,
+            "created_at": "2026-08-26T00:00:00+09:00",
+            "attachment_session_id": "session",
+            "auto_integrate": True,
+        }
+        store = mock.Mock()
+        store.all.return_value = [attachment]
+        store.load.return_value = attachment
+        store.lock.return_value = contextlib.nullcontext()
+
+        with (
+            mock.patch.object(AGENT_TASK, "finalize_task") as finalize,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            AGENT_TASK.finalize_session_attachments(
+                store,
+                "session",
+                AGENT_TASK.SHELL_SIGINT_EXIT_CODE,
+                graceful=True,
+            )
+
+        self.assertEqual(attachment["agent_exit_code"], 130)
+        self.assertIs(attachment["agent_exit_graceful"], True)
+        finalize.assert_called_once_with(store, attachment, integrate=True)
+
     def test_agent_spawn_failure_does_not_leave_launcher_marked_active(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             task = {

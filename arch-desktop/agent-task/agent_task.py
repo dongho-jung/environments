@@ -43,6 +43,7 @@ MAX_MEMORY_BYTES = 1024 * 1024
 MAX_INBOX_BYTES = 1024 * 1024
 DEFAULT_CHECK_TIMEOUT_SECONDS = 3600.0
 HANDOFF_EXIT_CODE = 75
+SHELL_SIGINT_EXIT_CODE = 128 + int(signal.SIGINT)
 NOTIFICATION_PROTOCOL = 1
 LOCK_EXEC_SUBCOMMAND = "__lock-exec"
 INBOX_HOOK_SUBCOMMAND = "__inbox-hook"
@@ -1157,6 +1158,30 @@ def codex_subcommand(command: Sequence[str]) -> str | None:
     return None
 
 
+def graceful_codex_interrupt(agent: str, command: Sequence[str], exit_code: int) -> bool:
+    return (
+        exit_code == SHELL_SIGINT_EXIT_CODE
+        and agent == "codex"
+        and command_executable_index(command, "codex") is not None
+        and codex_subcommand(command) in (None, "resume", "fork")
+    )
+
+
+def record_agent_exit(task: dict[str, Any], exit_code: int, *, graceful: bool = False) -> None:
+    task["agent_exit_code"] = exit_code
+    if graceful:
+        task["agent_exit_graceful"] = True
+    else:
+        task.pop("agent_exit_graceful", None)
+
+
+def agent_exit_failed(task: dict[str, Any]) -> bool:
+    exit_code = task.get("agent_exit_code", 0)
+    return bool(exit_code) and not (
+        exit_code == SHELL_SIGINT_EXIT_CODE and task.get("agent_exit_graceful") is True
+    )
+
+
 def normalize_codex_working_directory(command: Sequence[str], origin: Path) -> tuple[list[str], Path]:
     normalized = list(command)
     executable = command_executable_index(normalized, "codex")
@@ -2201,7 +2226,11 @@ def launch_agent(
         raise
     else:
         task.pop("process", None)
-    task["agent_exit_code"] = exit_code
+    record_agent_exit(
+        task,
+        exit_code,
+        graceful=graceful_codex_interrupt(str(task.get("agent") or "custom"), command, exit_code),
+    )
     store.save(task)
     return exit_code
 
@@ -2222,7 +2251,7 @@ def inspect_result(store: Store, task: dict[str, Any], *, trust_clean_commit: bo
     if not head or head == task.get("base_sha"):
         if path.exists():
             capture_memory_proposal(store, task)
-        if task.get("agent_exit_code", 0):
+        if agent_exit_failed(task):
             set_status(store, task, RECOVERY, f"agent exited with {task['agent_exit_code']}; session preserved")
             return
         set_status(store, task, COMPLETED, "agent completed without repository changes")
@@ -2252,7 +2281,7 @@ def inspect_result(store: Store, task: dict[str, Any], *, trust_clean_commit: bo
     task.pop("forbidden_history", None)
     if path.exists():
         capture_memory_proposal(store, task)
-    if task.get("agent_exit_code", 0) and not trust_clean_commit:
+    if agent_exit_failed(task) and not trust_clean_commit:
         set_status(store, task, RECOVERY, f"agent exited with {task['agent_exit_code']}; clean commit preserved")
         cleanup_task(store, task)
         return
@@ -3058,13 +3087,18 @@ def launch_for_task(
                 cleanup_task(store, task)
             raise launch_error
         if exit_code == HANDOFF_EXIT_CODE and handoff_task_ids:
-            task["agent_exit_code"] = 0
+            record_agent_exit(task, 0)
             task["handoff_completed_at"] = now()
             store.save(task)
             exit_code = 0
         finalize_task(store, task, integrate=integrate)
         if session_id is not None:
-            attachment_results = finalize_session_attachments(store, session_id, exit_code)
+            attachment_results = finalize_session_attachments(
+                store,
+                session_id,
+                int(task.get("agent_exit_code", exit_code)),
+                graceful=task.get("agent_exit_graceful") is True,
+            )
             if attachment_results:
                 task["attachments"] = [result["task_id"] for result in attachment_results]
                 failures = [
@@ -3085,7 +3119,7 @@ def launch_for_task(
             Path(task["repository"]),
             exclude_task_ids=(task["task_id"],),
         )
-        return exit_code
+        return 0 if task.get("agent_exit_graceful") is True else exit_code
 
 
 def command_start(args: argparse.Namespace, store: Store) -> int:
@@ -3669,7 +3703,7 @@ def reconcile_one(store: Store, task: dict[str, Any], *, integrate: bool) -> Non
         if task.get("attachment_session_id"):
             task.pop("process", None)
             task["attachment_reconciled_at"] = now()
-            task["agent_exit_code"] = 0
+            record_agent_exit(task, 0)
             store.save(task)
             finalize_task(
                 store,
@@ -3770,6 +3804,8 @@ def finalize_session_attachments(
     store: Store,
     session_id: str,
     agent_exit_code: int,
+    *,
+    graceful: bool = False,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for snapshot in attachment_tasks(store, session_id):
@@ -3778,7 +3814,7 @@ def finalize_session_attachments(
                 task = store.load(snapshot["task_id"])
                 if task.get("status") in (CREATED, RUNNING):
                     task.pop("process", None)
-                    task["agent_exit_code"] = agent_exit_code
+                    record_agent_exit(task, agent_exit_code, graceful=graceful)
                     task["attachment_finished_at"] = now()
                     store.save(task)
                     finalize_task(
