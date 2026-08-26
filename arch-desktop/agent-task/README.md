@@ -28,8 +28,10 @@ uses the stable original repository-relative path as its session cwd while
 `AI_TASK_WORKTREE` and `AI_TASK_WORKDIR` identify the isolated repository and
 starting directory it must edit. The worktree is also passed through Codex's
 `--add-dir`. Claude and legacy Codex tasks continue directly in their assigned
-worktree. Recovery runs `codex resume --last` or `claude --continue`, so the
-original conversation is restored without remembering a session ID.
+worktree. Codex recovery asks App Server for the newest chat whose cwd exactly
+matches the preserved task's session cwd and resumes it by ID; if no matching
+chat was saved, it opens a fresh chat over the preserved files. Claude recovery
+runs `claude --continue`.
 
 Codex's built-in `/resume` picker is scoped to the current working directory.
 New managed chats therefore stay grouped under the original repository path
@@ -91,11 +93,14 @@ agent-task handoff ready-0123456789abcdef01234567
 `handoff` records acceptance, asks the supervisor to end the foreground CLI,
 releases the checkout lease through the normal lifecycle, finalizes any current
 managed task, and retries each queued integration. It does not ask either agent
-to merge, cherry-pick, switch branches, or clean worktrees. A graceful ordinary
-exit (`/exit` or the interactive Codex TUI's exit status 130 after `Ctrl+C`)
-also drains auto-integrate tasks for that repository immediately after releasing
-its lease. The harness retains the raw 130 in task metadata while classifying it
-as graceful only for interactive `codex`, `codex resume`, and `codex fork`
+to merge, cherry-pick, switch branches, or clean worktrees. Interactive Codex
+handoff first requests the same graceful shutdown as `Ctrl+C`, allowing the TUI
+to restore the terminal and leave its alternate screen; it falls back to
+`SIGTERM` only if Codex does not exit promptly. A graceful ordinary exit
+(`/exit` or the interactive Codex TUI's exit status 130 after `Ctrl+C`) also
+drains auto-integrate tasks for that repository immediately after releasing its
+lease. The harness retains the raw 130 in task metadata while classifying it as
+graceful only for interactive `codex`, `codex resume`, and `codex fork`
 commands; non-interactive and non-Codex exits remain failures. Handoff is the
 active mechanism that asks a still-working agent to checkpoint and yield.
 Abrupt launcher death or a hard kill still leaves task records for the scheduled
