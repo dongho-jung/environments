@@ -230,7 +230,7 @@ def render(
         return complete
     if not other_entries or len(prefix) >= visible_width:
         return prefix[:visible_width]
-    track = body + "   "
+    track = " · ".join(other_entries) + "   "
     offset = int(epoch) % len(track)
     return prefix + (track * 2)[offset : offset + visible_width - len(prefix)]
 

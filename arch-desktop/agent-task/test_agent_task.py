@@ -19,6 +19,10 @@ from unittest import mock
 
 SCRIPT = Path(__file__).with_name("agent_task.py")
 STATUSLINE_SCRIPT = Path(__file__).with_name("agent_statusline.py")
+STATUSLINE_SPEC = importlib.util.spec_from_file_location("agent_statusline_under_test", STATUSLINE_SCRIPT)
+assert STATUSLINE_SPEC and STATUSLINE_SPEC.loader
+STATUSLINE = importlib.util.module_from_spec(STATUSLINE_SPEC)
+STATUSLINE_SPEC.loader.exec_module(STATUSLINE)
 SPEC = importlib.util.spec_from_file_location("agent_task_under_test", SCRIPT)
 assert SPEC and SPEC.loader
 AGENT_TASK = importlib.util.module_from_spec(SPEC)
@@ -1067,6 +1071,28 @@ class WorktreeStatuslineTest(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 AGENT_TASK.command_context(arguments, store)
             self.assertNotIn("jira_issue", AGENT_TASK.read_task_context(store, task_id))
+
+    def test_statusline_scroll_does_not_repeat_the_fixed_separator(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self.make_store(Path(directory))
+            current_id = "20260826-204635-a5bc90"
+            store.save(self.task(current_id, "environments"))
+            store.save(self.task("20260826-213159-dbda5e", "backend"))
+            store.save(self.task("20260826-211200-bcde12", "frontend"))
+
+            with mock.patch.object(AGENT_TASK, "render_worktree_statusline", STATUSLINE.render):
+                lines = [
+                    AGENT_TASK.worktree_statusline(
+                        store,
+                        width=54,
+                        epoch=epoch,
+                        current_task_id=current_id,
+                    )
+                    for epoch in range(80)
+                ]
+
+        self.assertTrue(any("·" in line for line in lines))
+        self.assertTrue(all("|  |" not in line for line in lines))
 
     def test_jira_issue_is_detected_from_the_launch_description(self) -> None:
         task = {"description": "Implement CAPE-789 without changing the API"}
