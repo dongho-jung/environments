@@ -52,6 +52,7 @@ LOCK_SESSION_PATH_ENV = "AGENT_TASK_LOCK_SESSION_PATH"
 LOCK_SESSION_ID_ENV = "AGENT_TASK_LOCK_SESSION_ID"
 AGENT_SESSION_PATH_ENV = "AGENT_TASK_SESSION_PATH"
 AGENT_SESSION_ID_ENV = "AGENT_TASK_SESSION_ID"
+CODEX_RECOVERY_CWD_ENV = "AGENT_TASK_CODEX_RECOVERY_CWD"
 AGENT_TASK_MODES = ("current", "worktree")
 MISSING = object()
 
@@ -1355,18 +1356,135 @@ def codex_remote_command(command: Sequence[str], socket_path: Path) -> list[str]
     return result
 
 
+def mark_codex_recovery_command(command: Sequence[str], working_directory: Path) -> list[str]:
+    if command_executable_index(command, "codex") is None or codex_subcommand(command) != "resume":
+        raise AgentTaskError("Codex recovery marker requires a resume command")
+    return ["env", f"{CODEX_RECOVERY_CWD_ENV}={working_directory.resolve()}", *command]
+
+
+def unmark_codex_recovery_command(command: Sequence[str]) -> tuple[list[str], Path | None]:
+    if (
+        len(command) >= 3
+        and Path(command[0]).name == "env"
+        and command[1].startswith(f"{CODEX_RECOVERY_CWD_ENV}=")
+    ):
+        value = command[1].partition("=")[2]
+        if not value:
+            raise AgentTaskError("Codex recovery working directory is empty")
+        return list(command[2:]), Path(value).resolve()
+    return list(command), None
+
+
+def resolve_codex_recovery_command(command: Sequence[str], thread_id: str | None) -> list[str]:
+    result = list(command)
+    executable = command_executable_index(result, "codex")
+    if executable is None or codex_subcommand(result) != "resume":
+        raise AgentTaskError("Codex recovery resolution requires a resume command")
+    try:
+        resume_index = result.index("resume", executable + 1)
+        last_index = result.index("--last", resume_index + 1)
+    except ValueError as error:
+        raise AgentTaskError("Codex recovery resolution requires resume --last") from error
+    if thread_id is not None:
+        result[last_index] = thread_id
+        return result
+    del result[last_index]
+    del result[resume_index]
+    return result
+
+
+def codex_unix_connection(socket_path: Path) -> Any:
+    try:
+        from websockets.asyncio.client import unix_connect
+    except ImportError as error:
+        raise AgentTaskError("python-websockets is required for Codex session control") from error
+    return unix_connect(
+        str(socket_path),
+        uri="ws://localhost/rpc",
+        compression=None,
+        user_agent_header=None,
+        open_timeout=2,
+        close_timeout=1,
+    )
+
+
+async def _latest_codex_thread_id(
+    socket_path: Path,
+    working_directory: Path,
+    connector: Callable[[], Any] | None,
+) -> str | None:
+    if connector is None:
+        connector = lambda: codex_unix_connection(socket_path)
+    exact_cwd = str(working_directory.resolve())
+    async with connector() as websocket:
+        await _codex_rpc_request(
+            websocket,
+            1,
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "agent-task",
+                    "title": "agent-task recovery resolver",
+                    "version": "1",
+                }
+            },
+        )
+        await websocket.send(json.dumps({"method": "initialized", "params": {}}))
+        listed = await _codex_rpc_request(
+            websocket,
+            2,
+            "thread/list",
+            {
+                "cwd": exact_cwd,
+                "limit": 1,
+                "sortKey": "recency_at",
+                "sortDirection": "desc",
+                "useStateDbOnly": True,
+            },
+        )
+    threads = listed.get("data", []) if isinstance(listed, dict) else []
+    thread = next(
+        (
+            value
+            for value in threads
+            if isinstance(value, dict)
+            and isinstance(value.get("id"), str)
+            and value.get("cwd") == exact_cwd
+        ),
+        None,
+    )
+    return thread["id"] if thread is not None else None
+
+
+def latest_codex_thread_id(
+    socket_path: Path,
+    working_directory: Path,
+    *,
+    connector: Callable[[], Any] | None = None,
+) -> str | None:
+    import asyncio
+
+    return asyncio.run(_latest_codex_thread_id(socket_path, working_directory, connector))
+
+
 def start_codex_app_server(
     command: Sequence[str],
     socket_path: Path,
     inherited_descriptors: Sequence[int],
 ) -> tuple[int, list[str]] | None:
-    remote_command = codex_remote_command(command, socket_path)
+    agent_command, recovery_working_directory = unmark_codex_recovery_command(command)
+    remote_command = codex_remote_command(agent_command, socket_path)
     if remote_command is None:
         return None
-    executable = command_executable_index(command, "codex")
+    executable = command_executable_index(agent_command, "codex")
     assert executable is not None
     socket_path.unlink(missing_ok=True)
-    server_command = [*command[: executable + 1], "app-server", "--listen", f"unix://{socket_path}"]
+    server_command = [
+        *agent_command[: executable + 1],
+        "app-server",
+        "--listen",
+        f"unix://{socket_path}",
+    ]
     try:
         server_pid = os.fork()
     except OSError as error:
@@ -1387,6 +1505,22 @@ def start_codex_app_server(
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
         if socket_path.exists():
+            if recovery_working_directory is not None:
+                try:
+                    thread_id = latest_codex_thread_id(socket_path, recovery_working_directory)
+                except BaseException:
+                    try:
+                        os.killpg(server_pid, signal.SIGTERM)
+                    except OSError:
+                        pass
+                    raise
+                remote_command = resolve_codex_recovery_command(remote_command, thread_id)
+                if thread_id is None:
+                    print(
+                        "agent-task: no saved Codex chat for this worktree; "
+                        "starting a new recovery chat",
+                        file=sys.stderr,
+                    )
             return server_pid, remote_command
         try:
             finished, status = os.waitpid(server_pid, os.WNOHANG)
@@ -1442,22 +1576,7 @@ async def _deliver_codex_prompt(
     connector: Callable[[], Any] | None,
 ) -> None:
     if connector is None:
-        try:
-            from websockets.asyncio.client import unix_connect
-        except ImportError as error:
-            raise AgentTaskError("python-websockets is required for Codex session notifications") from error
-
-        def default_connector() -> Any:
-            return unix_connect(
-                str(socket_path),
-                uri="ws://localhost/rpc",
-                compression=None,
-                user_agent_header=None,
-                open_timeout=2,
-                close_timeout=1,
-            )
-
-        connector = default_connector
+        connector = lambda: codex_unix_connection(socket_path)
 
     async with connector() as websocket:
         request_id = 1
@@ -3691,11 +3810,14 @@ def command_recover(args: argparse.Namespace, store: Store) -> int:
         extra_prompt = getattr(args, "prompt", None)
         if extra_prompt:
             prompt = f"{prompt}\n\nAdditional instruction: {extra_prompt}"
-        command = list(args.command) or (
-            default_agent_command(agent, prompt)
-            if getattr(args, "new_session", False)
-            else default_recovery_command(agent, prompt)
-        )
+        if args.command:
+            command = list(args.command)
+        elif getattr(args, "new_session", False):
+            command = default_agent_command(agent, prompt)
+        else:
+            command = default_recovery_command(agent, prompt)
+            if agent == "codex":
+                command = mark_codex_recovery_command(command, task_working_directory(task))
         task.pop("interrupted_at", None)
         store.save(task)
         exit_code = launch_for_task(

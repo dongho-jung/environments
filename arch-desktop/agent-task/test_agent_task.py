@@ -290,6 +290,99 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(resumed[:4], ["codex", "--remote", f"unix://{socket}", "resume"])
         self.assertIsNone(review)
 
+    def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.responses: list[str] = []
+                self.requests: list[dict[str, object]] = []
+
+            async def send(self, raw: str) -> None:
+                request = json.loads(raw)
+                self.requests.append(request)
+                if "id" not in request:
+                    return
+                results = {
+                    "initialize": {},
+                    "thread/list": {
+                        "data": [
+                            {
+                                "id": "worktree-thread",
+                                "cwd": "/repo/worktree",
+                                "status": {"type": "notLoaded"},
+                            }
+                        ]
+                    },
+                }
+                self.responses.append(
+                    json.dumps({"id": request["id"], "result": results[request["method"]]})
+                )
+
+            async def recv(self) -> str:
+                return self.responses.pop(0)
+
+        class FakeConnection:
+            def __init__(self, socket: FakeSocket) -> None:
+                self.socket = socket
+
+            async def __aenter__(self) -> FakeSocket:
+                return self.socket
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        socket = FakeSocket()
+        thread_id = AGENT_TASK.latest_codex_thread_id(
+            Path("/control.sock"),
+            Path("/repo/worktree"),
+            connector=lambda: FakeConnection(socket),
+        )
+
+        self.assertEqual(thread_id, "worktree-thread")
+        listed = next(request for request in socket.requests if request.get("method") == "thread/list")
+        self.assertEqual(
+            listed["params"],
+            {
+                "cwd": "/repo/worktree",
+                "limit": 1,
+                "sortKey": "recency_at",
+                "sortDirection": "desc",
+                "useStateDbOnly": True,
+            },
+        )
+
+    def test_codex_recovery_starts_fresh_when_worktree_has_no_thread(self) -> None:
+        recovery = AGENT_TASK.mark_codex_recovery_command(
+            [
+                "codex",
+                "resume",
+                "--last",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "recover this task",
+            ],
+            Path("/repo/worktree"),
+        )
+        unmarked, working_directory = AGENT_TASK.unmark_codex_recovery_command(recovery)
+
+        self.assertEqual(working_directory, Path("/repo/worktree"))
+        self.assertEqual(
+            AGENT_TASK.resolve_codex_recovery_command(unmarked, "thread-1"),
+            [
+                "codex",
+                "resume",
+                "thread-1",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "recover this task",
+            ],
+        )
+        self.assertEqual(
+            AGENT_TASK.resolve_codex_recovery_command(unmarked, None),
+            [
+                "codex",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "recover this task",
+            ],
+        )
+
     def test_codex_notification_steers_an_active_turn(self) -> None:
         class FakeSocket:
             def __init__(self) -> None:

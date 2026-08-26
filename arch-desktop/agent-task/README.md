@@ -24,8 +24,10 @@ settings.agent_task_mode=worktree -> managed worktree -> clean commit -> integra
 
 Managed task state is keyed by repository and agent. One interrupted task
 resumes automatically; several produce a small picker. Recovery reuses the exact
-worktree path and runs `codex resume --last` or `claude --continue`, so the
-original conversation is restored without remembering a session ID.
+worktree path. Codex recovery asks App Server for the newest chat whose current
+working directory exactly matches that worktree and resumes it by ID; if the
+first launch ended before a chat was saved, recovery opens a fresh chat over the
+preserved files. Claude recovery runs `claude --continue`.
 
 Codex's built-in `/resume` picker is scoped to the current working directory.
 It therefore works normally in `current` mode. Use `o resume` to cross a
