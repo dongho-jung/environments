@@ -22,6 +22,24 @@ import sys
 import time
 from typing import Any, Callable, Iterator, Sequence
 
+try:
+    from agent_statusline import (
+        claude_worktree_label,
+        compact_ascii,
+        render as render_worktree_statusline,
+        task_for_working_directory,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "agent_statusline":
+        raise
+    sys.path.insert(0, str(Path.home() / ".local/bin"))
+    from agent_statusline import (
+        claude_worktree_label,
+        compact_ascii,
+        render as render_worktree_statusline,
+        task_for_working_directory,
+    )
+
 
 CREATED = "CREATED"
 RUNNING = "RUNNING"
@@ -38,9 +56,11 @@ FORBIDDEN_LOCAL_PATHS = (MEMORY_NAME, SESSION_LOCK_NAME)
 SESSION_LOCK_SCHEMA = 1
 TASK_RECORD_SCHEMA = 2
 INBOX_SCHEMA = 1
+TASK_CONTEXT_SCHEMA = 1
 MAX_JSON_FILE_BYTES = 8 * 1024 * 1024
 MAX_MEMORY_BYTES = 1024 * 1024
 MAX_INBOX_BYTES = 1024 * 1024
+MAX_STATUSLINE_INPUT_BYTES = 1024 * 1024
 DEFAULT_CHECK_TIMEOUT_SECONDS = 3600.0
 HANDOFF_EXIT_CODE = 75
 HANDOFF_CODEX_GRACE_SECONDS = 2.0
@@ -55,6 +75,7 @@ AGENT_SESSION_PATH_ENV = "AGENT_TASK_SESSION_PATH"
 AGENT_SESSION_ID_ENV = "AGENT_TASK_SESSION_ID"
 CODEX_RECOVERY_CWD_ENV = "AGENT_TASK_CODEX_RECOVERY_CWD"
 AGENT_TASK_MODES = ("current", "worktree")
+JIRA_ISSUE_PATTERN = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]*)(?![A-Z0-9])")
 MISSING = object()
 
 
@@ -75,6 +96,16 @@ def positive_seconds(value: str) -> float:
         parsed = float(value)
     except ValueError as error:
         raise argparse.ArgumentTypeError("must be a number of seconds") from error
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
+def positive_integer(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer") from error
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be greater than zero")
     return parsed
@@ -306,6 +337,7 @@ class Store:
         self.sessions = self.root / "sessions"
         self.inboxes = self.root / "inboxes"
         self.controls = self.root / "controls"
+        self.contexts = self.root / "contexts"
         self.proposals = self.root / "memory-proposals"
         for path in (
             self.root,
@@ -317,6 +349,7 @@ class Store:
             self.sessions,
             self.inboxes,
             self.controls,
+            self.contexts,
             self.proposals,
         ):
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -349,13 +382,14 @@ class Store:
         except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as error:
             raise AgentTaskError(f"cannot safely read task registry entry {path}: {error}") from error
 
-    def all(self) -> list[dict[str, Any]]:
+    def all(self, *, warn: bool = True) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         for path in self.tasks.glob("*.json"):
             try:
                 result.append(validate_task_record(read_json_file_safely(path), expected_task_id=path.stem))
             except (AgentTaskError, OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as error:
-                print(f"agent-task: unreadable registry entry preserved: {path}: {error}", file=sys.stderr)
+                if warn:
+                    print(f"agent-task: unreadable registry entry preserved: {path}: {error}", file=sys.stderr)
         return result
 
     def lock_path(self, name: str) -> Path:
@@ -380,6 +414,10 @@ class Store:
         validate_identifier(session_id, "session id")
         return self.controls / f"{session_id}.sock"
 
+    def context_path(self, task_id: str) -> Path:
+        validate_identifier(task_id, "task id")
+        return self.contexts / f"{task_id}.json"
+
     def repository_activity_path(self, repository: Path) -> Path:
         return self.lock_path(f"repository-activity:{common_dir(repository)}")
 
@@ -396,6 +434,135 @@ class Store:
         finally:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
+
+
+def jira_issue_key(value: str) -> str:
+    issue = value.strip().upper()
+    if re.fullmatch(r"[A-Z][A-Z0-9_]{1,31}-[1-9][0-9]*", issue) is None:
+        raise AgentTaskError(f"invalid Jira issue key: {value!r}")
+    return issue
+
+
+def jira_issue_from_task_text(task: dict[str, Any]) -> str | None:
+    for field in ("description", "source_branch"):
+        value = task.get(field)
+        if not isinstance(value, str):
+            continue
+        match = JIRA_ISSUE_PATTERN.search(value)
+        if match:
+            return match.group(1)
+    return None
+
+
+def read_task_context(store: Store, task_id: str) -> dict[str, Any]:
+    path = store.context_path(task_id)
+    if not os.path.lexists(path):
+        return {}
+    try:
+        value = read_json_file_safely(path)
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != TASK_CONTEXT_SCHEMA
+        or value.get("task_id") != task_id
+    ):
+        return {}
+    issue = value.get("jira_issue")
+    if issue is not None:
+        try:
+            value["jira_issue"] = jira_issue_key(str(issue))
+        except AgentTaskError:
+            return {}
+    return value
+
+
+def write_task_context(store: Store, task_id: str, context: dict[str, Any]) -> None:
+    validate_identifier(task_id, "task id")
+    value = dict(context)
+    value.update(
+        {
+            "schema_version": TASK_CONTEXT_SCHEMA,
+            "task_id": task_id,
+            "updated_at": now(),
+        }
+    )
+    issue = value.get("jira_issue")
+    if issue is not None:
+        value["jira_issue"] = jira_issue_key(str(issue))
+    atomic_write_private(store.context_path(task_id), (json.dumps(value, sort_keys=True) + "\n").encode())
+
+
+def active_worktree_tasks(store: Store) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for task in store.all(warn=False):
+        if not (
+            task.get("status") in (CREATED, RUNNING)
+            and isinstance(task.get("worktree_path"), str)
+            and bool(task["worktree_path"])
+            and process_alive(task.get("process"))
+        ):
+            continue
+        item = dict(task)
+        task_id = item.get("task_id")
+        context = read_task_context(store, task_id) if isinstance(task_id, str) else {}
+        issue = context.get("jira_issue") or jira_issue_from_task_text(item)
+        if isinstance(issue, str):
+            item["statusline_jira_issue"] = issue
+        result.append(item)
+    return result
+
+
+def worktree_statusline(
+    store: Store,
+    *,
+    width: int,
+    epoch: float,
+    current_directory: str | None = None,
+    current_task_id: str | None = None,
+    claude_payload: dict[str, Any] | None = None,
+) -> str:
+    tasks = active_worktree_tasks(store)
+    selected = task_for_working_directory(tasks, current_directory) or current_task_id
+    known_ids = {task.get("task_id") for task in tasks}
+    extra_entry = None
+    if claude_payload is not None and selected not in known_ids:
+        extra_entry = claude_worktree_label(claude_payload)
+    return render_worktree_statusline(
+        tasks,
+        current_task_id=selected,
+        width=width,
+        epoch=epoch,
+        extra_entry=extra_entry,
+    )
+
+
+def terminal_columns(default: int = 100) -> int:
+    try:
+        return max(12, os.get_terminal_size(sys.stdout.fileno()).columns)
+    except (OSError, ValueError):
+        try:
+            return max(12, int(os.environ.get("COLUMNS", "")))
+        except ValueError:
+            return default
+
+
+def set_terminal_title(value: str) -> None:
+    title = compact_ascii(value, fallback="agent-task", limit=1000)
+    payload = f"\x1b]2;{title}\x1b\\".encode()
+    try:
+        descriptor = os.open(
+            "/dev/tty",
+            os.O_WRONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0),
+        )
+    except OSError:
+        return
+    try:
+        write_all(descriptor, payload)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
 
 
 def empty_inbox(session_id: str) -> dict[str, Any]:
@@ -1191,6 +1358,16 @@ def interactive_codex_command(command: Sequence[str]) -> bool:
     )
 
 
+def codex_worktree_title_command(command: Sequence[str]) -> list[str]:
+    result = list(command)
+    if not interactive_codex_command(result):
+        return result
+    executable = command_executable_index(result, "codex")
+    assert executable is not None
+    result[executable + 1 : executable + 1] = ["-c", "tui.terminal_title=null"]
+    return result
+
+
 def managed_agent_working_directory(task: dict[str, Any], command: Sequence[str]) -> Path:
     if interactive_codex_command(command):
         return task_origin_working_directory(task)
@@ -1846,6 +2023,9 @@ def command_lock_exec(raw: Sequence[str]) -> int:
         raise AgentTaskError("lock wrapper received invalid descriptors") from error
     if not descriptors:
         raise AgentTaskError("lock wrapper received no descriptors")
+    codex_title_updates = interactive_codex_command(command)
+    if codex_title_updates:
+        command = codex_worktree_title_command(command)
     become_child_subreaper()
     session_path = os.environ.pop(LOCK_SESSION_PATH_ENV, "")
     session_id = os.environ.pop(LOCK_SESSION_ID_ENV, "")
@@ -1943,6 +2123,8 @@ def command_lock_exec(raw: Sequence[str]) -> int:
     descendant_deadline: float | None = None
     notification_retry_at: float | None = None
     notification_closed = False
+    title_refresh_at = 0.0
+    title_was_set = False
     try:
         while True:
             reaped_any = False
@@ -1973,6 +2155,20 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                     },
                 )
                 notification_closed = True
+
+            if codex_title_updates and store is not None and main_status is None:
+                current_time = time.monotonic()
+                if current_time >= title_refresh_at:
+                    line = worktree_statusline(
+                        store,
+                        width=terminal_columns(),
+                        epoch=current_time,
+                        current_directory=os.environ.get("AI_TASK_WORKDIR") or str(working_directory),
+                        current_task_id=os.environ.get("AI_TASK_ID"),
+                    )
+                    set_terminal_title(line or f"Codex | {working_directory.name}")
+                    title_was_set = True
+                    title_refresh_at = current_time + 1.0
 
             if session_path and store is not None and main_status is None:
                 if notification_requested or (
@@ -2066,6 +2262,8 @@ def command_lock_exec(raw: Sequence[str]) -> int:
             signal.signal(signum, handler)
         if control_socket is not None:
             control_socket.unlink(missing_ok=True)
+        if title_was_set:
+            set_terminal_title(working_directory.name)
     if intentional_handoff:
         return HANDOFF_EXIT_CODE
     return os.waitstatus_to_exitcode(main_status) if main_status is not None else 127
@@ -3711,6 +3909,56 @@ def command_resume(args: argparse.Namespace, store: Store) -> int:
     return command_start(args, store)
 
 
+def read_claude_statusline_payload() -> dict[str, Any]:
+    try:
+        raw = sys.stdin.buffer.read(MAX_STATUSLINE_INPUT_BYTES + 1)
+        if len(raw) > MAX_STATUSLINE_INPUT_BYTES:
+            return {}
+        value = json.loads(raw) if raw.strip() else {}
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def command_statusline(args: argparse.Namespace, store: Store) -> int:
+    payload = read_claude_statusline_payload() if args.claude else {}
+    workspace = payload.get("workspace")
+    current_directory = workspace.get("current_dir") if isinstance(workspace, dict) else None
+    if not isinstance(current_directory, str):
+        current_directory = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
+    line = worktree_statusline(
+        store,
+        width=args.width or terminal_columns(),
+        epoch=args.epoch if args.epoch is not None else time.time(),
+        current_directory=current_directory,
+        current_task_id=os.environ.get("AI_TASK_ID"),
+        claude_payload=payload if args.claude else None,
+    )
+    if line:
+        print(line)
+    return 0
+
+
+def command_context(args: argparse.Namespace, store: Store) -> int:
+    task_id = args.task_id or os.environ.get("AI_TASK_ID")
+    if not task_id:
+        raise AgentTaskError("no managed task; pass --task TASK_ID")
+    validate_identifier(task_id, "task id")
+    store.load(task_id)
+    with store.lock(f"context:{task_id}"):
+        context = read_task_context(store, task_id)
+        if args.clear_jira:
+            context.pop("jira_issue", None)
+        else:
+            context["jira_issue"] = jira_issue_key(args.jira)
+        write_task_context(store, task_id, context)
+    if args.clear_jira:
+        print(f"context {task_id}: Jira cleared")
+    else:
+        print(f"context {task_id}: Jira {context['jira_issue']}")
+    return 0
+
+
 def command_list(_args: argparse.Namespace, store: Store) -> int:
     tasks = sorted(store.all(), key=lambda item: item.get("created_at", ""), reverse=True)
     if not tasks:
@@ -4356,8 +4604,19 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--no-integrate", action="store_true")
     start.set_defaults(func=command_start)
 
+    context = subparsers.add_parser("context", help="set local display context for a managed task")
+    context.add_argument("--task", dest="task_id", help="task id (defaults to AI_TASK_ID)")
+    context_jira = context.add_mutually_exclusive_group(required=True)
+    context_jira.add_argument("--jira", help="current Jira issue key")
+    context_jira.add_argument("--clear-jira", action="store_true", help="clear the current Jira issue")
+    context.set_defaults(func=command_context)
     listing = subparsers.add_parser("list", help="list tasks")
     listing.set_defaults(func=command_list)
+    statusline = subparsers.add_parser("statusline", help="render active worktrees for an agent status line")
+    statusline.add_argument("--claude", action="store_true", help="read Claude status-line JSON from stdin")
+    statusline.add_argument("--width", type=positive_integer, help="render width (defaults to terminal columns)")
+    statusline.add_argument("--epoch", type=float, help=argparse.SUPPRESS)
+    statusline.set_defaults(func=command_statusline)
     status = subparsers.add_parser("status", help="show task metadata")
     status.add_argument("task_id", nargs="?")
     status.set_defaults(func=command_status)
@@ -4410,7 +4669,13 @@ def cli_main() -> int:
         raw = raw[:split]
     args = build_parser().parse_args(raw)
     args.command = command
-    return int(args.func(args, Store()))
+    try:
+        store = Store()
+    except AgentTaskError:
+        if args.subcommand == "statusline":
+            return 0
+        raise
+    return int(args.func(args, store))
 
 
 def main() -> int:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import contextlib
 import importlib.util
 import io
@@ -7,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +18,11 @@ from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("agent_task.py")
+STATUSLINE_SCRIPT = Path(__file__).with_name("agent_statusline.py")
+STATUSLINE_SPEC = importlib.util.spec_from_file_location("agent_statusline_under_test", STATUSLINE_SCRIPT)
+assert STATUSLINE_SPEC and STATUSLINE_SPEC.loader
+STATUSLINE = importlib.util.module_from_spec(STATUSLINE_SPEC)
+STATUSLINE_SPEC.loader.exec_module(STATUSLINE)
 SPEC = importlib.util.spec_from_file_location("agent_task_under_test", SCRIPT)
 assert SPEC and SPEC.loader
 AGENT_TASK = importlib.util.module_from_spec(SPEC)
@@ -267,6 +274,12 @@ class LaunchBehaviorTest(unittest.TestCase):
             claude_settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
             "agent-task __inbox-hook",
         )
+        self.assertEqual(claude_settings["statusLine"]["command"], "agent_statusline.py --claude")
+        self.assertEqual(claude_settings["statusLine"]["refreshInterval"], 1)
+        self.assertIn('source       = "agent-task/agent_statusline.py"', configuration)
+        kitty_configuration = SCRIPT.parent.parent.joinpath("kitty/kitty.conf").read_text()
+        self.assertIn("tab_bar_min_tabs 1", kitty_configuration)
+        self.assertIn('tab_title_template " {title} "', kitty_configuration)
 
     def test_repository_memory_accepts_only_durable_checkout_modes(self) -> None:
         memory = AGENT_TASK.memory_template("main")
@@ -969,6 +982,183 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertNotIn("AI_TASK_HARNESS", run.call_args.kwargs["env"])
         self.assertNotIn("AGENT_TASK_POLICY", run.call_args.kwargs["env"])
         self.assertNotIn("AI_TASK_WORKDIR", run.call_args.kwargs["env"])
+
+
+class WorktreeStatuslineTest(unittest.TestCase):
+    def make_store(self, root: Path) -> object:
+        with mock.patch.dict(os.environ, {"AGENT_TASK_STATE_DIR": str(root / "state")}, clear=False):
+            return AGENT_TASK.Store()
+
+    def task(
+        self,
+        task_id: str,
+        repository: str,
+        *,
+        description: str = "interactive agent task",
+        live: bool = True,
+    ) -> dict[str, object]:
+        return {
+            "task_id": task_id,
+            "repository": f"/projects/{repository}",
+            "worktree_path": f"/state/worktrees/{repository}/{task_id}",
+            "status": AGENT_TASK.RUNNING,
+            "process": (
+                AGENT_TASK.process_record(os.getpid(), role="agent")
+                if live
+                else {"pid": 1, "start": "dead", "role": "agent"}
+            ),
+            "agent": "codex",
+            "description": description,
+            "created_at": f"2026-08-26T{task_id[9:11]}:{task_id[11:13]}:00+09:00",
+        }
+
+    def test_statusline_filters_dead_tasks_and_pins_current_jira(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self.make_store(Path(directory))
+            current_id = "20260826-204635-a5bc90"
+            other_id = "20260826-213159-dbda5e"
+            store.save(self.task(current_id, "environments"))
+            store.save(self.task(other_id, "backend"))
+            store.save(self.task("20260826-190000-dead00", "stale", live=False))
+            AGENT_TASK.write_task_context(store, current_id, {"jira_issue": "CAPE-123"})
+
+            first = AGENT_TASK.worktree_statusline(
+                store,
+                width=58,
+                epoch=0,
+                current_task_id=current_id,
+            )
+            second = AGENT_TASK.worktree_statusline(
+                store,
+                width=58,
+                epoch=1,
+                current_task_id=current_id,
+            )
+            environment = os.environ.copy()
+            environment["AGENT_TASK_STATE_DIR"] = str(store.root)
+            environment["AI_TASK_ID"] = current_id
+            standalone = subprocess.run(
+                [sys.executable, str(STATUSLINE_SCRIPT), "--width", "58", "--epoch", "0"],
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            ).stdout.strip()
+
+        prefix = "WT 2 | *codex/environments@20:46[CAPE-123] | "
+        self.assertTrue(first.startswith(prefix), first)
+        self.assertTrue(second.startswith(prefix), second)
+        self.assertNotEqual(first, second)
+        self.assertNotIn("stale", first)
+        self.assertEqual(standalone, first)
+
+    def test_jira_context_can_be_set_and_cleared_without_the_task_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self.make_store(Path(directory))
+            task_id = "20260826-204635-a5bc90"
+            store.save(self.task(task_id, "environments"))
+            arguments = argparse.Namespace(task_id=task_id, jira="cape-456", clear_jira=False)
+
+            with (
+                store.lock(f"task:{task_id}"),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                AGENT_TASK.command_context(arguments, store)
+            self.assertEqual(AGENT_TASK.read_task_context(store, task_id)["jira_issue"], "CAPE-456")
+
+            arguments.clear_jira = True
+            with contextlib.redirect_stdout(io.StringIO()):
+                AGENT_TASK.command_context(arguments, store)
+            self.assertNotIn("jira_issue", AGENT_TASK.read_task_context(store, task_id))
+
+    def test_statusline_scroll_does_not_repeat_the_fixed_separator(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self.make_store(Path(directory))
+            current_id = "20260826-204635-a5bc90"
+            store.save(self.task(current_id, "environments"))
+            store.save(self.task("20260826-213159-dbda5e", "backend"))
+            store.save(self.task("20260826-211200-bcde12", "frontend"))
+
+            with mock.patch.object(AGENT_TASK, "render_worktree_statusline", STATUSLINE.render):
+                lines = [
+                    AGENT_TASK.worktree_statusline(
+                        store,
+                        width=54,
+                        epoch=epoch,
+                        current_task_id=current_id,
+                    )
+                    for epoch in range(80)
+                ]
+
+        self.assertTrue(any("·" in line for line in lines))
+        self.assertTrue(all("|  |" not in line for line in lines))
+
+    def test_jira_issue_is_detected_from_the_launch_description(self) -> None:
+        task = {"description": "Implement CAPE-789 without changing the API"}
+
+        self.assertEqual(AGENT_TASK.jira_issue_from_task_text(task), "CAPE-789")
+        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid Jira issue"):
+            AGENT_TASK.jira_issue_key("not a ticket")
+
+    def test_claude_native_worktree_is_visible_without_a_harness_task(self) -> None:
+        store = mock.Mock()
+        store.all.return_value = []
+        payload = {
+            "cwd": "/tmp/example",
+            "workspace": {
+                "current_dir": "/tmp/example",
+                "project_dir": "/tmp/example",
+                "git_worktree": "feature-demo",
+                "repo": {"name": "example"},
+            },
+        }
+
+        line = AGENT_TASK.worktree_statusline(
+            store,
+            width=80,
+            epoch=0,
+            current_directory="/tmp/example",
+            claude_payload=payload,
+        )
+
+        self.assertEqual(line, "WT 1 | *claude/example@feature-demo")
+
+    def test_codex_title_updates_disable_the_builtin_terminal_title(self) -> None:
+        command = AGENT_TASK.codex_worktree_title_command(
+            ["codex", "--dangerously-bypass-approvals-and-sandbox"]
+        )
+
+        self.assertEqual(command[1:3], ["-c", "tui.terminal_title=null"])
+        self.assertTrue(AGENT_TASK.interactive_codex_command(command))
+        self.assertEqual(
+            AGENT_TASK.codex_worktree_title_command(["codex", "exec", "true"]),
+            ["codex", "exec", "true"],
+        )
+
+    def test_staged_lifecycle_cli_loads_the_installed_statusline_module(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            staged = root / "version" / "agent-task"
+            module = root / "home" / ".local/bin/agent_statusline.py"
+            staged.parent.mkdir()
+            module.parent.mkdir(parents=True)
+            shutil.copy2(SCRIPT, staged)
+            shutil.copy2(STATUSLINE_SCRIPT, module)
+            environment = os.environ.copy()
+            environment["HOME"] = str(root / "home")
+
+            result = subprocess.run(
+                [sys.executable, str(staged), "--help"],
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Run coding agents", result.stdout)
 
 
 class HarnessTest(unittest.TestCase):

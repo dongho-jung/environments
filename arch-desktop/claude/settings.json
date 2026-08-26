@@ -27,6 +27,12 @@
       }
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "agent_statusline.py --claude",
+    "padding": 0,
+    "refreshInterval": 1
+  },
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto"
