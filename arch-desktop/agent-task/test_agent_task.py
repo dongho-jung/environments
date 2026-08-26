@@ -346,6 +346,31 @@ class LaunchBehaviorTest(unittest.TestCase):
         steer = next(request for request in socket.requests if request.get("method") == "turn/steer")
         self.assertEqual(steer["params"]["expectedTurnId"], "turn-active")
 
+    def test_codex_notification_fallback_does_not_write_to_the_tui(self) -> None:
+        with mock.patch.object(AGENT_TASK, "terminal_inbox_alert") as alert:
+            AGENT_TASK.fallback_terminal_inbox_alert(
+                ["codex", "--remote", "unix:///control.sock"],
+                "codex-session",
+                2,
+            )
+            AGENT_TASK.fallback_terminal_inbox_alert(
+                ["codex", "resume", "--last"],
+                "codex-session",
+                2,
+            )
+
+        alert.assert_not_called()
+
+    def test_non_codex_notification_keeps_the_terminal_fallback(self) -> None:
+        with mock.patch.object(AGENT_TASK, "terminal_inbox_alert") as alert:
+            AGENT_TASK.fallback_terminal_inbox_alert(
+                ["claude", "--continue"],
+                "claude-session",
+                1,
+            )
+
+        alert.assert_called_once_with("claude-session", 1)
+
     def test_handoff_accepts_a_durable_inbox_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / "state"

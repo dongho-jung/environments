@@ -1602,6 +1602,20 @@ def terminal_inbox_alert(session_id: str, count: int) -> None:
         os.close(descriptor)
 
 
+def fallback_terminal_inbox_alert(command: Sequence[str], session_id: str, count: int) -> None:
+    # A raw write races with Codex's full-screen renderer and can corrupt the
+    # alternate screen. Interactive Codex sessions keep the durable inbox and
+    # App Server retry path instead; terminal output remains the fallback for
+    # agents such as Claude that cannot wake an idle TUI through a local API.
+    if command_executable_index(command, "codex") is not None and codex_subcommand(command) in (
+        None,
+        "resume",
+        "fork",
+    ):
+        return
+    terminal_inbox_alert(session_id, count)
+
+
 def accepted_handoff_tasks(store: Store, session_id: str) -> list[str]:
     with store.lock(f"inbox:{session_id}"):
         inbox = read_session_inbox(store, session_id)
@@ -1807,14 +1821,14 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                                 notification_retry_at = None
                             except (AgentTaskError, OSError, json.JSONDecodeError) as error:
                                 notification_retry_at = time.monotonic() + 10.0
-                                terminal_inbox_alert(session_id, len(pending))
+                                fallback_terminal_inbox_alert(command, session_id, len(pending))
                                 update_session_metadata(
                                     Path(session_path),
                                     session_id,
                                     {"last_notification_error": str(error)},
                                 )
                         else:
-                            terminal_inbox_alert(session_id, len(pending))
+                            fallback_terminal_inbox_alert(command, session_id, len(pending))
                             notification_retry_at = None
 
                 if handoff_requested and not intentional_handoff:

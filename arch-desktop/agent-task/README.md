@@ -69,10 +69,12 @@ they do not handle.
 
 For Codex, every new interactive harness session gets its own `codex app-server`
 Unix socket. The supervisor uses the supported JSON-RPC interface to
-`turn/steer` the current turn or `turn/start` an idle one. For Claude, `Stop` and
-`UserPromptSubmit` hooks inject the same inbox event at the next safe lifecycle
-point; the supervisor also prints a terminal alert. Claude does not currently
-offer an equivalent supported local API for waking an already idle TUI.
+`turn/steer` the current turn or `turn/start` an idle one. Delivery failures stay
+in the durable inbox and retry without writing raw output into Codex's
+full-screen TUI. For Claude, `Stop` and `UserPromptSubmit` hooks inject the same
+inbox event at the next safe lifecycle point; the supervisor also prints a
+terminal alert. Claude does not currently offer an equivalent supported local
+API for waking an already idle TUI.
 
 The receiving agent finishes the smallest safe checkpoint and runs the command
 included in the event:
