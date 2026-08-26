@@ -180,7 +180,7 @@ class LaunchBehaviorTest(unittest.TestCase):
             self.assertNotIn("process", task)
             store.save.assert_called()
 
-    def test_launchers_use_managed_worktrees_by_default(self) -> None:
+    def test_launchers_follow_repository_checkout_policy(self) -> None:
         configuration = SCRIPT.parent.parent.joinpath("agent-task.tf").read_text()
         claude_settings = json.loads(SCRIPT.parent.parent.joinpath("claude/settings.json").read_text())
 
@@ -188,13 +188,14 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn('if [[ "$${1-}" == "resume" ]]', configuration)
         self.assertIn('if [[ "$${1-}" == "--new" ]]', configuration)
         self.assertIn('if [[ "$${1-}" == "--task" ]]', configuration)
-        self.assertIn("agent-task open --managed --agent codex", configuration)
+        self.assertIn("agent-task open --auto --agent codex", configuration)
         self.assertIn("agent-task open --managed --new --agent codex", configuration)
         self.assertIn("agent-task resume --agent codex", configuration)
-        self.assertIn("agent-task open --managed --agent claude", configuration)
+        self.assertIn("agent-task open --auto --agent claude", configuration)
         self.assertIn("agent-task open --managed --new --agent claude", configuration)
-        self.assertNotIn("agent-task open --auto --agent codex -- codex", configuration)
-        self.assertNotIn("agent-task open --auto --agent claude -- env", configuration)
+        self.assertIn("agent-task open --auto --agent codex -- codex", configuration)
+        self.assertIn("agent-task open --auto --agent claude -- env", configuration)
+        self.assertIn("agent-task open --auto --fresh --agent codex", configuration)
         self.assertIn("exec|e|apply|a|fork|cloud|cloud-tasks|sandbox", configuration)
         self.assertIn("--require-current", configuration)
         self.assertIn("agent-task resume --agent codex --", configuration)
@@ -214,6 +215,16 @@ class LaunchBehaviorTest(unittest.TestCase):
             claude_settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
             "agent-task __inbox-hook",
         )
+
+    def test_repository_memory_accepts_only_durable_checkout_modes(self) -> None:
+        memory = AGENT_TASK.memory_template("main")
+        for mode in AGENT_TASK.AGENT_TASK_MODES:
+            memory["settings"]["agent_task_mode"] = mode
+            self.assertIs(AGENT_TASK.validate_memory(memory), memory)
+
+        memory["settings"]["agent_task_mode"] = "sometimes"
+        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "agent_task_mode"):
+            AGENT_TASK.validate_memory(memory)
 
     def test_codex_notification_starts_an_idle_thread(self) -> None:
         class FakeSocket:
@@ -430,6 +441,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         with (
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value="current"),
             mock.patch.object(
                 AGENT_TASK,
                 "checkout_session_lock",
@@ -452,6 +464,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         with (
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value=None),
             mock.patch.object(
                 AGENT_TASK,
                 "checkout_session_lock",
@@ -474,6 +487,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         with (
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value=None),
             mock.patch.object(
                 AGENT_TASK,
                 "checkout_session_lock",
@@ -489,6 +503,44 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertTrue(start.call_args.args[0].new)
         self.assertTrue(start.call_args.args[0].isolate_from_active_checkout)
         self.assertIsNone(start.call_args.args[0].active_session_base_sha)
+
+    def test_worktree_policy_skips_the_current_checkout(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "isolated work", "--auto"])
+        arguments.command = []
+
+        with (
+            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value="worktree"),
+            mock.patch.object(AGENT_TASK, "checkout_session_lock") as checkout_lock,
+            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
+            mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
+        ):
+            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        checkout_lock.assert_not_called()
+        self.assertTrue(start.call_args.args[0].managed)
+
+    def test_current_policy_refuses_a_busy_checkout_without_fallback(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "serialized work", "--auto"])
+        arguments.command = []
+
+        with (
+            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value="current"),
+            mock.patch.object(
+                AGENT_TASK,
+                "checkout_session_lock",
+                return_value=contextlib.nullcontext(False),
+            ),
+            mock.patch.object(AGENT_TASK, "command_start") as start,
+            self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "repository policy"),
+        ):
+            AGENT_TASK.command_open(arguments, mock.Mock())
+
+        start.assert_not_called()
 
     def test_managed_open_starts_separately_when_another_task_is_active(self) -> None:
         arguments = AGENT_TASK.build_parser().parse_args(["open", "parallel work", "--managed"])
@@ -555,6 +607,7 @@ class LaunchBehaviorTest(unittest.TestCase):
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
+            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value="worktree"),
             mock.patch.object(AGENT_TASK, "checkout_session_lock") as checkout_lock,
             mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
         ):
@@ -787,6 +840,9 @@ class HarnessTest(unittest.TestCase):
         return json.loads((self.state / "tasks" / f"{task_id}.json").read_text())
 
     def test_auto_open_runs_natively_when_the_checkout_is_free(self) -> None:
+        memory = AGENT_TASK.memory_template("main")
+        memory["settings"]["agent_task_mode"] = "current"
+        AGENT_TASK.write_memory(self.repository / ".ai-memory", memory)
         result = self.cli(
             "open",
             "--auto",
@@ -802,6 +858,31 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(list((self.state / "tasks").glob("*.json")), [])
         self.assertEqual(self.git("status", "--porcelain").stdout, "")
+
+    def test_worktree_policy_isolates_and_integrates_the_first_task(self) -> None:
+        memory = AGENT_TASK.memory_template("main")
+        memory["settings"]["agent_task_mode"] = "worktree"
+        AGENT_TASK.write_memory(self.repository / ".ai-memory", memory)
+
+        result = self.cli(
+            "open",
+            "isolated by repository policy",
+            "--auto",
+            "--agent",
+            "custom",
+            "--",
+            "sh",
+            "-lc",
+            (
+                "printf 'isolated\\n' > policy-result.txt && "
+                "git add policy-result.txt && git commit -m 'feat: add policy result'"
+            ),
+            check=True,
+        )
+        task = self.task_from(result)
+
+        self.assertEqual(task["status"], AGENT_TASK.INTEGRATED)
+        self.assertEqual((self.repository / "policy-result.txt").read_text(), "isolated\n")
 
     def test_native_session_records_main_as_target_before_branch_contention(self) -> None:
         self.git("branch", "develop")

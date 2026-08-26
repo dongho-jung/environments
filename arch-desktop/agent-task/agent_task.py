@@ -52,6 +52,7 @@ LOCK_SESSION_PATH_ENV = "AGENT_TASK_LOCK_SESSION_PATH"
 LOCK_SESSION_ID_ENV = "AGENT_TASK_LOCK_SESSION_ID"
 AGENT_SESSION_PATH_ENV = "AGENT_TASK_SESSION_PATH"
 AGENT_SESSION_ID_ENV = "AGENT_TASK_SESSION_ID"
+AGENT_TASK_MODES = ("current", "worktree")
 MISSING = object()
 
 
@@ -580,6 +581,12 @@ def validate_memory(value: Any) -> dict[str, Any]:
     target = settings.get("integration_target")
     if target is not None and not isinstance(target, str):
         raise AgentTaskError(f"{MEMORY_NAME} settings.integration_target must be a string or null")
+    agent_task_mode = settings.get("agent_task_mode")
+    if agent_task_mode is not None and agent_task_mode not in AGENT_TASK_MODES:
+        choices = ", ".join(AGENT_TASK_MODES)
+        raise AgentTaskError(
+            f"{MEMORY_NAME} settings.agent_task_mode must be one of {choices}, or null"
+        )
     for key, memory in memories.items():
         if not isinstance(key, str) or not key or not isinstance(memory, dict):
             raise AgentTaskError(f"{MEMORY_NAME} memories must map non-empty keys to JSON objects")
@@ -917,6 +924,13 @@ def ensure_memory(store: Store, repository: Path, current_branch: str) -> tuple[
             raise AgentTaskError(f"{path} is not ignored; install the global {MEMORY_NAME} ignore first")
         value = read_memory(path)
     return path, value
+
+
+def repository_agent_task_mode(store: Store, repository: Path, checkout: Path) -> str | None:
+    current_branch = git(checkout, "branch", "--show-current").stdout.strip()
+    _path, memory = ensure_memory(store, repository, current_branch)
+    mode = memory.get("settings", {}).get("agent_task_mode")
+    return str(mode) if mode is not None else None
 
 
 def merge_memory(
@@ -3288,6 +3302,7 @@ def command_open(args: argparse.Namespace, store: Store) -> int:
         list(args.command) or default_agent_command(args.agent, args.description),
         lock_managed=True,
     )
+    fresh = bool(args.new or getattr(args, "fresh", False))
     if args.new:
         args.auto = False
         args.managed = True
@@ -3299,6 +3314,14 @@ def command_open(args: argparse.Namespace, store: Store) -> int:
         args.auto = True
     checkout = repo_root(Path(args.launch_cwd).resolve())
     repository = primary_worktree(checkout)
+    repository_mode: str | None = None
+    if args.auto and not getattr(args, "require_current", False):
+        repository_mode = repository_agent_task_mode(store, repository, checkout)
+        if repository_mode == "worktree":
+            args.auto = False
+            args.managed = True
+        elif repository_mode == "current":
+            args.require_current = True
     if args.auto:
         native_exit_code: int | None = None
         handoff_task_ids: list[str] = []
@@ -3334,6 +3357,10 @@ def command_open(args: argparse.Namespace, store: Store) -> int:
             retry_ready_integrations_for_repository(store, repository)
             return native_exit_code
         if getattr(args, "require_current", False):
+            if repository_mode == "current":
+                raise AgentTaskError(
+                    f"current checkout is busy; repository policy refuses a worktree fallback: {checkout}"
+                )
             raise AgentTaskError(
                 f"current checkout is busy; refusing to run this command against a different snapshot: {checkout}"
             )
@@ -3345,7 +3372,7 @@ def command_open(args: argparse.Namespace, store: Store) -> int:
         print(f"checkout already has an active agent: {checkout}\nstarting an isolated worktree")
         args.new = True
     tasks = refresh_interrupted_tasks(store, repository)
-    if not args.new:
+    if not (fresh or args.new):
         active = [
             task
             for task in tasks
@@ -3422,7 +3449,58 @@ def command_resume(args: argparse.Namespace, store: Store) -> int:
                 )
                 return command_recover(recovery_args, store)
 
-    print(f"resuming in a fresh managed worktree from: {checkout}")
+    repository_mode = repository_agent_task_mode(store, repository, checkout)
+    if repository_mode != "worktree":
+        native_exit_code: int | None = None
+        handoff_task_ids: list[str] = []
+        with checkout_session_lock(
+            store,
+            checkout,
+            record_session_base=True,
+            agent=args.agent,
+            working_directory=Path(args.launch_cwd),
+        ) as checkout_reservation:
+            if checkout_reservation:
+                print(f"resuming in checkout: {checkout}")
+                inherited = (
+                    tuple(checkout_reservation)
+                    if isinstance(checkout_reservation, CheckoutReservation)
+                    else ()
+                )
+                native_exit_code = launch_native_with_memory(
+                    args,
+                    store,
+                    repository,
+                    checkout,
+                    pass_fds=inherited,
+                    checkout_reservation=(
+                        checkout_reservation
+                        if isinstance(checkout_reservation, CheckoutReservation)
+                        else None
+                    ),
+                )
+                if isinstance(checkout_reservation, CheckoutReservation):
+                    handoff_task_ids = checkout_reservation.capture_handoff_tasks()
+                    checkout_reservation.release()
+        if native_exit_code is not None:
+            if native_exit_code == HANDOFF_EXIT_CODE and handoff_task_ids:
+                handoff_success = retry_handoff_integrations(store, handoff_task_ids)
+                retry_ready_integrations_for_repository(store, repository)
+                return 0 if handoff_success else 2
+            retry_ready_integrations_for_repository(store, repository)
+            return native_exit_code
+        if repository_mode == "current":
+            raise AgentTaskError(
+                f"current checkout is busy; repository policy refuses a worktree fallback: {checkout}"
+            )
+        active_session = read_active_checkout_session(store, checkout)
+        args.isolate_from_active_checkout = True
+        args.active_session_base_sha = active_session.get("base_sha") if active_session else None
+        args.active_session_source_branch = active_session.get("source_branch") if active_session else None
+        args.active_session_recorded_at = active_session.get("recorded_at") if active_session else None
+        print(f"checkout already has an active agent: {checkout}\nresuming in an isolated worktree")
+    else:
+        print(f"repository policy selected a managed worktree: {checkout}")
     return command_start(args, store)
 
 
@@ -4007,7 +4085,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-task", description="Run coding agents in disposable Git worktrees.")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
-    opening = subparsers.add_parser("open", help="launch natively, or isolate automatically when the checkout is busy")
+    opening = subparsers.add_parser("open", help="launch according to the repository's remembered checkout policy")
     opening.add_argument("description", nargs="?")
     opening.add_argument("--task", help="task description for a custom command")
     opening.add_argument("--agent", choices=("codex", "claude", "custom"), default="codex")
@@ -4020,9 +4098,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="per-check timeout in seconds (default: 3600)",
     )
     opening.add_argument("--no-integrate", action="store_true")
-    opening.add_argument("--auto", action="store_true", help="use this checkout when free, otherwise create a worktree")
+    opening.add_argument("--auto", action="store_true", help="follow settings.agent_task_mode from repository memory")
     opening.add_argument("--managed", action="store_true", help="resume or create a managed worktree task")
     opening.add_argument("--new", action="store_true", help="start separately even when interrupted work exists")
+    opening.add_argument("--fresh", action="store_true", help=argparse.SUPPRESS)
     opening.add_argument("--local", action="store_true", help="bypass checkout locking explicitly")
     opening.add_argument(
         "--require-current",
@@ -4034,7 +4113,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     resuming = subparsers.add_parser(
         "resume",
-        help="resume preserved work or attach a saved Codex chat to a managed worktree",
+        help="resume preserved work or attach a saved Codex chat using repository policy",
     )
     resuming.add_argument("session_id", nargs="?", help="Codex session id or name")
     resuming.add_argument("--agent", choices=("codex",), default="codex")
