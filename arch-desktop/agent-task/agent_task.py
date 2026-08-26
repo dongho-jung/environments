@@ -43,6 +43,7 @@ MAX_MEMORY_BYTES = 1024 * 1024
 MAX_INBOX_BYTES = 1024 * 1024
 DEFAULT_CHECK_TIMEOUT_SECONDS = 3600.0
 HANDOFF_EXIT_CODE = 75
+HANDOFF_CODEX_GRACE_SECONDS = 2.0
 SHELL_SIGINT_EXIT_CODE = 128 + int(signal.SIGINT)
 NOTIFICATION_PROTOCOL = 1
 LOCK_EXEC_SUBCOMMAND = "__lock-exec"
@@ -1808,6 +1809,14 @@ def terminate_process_tree_child(pid: int, signum: int) -> None:
         return
 
 
+def handoff_shutdown_signal(command: Sequence[str]) -> int:
+    # Codex documents Ctrl+C as a normal TUI exit. Let it restore terminal
+    # modes and leave the alternate screen before falling back to SIGTERM.
+    if interactive_codex_command(command):
+        return signal.SIGINT
+    return signal.SIGTERM
+
+
 def direct_child_pids(pid: int) -> list[int]:
     try:
         raw = Path(f"/proc/{pid}/task/{pid}/children").read_text()
@@ -1930,6 +1939,7 @@ def command_lock_exec(raw: Sequence[str]) -> int:
     control_status: int | None = None
     intentional_handoff = False
     handoff_deadline: float | None = None
+    handoff_force_deadline: float | None = None
     descendant_deadline: float | None = None
     notification_retry_at: float | None = None
     notification_closed = False
@@ -2014,8 +2024,20 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                         session_id,
                         {"handoff_task_ids": sorted(set(tasks))},
                     )
-                    terminate_process_tree_child(agent_pid, signal.SIGTERM)
+                    shutdown_signal = handoff_shutdown_signal(command)
+                    terminate_process_tree_child(agent_pid, shutdown_signal)
+                    if shutdown_signal == signal.SIGINT:
+                        handoff_force_deadline = time.monotonic() + HANDOFF_CODEX_GRACE_SECONDS
                     handoff_deadline = None
+
+                if (
+                    intentional_handoff
+                    and main_status is None
+                    and handoff_force_deadline is not None
+                    and time.monotonic() >= handoff_force_deadline
+                ):
+                    terminate_process_tree_child(agent_pid, signal.SIGTERM)
+                    handoff_force_deadline = None
 
             if main_status is not None and control_pid is not None and control_status is None:
                 try:

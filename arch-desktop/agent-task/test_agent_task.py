@@ -516,6 +516,18 @@ class LaunchBehaviorTest(unittest.TestCase):
 
         alert.assert_called_once_with("claude-session", 1)
 
+    def test_handoff_uses_a_graceful_signal_for_the_codex_tui(self) -> None:
+        self.assertEqual(
+            AGENT_TASK.handoff_shutdown_signal(
+                ["codex", "--remote", "unix:///control.sock", "resume", "thread-id"]
+            ),
+            AGENT_TASK.signal.SIGINT,
+        )
+        self.assertEqual(
+            AGENT_TASK.handoff_shutdown_signal(["claude", "--continue"]),
+            AGENT_TASK.signal.SIGTERM,
+        )
+
     def test_handoff_accepts_a_durable_inbox_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / "state"
