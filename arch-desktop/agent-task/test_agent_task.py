@@ -226,7 +226,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "agent_task_mode"):
             AGENT_TASK.validate_memory(memory)
 
-    def test_codex_notification_starts_an_idle_thread(self) -> None:
+    def test_codex_notification_starts_an_idle_remote_tui_thread(self) -> None:
         class FakeSocket:
             def __init__(self) -> None:
                 self.responses: list[str] = []
@@ -237,14 +237,21 @@ class LaunchBehaviorTest(unittest.TestCase):
                 self.requests.append(request)
                 if "id" not in request:
                     return
+                remote_tui = {
+                    "id": "thread-1",
+                    "cwd": "/repo",
+                    "source": "vscode",
+                    "status": {"type": "idle"},
+                }
+                source_kinds = request.get("params", {}).get("sourceKinds")
+                thread_data = [
+                    {"id": "stored-thread", "cwd": "/repo", "status": {"type": "notLoaded"}},
+                ]
+                if not source_kinds or remote_tui["source"] in source_kinds:
+                    thread_data.append(remote_tui)
                 results = {
                     "initialize": {},
-                    "thread/list": {
-                        "data": [
-                            {"id": "stored-thread", "cwd": "/repo", "status": {"type": "notLoaded"}},
-                            {"id": "thread-1", "cwd": "/repo", "status": {"type": "idle"}},
-                        ]
-                    },
+                    "thread/list": {"data": thread_data},
                     "turn/start": {"turn": {"id": "turn-1"}},
                 }
                 self.responses.append(json.dumps({"id": request["id"], "result": results[request["method"]]}))
@@ -272,6 +279,8 @@ class LaunchBehaviorTest(unittest.TestCase):
 
         methods = [request.get("method") for request in socket.requests]
         self.assertEqual(methods, ["initialize", "initialized", "thread/list", "turn/start"])
+        thread_list = next(request for request in socket.requests if request.get("method") == "thread/list")
+        self.assertEqual(thread_list["params"], {"cwd": "/repo"})
         turn_start = next(request for request in socket.requests if request.get("method") == "turn/start")
         self.assertEqual(turn_start["params"]["threadId"], "thread-1")
         self.assertEqual(turn_start["params"]["input"][0]["text"], "handoff now")

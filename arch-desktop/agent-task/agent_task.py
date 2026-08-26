@@ -1476,11 +1476,14 @@ async def _deliver_codex_prompt(
         await websocket.send(json.dumps({"method": "initialized", "params": {}}))
         request_id += 1
         for _attempt in range(3):
+            # App Server's interactive default includes both `cli` and `vscode`.
+            # A terminal UI connected with `codex --remote` currently reports the
+            # latter even when no VS Code client is involved.
             listed = await _codex_rpc_request(
                 websocket,
                 request_id,
                 "thread/list",
-                {"cwd": str(working_directory.resolve()), "sourceKinds": ["cli", "appServer"]},
+                {"cwd": str(working_directory.resolve())},
             )
             request_id += 1
             threads = listed.get("data", []) if isinstance(listed, dict) else []
@@ -1492,14 +1495,14 @@ async def _deliver_codex_prompt(
                 and thread.get("cwd") == str(working_directory.resolve())
             ]
             if not exact:
-                raise AgentTaskError("Codex App Server has no CLI thread for this checkout")
+                raise AgentTaskError("Codex App Server has no interactive thread for this checkout")
             receivable = [
                 thread
                 for thread in exact
                 if codex_status_type(thread.get("status")) in ("active", "idle")
             ]
             if not receivable:
-                raise AgentTaskError("Codex App Server has no loaded CLI thread for this checkout")
+                raise AgentTaskError("Codex App Server has no loaded interactive thread for this checkout")
             thread = next(
                 (thread for thread in receivable if codex_status_type(thread.get("status")) == "active"),
                 receivable[0],
