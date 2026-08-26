@@ -168,6 +168,9 @@ agent-task start "implement feature X" --agent codex
 agent-task start "implement feature X" --agent claude --target develop
 agent-task start --agent custom --task "custom run" -- ./runner
 
+agent-task context --jira CAPE-123
+agent-task context --clear-jira
+agent-task statusline
 agent-task list
 agent-task status TASK_ID
 agent-task inbox
@@ -185,6 +188,41 @@ timeout (override with `--check-timeout SECONDS`), and must leave both candidate
 HEAD and all tracked or non-ignored untracked files unchanged. Changed Terraform
 files also run `terraform fmt -check` from the candidate root when Terraform is
 installed. v1 does not guess application-specific build or test commands.
+
+## Agent status display
+
+`agent-task statusline` reads the local task registry and prints only managed
+worktrees whose recorded process identity is still alive. The compact format
+shows the task count, current task (`*`), agent, repository, start time, attached
+secondary repositories (`+`), and an owning Jira issue when one is known:
+
+```text
+WT 3 | *codex/backend@21:31[CAPE-123] | claude/web@21:18 | codex/infra@20:54+
+```
+
+The current entry stays pinned. If the remaining entries do not fit the
+terminal width, they move by one character per second in a repeating marquee.
+Claude runs the lightweight `agent_statusline.py --claude` renderer through its
+native status-line API;
+the command also recognizes Claude's current built-in Git worktree from the JSON
+payload. Codex accepts only built-in footer fields, so supervised interactive
+Codex sessions instead update the Kitty terminal title while disabling Codex's
+own terminal-title writer. Kitty keeps a one-row bottom tab bar visible even for
+a single tab, making that title an equivalent persistent status row.
+
+A Jira-shaped key in the task's launch description is detected automatically.
+When an agent selects or creates the issue later, it records display-only local
+context without touching Jira:
+
+```sh
+agent-task context --jira CAPE-123
+agent-task context --clear-jira
+```
+
+The context command defaults to `AI_TASK_ID` and writes a separate local context
+record, so it does not contend with the lifecycle lock held by the running task.
+The status renderer never polls Jira; normal Jira assignment, transitions,
+comments, and completion remain owned by the Jira workflow.
 
 ## Repository memory
 

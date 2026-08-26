@@ -33,7 +33,17 @@ resource "host_link" "agent_task" {
   depends_on = [
     host_package_pacman.git,
     host_package_pacman.python_websockets,
+    host_link.agent_task_statusline,
   ]
+}
+
+# Claude starts this small read-only renderer every second. Keeping it separate
+# from the lifecycle CLI avoids reparsing the much larger supervisor on each tick.
+resource "host_link" "agent_task_statusline" {
+  source       = "agent-task/agent_statusline.py"
+  destination  = "${host_dir.local_bin.path}/agent_statusline.py"
+  stage_source = true
+
 }
 
 # Interactive Codex and Claude tasks follow settings.agent_task_mode in each
