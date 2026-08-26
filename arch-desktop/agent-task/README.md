@@ -23,17 +23,21 @@ settings.agent_task_mode=worktree -> managed worktree -> clean commit -> integra
 ```
 
 Managed task state is keyed by repository and agent. One interrupted task
-resumes automatically; several produce a small picker. Recovery reuses the exact
-worktree path. Codex recovery asks App Server for the newest chat whose current
-working directory exactly matches that worktree and resumes it by ID; if the
-first launch ended before a chat was saved, recovery opens a fresh chat over the
-preserved files. Claude recovery runs `claude --continue`.
+resumes automatically; several produce a small picker. A managed Codex process
+uses the stable original repository-relative path as its session cwd while
+`AI_TASK_WORKTREE` and `AI_TASK_WORKDIR` identify the isolated repository and
+starting directory it must edit. The worktree is also passed through Codex's
+`--add-dir`. Claude and legacy Codex tasks continue directly in their assigned
+worktree. Codex recovery asks App Server for the newest chat whose cwd exactly
+matches the preserved task's session cwd and resumes it by ID; if no matching
+chat was saved, it opens a fresh chat over the preserved files. Claude recovery
+runs `claude --continue`.
 
 Codex's built-in `/resume` picker is scoped to the current working directory.
-It therefore works normally in `current` mode. Use `o resume` to cross a
-worktree boundary: it first offers preserved tasks from the current repository,
-then runs the all-directory picker with `tui.resume_cwd=current`.
-The selected chat follows the same remembered repository policy.
+New managed chats therefore stay grouped under the original repository path
+instead of disposable worktree paths. `o resume` still offers preserved tasks
+first and can use the all-directory picker for legacy saved chats. The selected
+chat follows the same remembered repository policy.
 
 ## Repository checkout policy
 
@@ -71,10 +75,12 @@ they do not handle.
 
 For Codex, every new interactive harness session gets its own `codex app-server`
 Unix socket. The supervisor uses the supported JSON-RPC interface to
-`turn/steer` the current turn or `turn/start` an idle one. For Claude, `Stop` and
-`UserPromptSubmit` hooks inject the same inbox event at the next safe lifecycle
-point; the supervisor also prints a terminal alert. Claude does not currently
-offer an equivalent supported local API for waking an already idle TUI.
+`turn/steer` the current turn or `turn/start` an idle one. Delivery failures stay
+in the durable inbox and retry without writing raw output into Codex's
+full-screen TUI. For Claude, `Stop` and `UserPromptSubmit` hooks inject the same
+inbox event at the next safe lifecycle point; the supervisor also prints a
+terminal alert. Claude does not currently offer an equivalent supported local
+API for waking an already idle TUI.
 
 The receiving agent finishes the smallest safe checkpoint and runs the command
 included in the event:
@@ -220,9 +226,12 @@ session exits.
 
 ## Lifecycle and cleanup
 
-- Managed agents start in the assigned worktree but run with normal filesystem
-  access. There is no Bubblewrap mount namespace, path allowlist, or Git command
-  wrapper.
+- Managed Codex sessions keep the original checkout as their logical cwd for
+  stable history and receive the assigned worktree through `--add-dir`; their
+  instructions require all repository work under `AI_TASK_WORKDIR`. Claude and
+  custom agents start in the assigned worktree. All agents run with normal
+  filesystem access; there is no Bubblewrap mount namespace, path allowlist, or
+  Git command wrapper.
 - The harness owns only the assigned repository's temporary branch, worktree,
   integration, and cleanup lifecycle. It does not restrict filesystem paths,
   network access, remote status inspection, other repositories, or otherwise
