@@ -23,15 +23,19 @@ settings.agent_task_mode=worktree -> managed worktree -> clean commit -> integra
 ```
 
 Managed task state is keyed by repository and agent. One interrupted task
-resumes automatically; several produce a small picker. Recovery reuses the exact
-worktree path and runs `codex resume --last` or `claude --continue`, so the
+resumes automatically; several produce a small picker. A managed Codex process
+uses the stable original repository-relative path as its session cwd while
+`AI_TASK_WORKTREE` and `AI_TASK_WORKDIR` identify the isolated repository and
+starting directory it must edit. The worktree is also passed through Codex's
+`--add-dir`. Claude and legacy Codex tasks continue directly in their assigned
+worktree. Recovery runs `codex resume --last` or `claude --continue`, so the
 original conversation is restored without remembering a session ID.
 
 Codex's built-in `/resume` picker is scoped to the current working directory.
-It therefore works normally in `current` mode. Use `o resume` to cross a
-worktree boundary: it first offers preserved tasks from the current repository,
-then runs the all-directory picker with `tui.resume_cwd=current`.
-The selected chat follows the same remembered repository policy.
+New managed chats therefore stay grouped under the original repository path
+instead of disposable worktree paths. `o resume` still offers preserved tasks
+first and can use the all-directory picker for legacy saved chats. The selected
+chat follows the same remembered repository policy.
 
 ## Repository checkout policy
 
@@ -220,9 +224,12 @@ session exits.
 
 ## Lifecycle and cleanup
 
-- Managed agents start in the assigned worktree but run with normal filesystem
-  access. There is no Bubblewrap mount namespace, path allowlist, or Git command
-  wrapper.
+- Managed Codex sessions keep the original checkout as their logical cwd for
+  stable history and receive the assigned worktree through `--add-dir`; their
+  instructions require all repository work under `AI_TASK_WORKDIR`. Claude and
+  custom agents start in the assigned worktree. All agents run with normal
+  filesystem access; there is no Bubblewrap mount namespace, path allowlist, or
+  Git command wrapper.
 - The harness owns only the assigned repository's temporary branch, worktree,
   integration, and cleanup lifecycle. It does not restrict filesystem paths,
   network access, remote status inspection, other repositories, or otherwise
