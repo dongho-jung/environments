@@ -89,7 +89,7 @@ resource "host_file_block" "agent_task_functions" {
         return
       fi
       if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        local codex_arg codex_has_cd=0
+        local codex_has_cd=0
         for codex_arg in "$@"; do
           case "$codex_arg" in
             --) break ;;

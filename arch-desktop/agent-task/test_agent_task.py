@@ -361,6 +361,8 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertNotIn("tab_bar_min_tabs 1", kitty_configuration)
         self.assertNotIn('tab_title_template " {title} "', kitty_configuration)
         self.assertNotIn("tui.terminal_title", SCRIPT.read_text())
+        self.assertEqual(configuration.count('local codex_project="$PWD" codex_arg'), 1)
+        self.assertNotIn("local codex_arg codex_has_cd=0", configuration)
 
     def test_repository_memory_has_no_checkout_mode(self) -> None:
         memory = AGENT_TASK.memory_template("main")
