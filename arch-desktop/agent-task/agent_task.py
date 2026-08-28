@@ -3067,7 +3067,7 @@ def candidate_is_unchanged(candidate: Path, expected_head: str) -> tuple[bool, s
 
 
 def validate_candidate(
-    store: Store,
+    store: Store | None,
     task: dict[str, Any],
     candidate: Path,
     target_sha: str,
@@ -3078,7 +3078,8 @@ def validate_candidate(
     unchanged, reason = candidate_is_unchanged(candidate, expected_head)
     if not unchanged:
         task["validation_failure"] = {"reason": reason}
-        store.save(task)
+        if store is not None:
+            store.save(task)
         return False
     for command, working_directory in validation_commands(task, candidate, target_sha):
         print(f"validate: {shlex.join(command)}")
@@ -3093,7 +3094,8 @@ def validate_candidate(
             task["validation_process"] = validation_owner
         else:
             task.pop("validation_process", None)
-        store.save(task)
+        if store is not None:
+            store.save(task)
         timed_out = False
         timeout = float(task.get("check_timeout_seconds", DEFAULT_CHECK_TIMEOUT_SECONDS))
         try:
@@ -3119,7 +3121,8 @@ def validate_candidate(
             raise
         finally:
             task.pop("validation_process", None)
-            store.save(task)
+            if store is not None:
+                store.save(task)
         unchanged, reason = candidate_is_unchanged(candidate, expected_head)
         if not unchanged:
             task["validation_failure"] = {
@@ -3127,7 +3130,8 @@ def validate_candidate(
                 "exit_code": exit_code,
                 "reason": reason,
             }
-            store.save(task)
+            if store is not None:
+                store.save(task)
             return False
         if timed_out:
             task["validation_failure"] = {
@@ -3135,14 +3139,17 @@ def validate_candidate(
                 "exit_code": 124,
                 "reason": f"validation exceeded {timeout:g} seconds",
             }
-            store.save(task)
+            if store is not None:
+                store.save(task)
             return False
         if exit_code:
             task["validation_failure"] = {"command": command, "exit_code": exit_code}
-            store.save(task)
+            if store is not None:
+                store.save(task)
             return False
     task.pop("validation_failure", None)
-    store.save(task)
+    if store is not None:
+        store.save(task)
     return True
 
 
@@ -3561,6 +3568,136 @@ def integrate_task_with_repository_reserved(
 
     cleanup_task(store, task, repository_reserved=True)
     return bool(task.get("integrated_commit"))
+
+
+def publish_task_checkpoint(store: Store, task: dict[str, Any]) -> dict[str, str]:
+    if task.get("status") != RUNNING or not process_alive(task.get("process")):
+        raise AgentTaskError(f"task is not actively running: {task['task_id']}")
+    path = managed_worktree_path(store, task)
+    normal, _ignored = worktree_changes(path)
+    if normal:
+        raise AgentTaskError(f"publish requires a clean committed worktree: {normal[:20]}")
+    branch = git(path, "branch", "--show-current").stdout.strip()
+    if branch != task.get("branch"):
+        raise AgentTaskError(f"unexpected task branch: {branch or '(detached)'}")
+    result_commit = ref(path, "HEAD")
+    base_sha = task.get("base_sha")
+    if not isinstance(base_sha, str) or not is_ancestor(Path(task["repository"]), base_sha, result_commit):
+        raise AgentTaskError("publish result does not descend from the recorded task base")
+
+    repository = Path(task["repository"])
+    target = task.get("target_branch")
+    if not isinstance(target, str) or not target or not branch_exists(repository, target):
+        raise AgentTaskError(f"publish target branch is unavailable: {target or '(missing)'}")
+    candidate = store.integrations / repo_key(repository) / f"{task['task_id']}-publish"
+    try:
+        with store.lock(f"publish:{task['task_id']}", blocking=False):
+            with store.lock(f"integrate:{common_dir(repository)}:{target}", blocking=False):
+                with repository_activity_lock(
+                    store,
+                    repository,
+                    # The active source session already owns a shared activity lease.
+                    # Publish serializes the target ref separately and reserves only
+                    # its checkout, leaving independent task worktrees active.
+                    exclusive=False,
+                    blocking=False,
+                ) as repository_available:
+                    if not repository_available:
+                        raise AgentTaskError("repository has another active lifecycle operation")
+                    target_sha = ref(repository, f"refs/heads/{target}")
+                    if not is_ancestor(repository, base_sha, target_sha):
+                        raise AgentTaskError("target no longer descends from the recorded task base")
+                    if is_ancestor(repository, result_commit, target_sha):
+                        return {
+                            "result_commit": result_commit,
+                            "published_commit": target_sha,
+                            "strategy": "already-present",
+                        }
+                    findings = forbidden_history(repository, result_commit, target_sha)
+                    if findings:
+                        paths = sorted({name for finding in findings for name in finding["paths"]})
+                        raise AgentTaskError(
+                            f"publish result tracks forbidden paths: {', '.join(paths)}"
+                        )
+                    if not remove_integration_worktree(repository, candidate):
+                        raise AgentTaskError(
+                            f"stale publish candidate could not be removed: {candidate}"
+                        )
+                    checkout = target_checkout(repository, target)
+                    checkout_reservation = (
+                        contextlib.nullcontext(True)
+                        if checkout is None or checkout.resolve() == path
+                        else checkout_lock_files(store, checkout)
+                    )
+                    with checkout_reservation as checkout_available:
+                        if not checkout_available:
+                            raise AgentTaskError(f"target checkout has an active agent: {checkout}")
+                        if checkout and worktree_changes(checkout)[0]:
+                            raise AgentTaskError(f"target checkout is dirty: {checkout}")
+                        candidate_head, strategy = create_integration_candidate(
+                            repository,
+                            task,
+                            target_sha,
+                            result_commit,
+                            candidate,
+                        )
+                        if candidate_head is None:
+                            raise AgentTaskError("publish candidate conflicts with the current target")
+                        validation_task = dict(task)
+                        if not validate_candidate(
+                            None,
+                            validation_task,
+                            candidate,
+                            target_sha,
+                            candidate_head,
+                        ):
+                            failure = validation_task.get("validation_failure")
+                            raise AgentTaskError(f"publish candidate failed validation: {failure}")
+                        unchanged, reason = candidate_is_unchanged(candidate, candidate_head)
+                        if not unchanged:
+                            raise AgentTaskError(f"publish candidate changed after validation: {reason}")
+                        if ref(path, "HEAD") != result_commit or worktree_changes(path)[0]:
+                            raise AgentTaskError("task worktree changed while publish was validating")
+                        if not trees_differ(repository, target_sha, candidate_head):
+                            return {
+                                "result_commit": result_commit,
+                                "published_commit": target_sha,
+                                "strategy": "redundant",
+                            }
+                        advance_error = advance_integration_target(
+                            repository,
+                            target,
+                            target_sha,
+                            candidate_head,
+                            checkout,
+                        )
+                        if advance_error:
+                            raise AgentTaskError(f"publish target changed: {advance_error}")
+                        if strategy == "merge":
+                            synchronized = git(
+                                path,
+                                "-c",
+                                "core.hooksPath=/dev/null",
+                                "merge",
+                                "--ff-only",
+                                candidate_head,
+                                check=False,
+                            )
+                            if synchronized.returncode:
+                                print(
+                                    "agent-task: published target but could not fast-forward the active "
+                                    f"task branch: {path}",
+                                    file=sys.stderr,
+                                )
+                        return {
+                            "result_commit": result_commit,
+                            "published_commit": candidate_head,
+                            "strategy": strategy,
+                        }
+    except LockBusy as error:
+        raise AgentTaskError("another publish or integration is running") from error
+    finally:
+        remove_integration_worktree(repository, candidate)
 
 
 def finalize_task(store: Store, task: dict[str, Any], *, integrate: bool, trust_clean_commit: bool = False) -> None:
@@ -4454,6 +4591,28 @@ def command_integrate(args: argparse.Namespace, store: Store) -> int:
     return 0 if success else 2
 
 
+def command_publish(args: argparse.Namespace, store: Store) -> int:
+    current_task_id = os.environ.get("AI_TASK_ID")
+    current_worktree = os.environ.get("AI_TASK_WORKTREE")
+    if os.environ.get("AI_TASK_HARNESS") != "agent-task" or not current_task_id or not current_worktree:
+        raise AgentTaskError("publish must run from an active managed agent session")
+    current = store.load(current_task_id)
+    if Path(current_worktree).resolve() != Path(current["worktree_path"]).resolve():
+        raise AgentTaskError("managed publish context does not match the active task")
+    task_id = args.task_id or current_task_id
+    task = store.load(task_id)
+    if task_id != current_task_id and task.get("attachment_parent_task_id") != current_task_id:
+        raise AgentTaskError("publish can target only the current task or one of its attachments")
+
+    result = publish_task_checkpoint(store, task)
+    target = str(task.get("target_branch") or "target")
+    print(
+        f"{task_id}: {result['strategy']} publish "
+        f"{result['result_commit'][:12]} -> {target}@{result['published_commit'][:12]}"
+    )
+    return 0
+
+
 def retry_handoff_integrations(store: Store, task_ids: Sequence[str]) -> bool:
     success = True
     for task_id in dict.fromkeys(task_ids):
@@ -4988,6 +5147,12 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="show task metadata")
     status.add_argument("task_id", nargs="?")
     status.set_defaults(func=command_status)
+    publish = subparsers.add_parser(
+        "publish",
+        help="publish a clean committed checkpoint while keeping the agent session active",
+    )
+    publish.add_argument("task_id", nargs="?", help="current task or one of its attachments")
+    publish.set_defaults(func=command_publish)
     integrate = subparsers.add_parser("integrate", help="retry integration")
     integrate.add_argument("task_id")
     integrate.set_defaults(func=command_integrate)

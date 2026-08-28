@@ -1425,11 +1425,20 @@ class HarnessTest(unittest.TestCase):
             f"script={str(SCRIPT)!r}; secondary={str(secondary)!r}; "
             "attached=subprocess.run([sys.executable,script,'attach',secondary],"
             "check=True,text=True,stdout=subprocess.PIPE); "
+            "task_id=next(line.removeprefix('task: ') for line in "
+            "attached.stdout.splitlines() if line.startswith('task: ')); "
             "worktree=Path(next(line.removeprefix('worktree: ') for line in "
             "attached.stdout.splitlines() if line.startswith('worktree: '))); "
             "worktree.joinpath('secondary.txt').write_text('attached\\n'); "
             "subprocess.run(['git','add','secondary.txt'],cwd=worktree,check=True); "
-            "subprocess.run(['git','commit','-m','feat: add attached result'],cwd=worktree,check=True)"
+            "subprocess.run(['git','commit','-m','feat: add attached result'],cwd=worktree,check=True); "
+            "subprocess.run([sys.executable,script,'publish',task_id],check=True); "
+            "published=subprocess.run(['git','show','main:secondary.txt'],cwd=secondary,"
+            "check=True,text=True,stdout=subprocess.PIPE).stdout; "
+            "assert published == 'attached\\n'; "
+            "worktree.joinpath('secondary-later.txt').write_text('later\\n'); "
+            "subprocess.run(['git','add','secondary-later.txt'],cwd=worktree,check=True); "
+            "subprocess.run(['git','commit','-m','feat: continue attached work'],cwd=worktree,check=True)"
         )
         result = self.cli(
             "open",
@@ -1447,6 +1456,7 @@ class HarnessTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((secondary / "secondary.txt").read_text(), "attached\n")
+        self.assertEqual((secondary / "secondary-later.txt").read_text(), "later\n")
         self.assertEqual(self.git("branch", "--show-current", cwd=secondary).stdout.strip(), "main")
         tasks = [json.loads(path.read_text()) for path in (self.state / "tasks").glob("*.json")]
         attachment = next(task for task in tasks if task.get("attachment_parent_task_id"))
@@ -2098,6 +2108,106 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(self.git("log", "-1", "--format=%s", "main").stdout.strip(), "feat: add feature")
         self.assertEqual(task["integration_strategy"], "fast-forward")
         self.assertEqual(len(self.git("rev-list", "--parents", "-1", "main").stdout.split()), 2)
+
+    def test_active_task_can_publish_and_keep_working(self) -> None:
+        base = self.git("rev-parse", "main").stdout.strip()
+        python = shlex.quote(sys.executable)
+        script = shlex.quote(str(SCRIPT))
+        repository = shlex.quote(str(self.repository))
+        result = self.cli(
+            "start",
+            "publish before deployment",
+            "--agent",
+            "custom",
+            "--",
+            "sh",
+            "-lc",
+            (
+                "printf 'published\\n' > published.txt && "
+                "git add published.txt && git commit -m 'feat: publish checkpoint' && "
+                f"{python} {script} publish && "
+                f"test \"$(git -C {repository} show main:published.txt)\" = published && "
+                "printf 'continued\\n' > continued.txt && "
+                "git add continued.txt && git commit -m 'feat: continue after publish'"
+            ),
+            check=True,
+        )
+        task = self.task_from(result)
+
+        self.assertIn("fast-forward publish", result.stdout)
+        self.assertEqual(task["status"], AGENT_TASK.INTEGRATED)
+        self.assertEqual((self.repository / "published.txt").read_text(), "published\n")
+        self.assertEqual((self.repository / "continued.txt").read_text(), "continued\n")
+        self.assertEqual(
+            self.git("rev-list", "--merges", f"{base}..main").stdout.strip(),
+            "",
+        )
+
+    def test_active_task_can_publish_while_another_task_runs(self) -> None:
+        ready = self.state / "parallel-publish-ready"
+        release = self.state / "parallel-publish-release"
+        holder = subprocess.Popen(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "start",
+                "hold an independent worktree",
+                "--agent",
+                "custom",
+                "--",
+                "sh",
+                "-lc",
+                (
+                    f"touch {shlex.quote(str(ready))}; "
+                    f"while [ ! -e {shlex.quote(str(release))} ]; do sleep 0.02; done"
+                ),
+            ],
+            cwd=self.repository,
+            env=self.cli_environment(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            deadline = time.monotonic() + 10
+            while not ready.exists() and holder.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(ready.exists(), "parallel task did not become ready")
+
+            python = shlex.quote(sys.executable)
+            script = shlex.quote(str(SCRIPT))
+            repository = shlex.quote(str(self.repository))
+            published = self.cli(
+                "start",
+                "publish alongside another task",
+                "--agent",
+                "custom",
+                "--",
+                "sh",
+                "-lc",
+                (
+                    "printf 'parallel publish\\n' > parallel-publish.txt && "
+                    "git add parallel-publish.txt && "
+                    "git commit -m 'feat: publish alongside another task' && "
+                    f"{python} {script} publish && "
+                    f"test \"$(git -C {repository} show main:parallel-publish.txt)\" = 'parallel publish'"
+                ),
+            )
+            task = self.task_from(published)
+            self.assertEqual(published.returncode, 2, published.stderr)
+            self.assertIn("fast-forward publish", published.stdout)
+            self.assertEqual((self.repository / "parallel-publish.txt").read_text(), "parallel publish\n")
+
+            release.write_text("release\n")
+            holder_stdout, holder_stderr = holder.communicate(timeout=20)
+        finally:
+            if holder.poll() is None:
+                holder.terminate()
+                holder.wait(timeout=5)
+
+        self.assertEqual(holder.returncode, 0, f"stdout:\n{holder_stdout}\nstderr:\n{holder_stderr}")
+        updated = json.loads((self.state / "tasks" / f"{task['task_id']}.json").read_text())
+        self.assertEqual(updated["status"], AGENT_TASK.INTEGRATED)
 
     def test_diverged_task_uses_a_meaningful_merge_message(self) -> None:
         result = self.cli(
