@@ -13,9 +13,12 @@ file edits and commits, while the harness owns integration and cleanup for its
 one assigned repository.
 
 ```text
-ordinary repository launch -> managed worktree -> clean commit
-                                             |-- publish -> target; session continues
-                                             `-- exit -> integrate -> cleanup/recovery
+interactive Codex launch -> reserved path -> first prompt -> semantic worktree
+Claude/custom launch -------------------------------> managed worktree
+                                                          |
+                                                          `-> clean commit
+                                                              |-- publish -> target; session continues
+                                                              `-- exit -> integrate -> cleanup/recovery
 ```
 
 Managed task state is keyed by repository and agent. One interrupted task
@@ -24,6 +27,14 @@ uses the stable original repository-relative path as its session cwd while
 `AI_TASK_WORKTREE` and `AI_TASK_WORKDIR` identify the isolated repository and
 starting directory it must edit. The worktree is also passed through Codex's
 `--add-dir`. Claude and custom tasks run directly in their assigned worktree.
+For a new interactive Codex task, the harness starts the TUI with an empty
+reserved path and no task branch. Its trusted `UserPromptSubmit` hook asks an
+ephemeral, read-only Luna turn for a short semantic slug, then creates the Git
+branch and worktree synchronously before the first model turn begins. Branches
+use `ai/codex/<slug>-<unique-suffix>`; secondary repositories attached later in
+the session reuse the same slug with their own suffix. If naming fails or times
+out, a deterministic whole-word fallback still provisions the worktree. This
+names Git resources only and never renames the Codex conversation.
 Codex recovery asks App Server for the newest chat whose cwd exactly
 matches the preserved task's session cwd and resumes it by ID; if no matching
 chat was saved, it opens a fresh chat over the preserved files. Claude recovery
@@ -49,7 +60,9 @@ Unix socket. The supervisor uses the supported JSON-RPC interface to
 in the durable inbox and retry without writing raw output into Codex's
 full-screen TUI. The App Server and foreground TUI inherit the same durable
 session identity, so tool subprocesses can accept the delivered handoff command
-without reconstructing private state paths. For Claude, `Stop` and
+without reconstructing private state paths. The pending-task first-prompt hook
+is installed only on this private App Server, avoiding duplicate client/server
+hook execution. For Claude, `Stop` and
 `UserPromptSubmit` hooks inject the same
 inbox event at the next safe lifecycle point; the supervisor also prints a
 terminal alert. Claude does not currently offer an equivalent supported local

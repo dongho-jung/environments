@@ -97,6 +97,87 @@ class LaunchBehaviorTest(unittest.TestCase):
         )
         self.assertEqual(popen.call_args.kwargs["env"]["AI_TASK_WORKDIR"], str(task_directory))
 
+    def test_pending_codex_reserves_its_future_worktree_without_a_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            origin = root / "original" / "nested"
+            worktree = root / "worktree"
+            origin.mkdir(parents=True)
+            worktree.mkdir()
+            task = {
+                "task_id": "20260828-180610-d84970",
+                "worktree_path": str(worktree),
+                "workdir_relative": "nested",
+                "origin_working_directory": str(origin),
+                "branch": None,
+                "target_branch": "main",
+                "agent": "codex",
+                "worktree_state": AGENT_TASK.WORKTREE_PENDING,
+            }
+
+            command = AGENT_TASK.managed_agent_command(
+                task,
+                ["codex", "--dangerously-bypass-approvals-and-sandbox"],
+            )
+            repeated = AGENT_TASK.managed_agent_command(task, command)
+            with mock.patch.dict(os.environ, {"AI_TASK_BRANCH": "stale"}, clear=False):
+                environment = AGENT_TASK.task_environment(task)
+
+        self.assertEqual(command, repeated)
+        self.assertIn("--add-dir", command)
+        self.assertIn(str(worktree), command)
+        self.assertNotIn("--dangerously-bypass-hook-trust", command)
+        self.assertNotIn("AI_TASK_BRANCH", environment)
+        self.assertEqual(environment["AI_TASK_WORKDIR"], str(worktree / "nested"))
+
+    def test_pending_codex_reload_preserves_hook_provisioning(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = Path(directory) / "worktree"
+            origin = Path(directory) / "origin"
+            worktree.mkdir()
+            origin.mkdir()
+            task = {
+                "task_id": "20260828-180610-d84970",
+                "worktree_path": str(worktree),
+                "workdir_relative": ".",
+                "origin_working_directory": str(origin),
+                "branch": None,
+                "target_branch": "main",
+                "agent": "codex",
+                "worktree_state": AGENT_TASK.WORKTREE_PENDING,
+            }
+            registry: dict[str, object] = {}
+            store = mock.Mock()
+
+            def save(value: dict[str, object]) -> None:
+                registry.clear()
+                registry.update(value)
+
+            def wait() -> int:
+                registry["branch"] = "ai/codex/fix-login-d84970"
+                registry["worktree_state"] = AGENT_TASK.WORKTREE_READY
+                registry["provisioning_slug"] = "fix-login"
+                return 0
+
+            store.save.side_effect = save
+            store.load.side_effect = lambda _task_id: dict(registry)
+            process = mock.Mock(pid=12345)
+            process.wait.side_effect = wait
+
+            with (
+                mock.patch.object(AGENT_TASK.subprocess, "Popen", return_value=process),
+                mock.patch.object(AGENT_TASK, "process_start", return_value="start"),
+            ):
+                exit_code = AGENT_TASK.launch_agent(
+                    store,
+                    task,
+                    ["codex", "--dangerously-bypass-approvals-and-sandbox"],
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(task["branch"], "ai/codex/fix-login-d84970")
+        self.assertEqual(task["worktree_state"], AGENT_TASK.WORKTREE_READY)
+
     def test_interactive_codex_sigint_is_recorded_as_graceful(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             task = {
@@ -373,6 +454,37 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(resumed[:10], [*prefix, "resume"])
         self.assertIsNone(review)
 
+    def test_codex_app_server_owns_the_first_prompt_provisioning_hook(self) -> None:
+        socket = Path("/state/controls/session.sock")
+        hook = AGENT_TASK.codex_provision_hook_config()
+
+        pending = AGENT_TASK.codex_app_server_command(
+            ["codex", "--add-dir", "/state/worktree"],
+            socket,
+            provision_hook=True,
+        )
+        ready = AGENT_TASK.codex_app_server_command(
+            ["codex", "--add-dir", "/state/worktree"],
+            socket,
+            provision_hook=False,
+        )
+
+        self.assertEqual(
+            pending,
+            [
+                "codex",
+                "--dangerously-bypass-hook-trust",
+                "-c",
+                hook,
+                "app-server",
+                "--listen",
+                f"unix://{socket}",
+            ],
+        )
+        self.assertEqual(ready, ["codex", "app-server", "--listen", f"unix://{socket}"])
+        self.assertIn(AGENT_TASK.PROVISION_HOOK_SUBCOMMAND, hook)
+        self.assertNotIn('"thread/name/set"', hook)
+
     def test_codex_trusted_projects_config_is_stable_and_quoted(self) -> None:
         self.assertEqual(
             AGENT_TASK.codex_trusted_projects_config(
@@ -426,6 +538,106 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertNotIn('"thread-title"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
         self.assertNotIn('"fast-mode"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
         self.assertNotIn('"thread/name/set"', SCRIPT.read_text())
+
+    def test_codex_task_slug_uses_an_ephemeral_luna_turn(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.responses: list[str] = []
+                self.requests: list[dict[str, object]] = []
+
+            async def send(self, raw: str) -> None:
+                request = json.loads(raw)
+                self.requests.append(request)
+                if "id" not in request:
+                    return
+                method = request["method"]
+                if method == "initialize":
+                    result: object = {}
+                elif method == "thread/start":
+                    result = {"thread": {"id": "slug-thread"}}
+                elif method == "turn/start":
+                    result = {"turn": {"id": "slug-turn"}}
+                else:
+                    raise AssertionError(method)
+                self.responses.append(json.dumps({"id": request["id"], "result": result}))
+                if method == "turn/start":
+                    self.responses.extend(
+                        (
+                            json.dumps(
+                                {
+                                    "method": "item/completed",
+                                    "params": {
+                                        "item": {
+                                            "id": "message",
+                                            "text": '{"slug":"status-line-fix"}',
+                                            "type": "agentMessage",
+                                        },
+                                        "threadId": "slug-thread",
+                                        "turnId": "slug-turn",
+                                    },
+                                }
+                            ),
+                            json.dumps(
+                                {
+                                    "method": "turn/completed",
+                                    "params": {
+                                        "threadId": "slug-thread",
+                                        "turn": {"id": "slug-turn", "status": "completed"},
+                                    },
+                                }
+                            ),
+                        )
+                    )
+
+            async def recv(self) -> str:
+                return self.responses.pop(0)
+
+        class FakeConnection:
+            def __init__(self, socket: FakeSocket) -> None:
+                self.socket = socket
+
+            async def __aenter__(self) -> FakeSocket:
+                return self.socket
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        socket = FakeSocket()
+        slug = AGENT_TASK.generate_codex_task_slug(
+            Path("/control.sock"),
+            "상태 표시줄을 짧게 정리해줘",
+            connector=lambda: FakeConnection(socket),
+        )
+
+        self.assertEqual(slug, "status-line-fix")
+        thread_start = next(
+            request for request in socket.requests if request.get("method") == "thread/start"
+        )
+        self.assertEqual(thread_start["params"]["model"], "gpt-5.6-luna")
+        self.assertEqual(thread_start["params"]["cwd"], "/tmp")
+        self.assertTrue(thread_start["params"]["ephemeral"])
+        self.assertEqual(thread_start["params"]["sandbox"], "read-only")
+        turn_start = next(
+            request for request in socket.requests if request.get("method") == "turn/start"
+        )
+        self.assertEqual(turn_start["params"]["effort"], "none")
+        self.assertEqual(
+            turn_start["params"]["outputSchema"]["properties"]["slug"]["pattern"],
+            "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        )
+        self.assertEqual(AGENT_TASK.task_slug("status-line-fix"), "status-line-fix")
+        for invalid in ("Status-Line", "-status", "status-", "status--line", "status-line-title"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid task slug"):
+                    AGENT_TASK.task_slug(invalid)
+
+    def test_codex_task_slug_fallback_keeps_complete_words(self) -> None:
+        self.assertEqual(
+            AGENT_TASK.fallback_task_slug("Fix login flow in the app"),
+            "fix-login-flow",
+        )
+        self.assertEqual(AGENT_TASK.fallback_task_slug("supercalifragilistic"), "task")
+        self.assertEqual(AGENT_TASK.fallback_task_slug("상태 표시줄 정리"), "task")
 
     def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
         class FakeSocket:
@@ -1203,6 +1415,178 @@ class HarnessTest(unittest.TestCase):
     def task_from(self, result: subprocess.CompletedProcess[str]) -> dict[str, object]:
         task_id = next(line.removeprefix("task: ") for line in result.stdout.splitlines() if line.startswith("task: "))
         return json.loads((self.state / "tasks" / f"{task_id}.json").read_text())
+
+    def test_first_codex_prompt_provisions_one_semantic_worktree(self) -> None:
+        store = self.store()
+        arguments = argparse.Namespace(
+            launch_cwd=self.repository,
+            agent="codex",
+            target="main",
+            check=[],
+            check_timeout=AGENT_TASK.DEFAULT_CHECK_TIMEOUT_SECONDS,
+            no_integrate=False,
+            quiet=True,
+            task=None,
+            description="interactive agent task",
+        )
+        task = AGENT_TASK.create_task(store, arguments, defer_worktree=True)
+        path = Path(str(task["worktree_path"]))
+        owner = AGENT_TASK.process_record(os.getpid(), role="lock-supervisor")
+        assert owner is not None
+        task["process"] = owner
+        task["status"] = AGENT_TASK.RUNNING
+        store.save(task)
+        session_id = "session-one"
+        session_path = store.sessions / "session-one.json"
+        session = {
+            "session_id": session_id,
+            "task_id": task["task_id"],
+            "process": owner,
+            "working_directory": str(self.repository),
+            "control_socket": str(store.controls / "session-one.sock"),
+        }
+        payload = {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "thread-one",
+            "cwd": str(self.repository),
+            "prompt": "Fix the login flow",
+        }
+
+        self.assertTrue(path.is_dir())
+        self.assertEqual(list(path.iterdir()), [])
+        self.assertIsNone(task["branch"])
+        self.assertEqual(task["worktree_state"], AGENT_TASK.WORKTREE_PENDING)
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    "AI_TASK_HARNESS": "agent-task",
+                    "AI_TASK_ID": str(task["task_id"]),
+                },
+                clear=False,
+            ),
+            mock.patch.object(AGENT_TASK, "Store", return_value=store),
+            mock.patch.object(
+                AGENT_TASK,
+                "current_agent_session",
+                return_value=(session_id, session_path, session),
+            ),
+            mock.patch.object(
+                AGENT_TASK,
+                "read_codex_provision_hook_payload",
+                return_value=payload,
+            ),
+            mock.patch.object(
+                AGENT_TASK,
+                "generate_codex_task_slug",
+                return_value="fix-login",
+            ),
+            mock.patch.object(AGENT_TASK, "update_session_metadata") as update_metadata,
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            result = AGENT_TASK.command_provision_hook()
+
+        updated = store.load(str(task["task_id"]))
+        expected_branch = AGENT_TASK.semantic_task_branch(
+            "codex",
+            "fix-login",
+            str(task["task_id"]),
+        )
+        output = json.loads(stdout.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(updated["branch"], expected_branch)
+        self.assertEqual(updated["provisioning_slug"], "fix-login")
+        self.assertEqual(updated["worktree_state"], AGENT_TASK.WORKTREE_READY)
+        self.assertEqual(self.git("branch", "--show-current", cwd=path).stdout.strip(), expected_branch)
+        self.assertIn(expected_branch, output["hookSpecificOutput"]["additionalContext"])
+        update_metadata.assert_called_once()
+        self.assertNotIn('"thread/name/set"', SCRIPT.read_text())
+
+        updated.pop("process", None)
+        updated["status"] = AGENT_TASK.COMPLETED
+        store.save(updated)
+        self.assertTrue(AGENT_TASK.cleanup_task(store, updated))
+        self.assertFalse(path.exists())
+        self.assertNotEqual(
+            self.git(
+                "show-ref",
+                "--verify",
+                "--quiet",
+                f"refs/heads/{expected_branch}",
+                check=False,
+            ).returncode,
+            0,
+        )
+
+    def test_secondary_attachment_reuses_the_parent_semantic_slug(self) -> None:
+        secondary = Path(self.temporary.name) / "secondary-semantic"
+        self.git("init", "-b", "main", str(secondary), cwd=Path(self.temporary.name))
+        self.git("config", "user.name", "Test Agent", cwd=secondary)
+        self.git("config", "user.email", "agent@example.com", cwd=secondary)
+        self.git("config", "commit.gpgsign", "false", cwd=secondary)
+        exclude = secondary / ".git/info/exclude"
+        exclude.write_text(exclude.read_text() + "\n.ai-memory\n")
+        (secondary / "base.txt").write_text("base\n")
+        self.git("add", ".", cwd=secondary)
+        self.git("commit", "-m", "base", cwd=secondary)
+
+        store = self.store()
+        arguments = argparse.Namespace(
+            launch_cwd=self.repository,
+            agent="codex",
+            target="main",
+            check=[],
+            check_timeout=AGENT_TASK.DEFAULT_CHECK_TIMEOUT_SECONDS,
+            no_integrate=False,
+            quiet=True,
+            task=None,
+            description="interactive agent task",
+        )
+        parent = AGENT_TASK.create_task(store, arguments)
+        parent["provisioning_slug"] = "fix-login"
+        owner = AGENT_TASK.process_record(os.getpid(), role="lock-supervisor")
+        assert owner is not None
+        parent["process"] = owner
+        parent["status"] = AGENT_TASK.RUNNING
+        store.save(parent)
+        session = {
+            "session_id": "session-one",
+            "task_id": parent["task_id"],
+            "process": owner,
+            "agent": "codex",
+        }
+
+        with (
+            mock.patch.object(
+                AGENT_TASK,
+                "current_agent_session",
+                return_value=("session-one", store.sessions / "session-one.json", session),
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            result = AGENT_TASK.command_attach(argparse.Namespace(path=str(secondary)), store)
+
+        attachment = next(
+            value
+            for value in store.all()
+            if value.get("attachment_parent_task_id") == parent["task_id"]
+        )
+        self.assertEqual(result, 0)
+        self.assertTrue(str(attachment["branch"]).startswith("ai/codex/fix-login-"))
+        self.assertEqual(
+            self.git(
+                "branch",
+                "--show-current",
+                cwd=Path(str(attachment["worktree_path"])),
+            ).stdout.strip(),
+            attachment["branch"],
+        )
+
+        for value in (attachment, parent):
+            value.pop("process", None)
+            value["status"] = AGENT_TASK.COMPLETED
+            store.save(value)
+            self.assertTrue(AGENT_TASK.cleanup_task(store, value))
 
     def test_open_isolates_and_integrates_the_first_task(self) -> None:
         result = self.cli(
