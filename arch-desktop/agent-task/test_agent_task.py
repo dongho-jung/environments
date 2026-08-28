@@ -511,6 +511,8 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(server_pid, 12345)
         self.assertEqual(pending_thread_id, "thread-one")
         self.assertEqual(command[-2:], ["resume", "thread-one"])
+        self.assertEqual(command[1], AGENT_TASK.CODEX_BYPASS_HOOK_TRUST_FLAG)
+        self.assertEqual(command.count(AGENT_TASK.CODEX_BYPASS_HOOK_TRUST_FLAG), 1)
         start_thread.assert_called_once_with(
             socket,
             Path.cwd(),

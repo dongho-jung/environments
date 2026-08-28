@@ -80,6 +80,7 @@ CODEX_STATUS_LINE_CONFIG = (
     'tui.status_line=["current-dir","thread-title","model-with-reasoning"]'
 )
 CODEX_PENDING_THREAD_NAME = "\u200b"
+CODEX_BYPASS_HOOK_TRUST_FLAG = "--dangerously-bypass-hook-trust"
 CODEX_TASK_SLUG_MODEL = "gpt-5.6-luna"
 CODEX_TASK_SLUG_LIMIT = 48
 CODEX_TASK_SLUG_PREVIEW_LIMIT = 4000
@@ -2210,7 +2211,7 @@ def codex_app_server_command(
     server_options: list[str] = []
     if provision_hook:
         server_options = [
-            "--dangerously-bypass-hook-trust",
+            CODEX_BYPASS_HOOK_TRUST_FLAG,
             "-c",
             codex_provision_hook_config(hook_launcher),
         ]
@@ -2239,6 +2240,11 @@ def start_codex_app_server(
         and bool(os.environ.get("AI_TASK_ID"))
         and not os.environ.get("AI_TASK_BRANCH")
     )
+    if provision_hook:
+        executable = command_executable_index(remote_command, "codex")
+        if executable is None:
+            raise AgentTaskError("Codex remote TUI command lost its executable")
+        remote_command.insert(executable + 1, CODEX_BYPASS_HOOK_TRUST_FLAG)
     hook_launcher = materialize_codex_hook_runtime() if provision_hook else None
     socket_path.unlink(missing_ok=True)
     server_command = codex_app_server_command(
