@@ -33,6 +33,9 @@ uses the stable original repository-relative path as its session cwd while
 `AI_TASK_WORKTREE` and `AI_TASK_WORKDIR` identify the isolated repository and
 starting directory it must edit. The worktree is also passed through Codex's
 `--add-dir`. Claude and custom tasks run directly in their assigned worktree.
+Launcher interrupts record their exception type and preserve any dirty or
+committed result as recovery work; legacy interrupted tasks that were marked
+`FAILED` are migrated back into the same recovery path.
 For a new interactive Codex task, the harness starts the TUI with an empty
 reserved path and no task branch. Its trusted `UserPromptSubmit` hook asks an
 ephemeral, read-only Luna turn only for a short semantic slug, then creates the
@@ -369,7 +372,11 @@ session exits.
   dead `INTEGRATING`/`VALIDATING` attempts, terminates their owned validation
   process groups, detects an already-applied result, retries ready work, removes
   safe terminal worktrees, and registers unknown managed worktrees for
-  inspection. A transient integration record with no owner metadata is closed
+  inspection. A path recorded as ready but no longer registered with Git is
+  moved intact into `~/.local/state/agent-task/quarantine/` before repair or
+  cleanup; stale session metadata is removed only after its external checkout
+  lock is confirmed free. A transient integration record with no owner metadata
+  is closed
   automatically only when its exact result is already present on the target;
   otherwise it is preserved for an explicit
   `agent-task integrate TASK_ID` and never retried automatically. Reconciliation

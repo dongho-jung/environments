@@ -2243,6 +2243,34 @@ class HarnessTest(unittest.TestCase):
         with AGENT_TASK.checkout_session_lock(store, self.repository) as released:
             self.assertTrue(released)
 
+    def test_dead_session_metadata_is_pruned_only_after_its_lock_releases(self) -> None:
+        store = self.store()
+        identity = store.checkout_identity(self.repository)
+        session_id = "dead-session"
+        session_path = store.checkout_session_path(self.repository, identity=identity)
+        session_path.write_text(
+            json.dumps(
+                {
+                    "session_id": session_id,
+                    "checkout": str(self.repository.resolve()),
+                    "git_common_dir": str(AGENT_TASK.common_dir(self.repository)),
+                    "process": {"pid": 99999999, "start": "gone", "role": "lock-supervisor"},
+                }
+            )
+            + "\n"
+        )
+        store.inbox_path(session_id).write_text("{}\n")
+        store.control_socket_path(session_id).touch()
+
+        with AGENT_TASK.checkout_lock_files(store, self.repository, identity=identity):
+            self.assertEqual(AGENT_TASK.prune_dead_session_metadata(store), 0)
+            self.assertTrue(session_path.exists())
+
+        self.assertEqual(AGENT_TASK.prune_dead_session_metadata(store), 1)
+        self.assertFalse(session_path.exists())
+        self.assertFalse(store.inbox_path(session_id).exists())
+        self.assertFalse(store.control_socket_path(session_id).exists())
+
     def test_agent_child_keeps_the_checkout_lock_after_launcher_release(self) -> None:
         store = self.store()
         descriptors_seen = self.repository.parent / "agent-fds.txt"
@@ -3381,6 +3409,119 @@ time.sleep(10)
             [task for task in refreshed if task.get("status") == AGENT_TASK.RECOVERY],
             [],
         )
+
+    def test_launcher_interrupt_preserves_a_committed_result_for_recovery(self) -> None:
+        store = self.store()
+        arguments = argparse.Namespace(
+            launch_cwd=self.repository,
+            agent="custom",
+            target="main",
+            check=[],
+            check_timeout=AGENT_TASK.DEFAULT_CHECK_TIMEOUT_SECONDS,
+            no_integrate=False,
+            quiet=True,
+            task="preserve interrupted commit",
+            description="preserve interrupted commit",
+        )
+        task = AGENT_TASK.create_task(store, arguments)
+        worktree = Path(str(task["worktree_path"]))
+        (worktree / "checkpoint.txt").write_text("checkpoint\n")
+        self.git("add", "checkpoint.txt", cwd=worktree)
+        self.git("commit", "-m", "chore: checkpoint", cwd=worktree)
+        result_commit = self.git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
+
+        def interrupted_launch(
+            _store: object,
+            current: dict[str, object],
+            _command: object,
+            **_kwargs: object,
+        ) -> int:
+            current["status"] = AGENT_TASK.RUNNING
+            current["process"] = {"pid": 99999999, "start": "gone", "role": "agent"}
+            store.save(current)
+            raise KeyboardInterrupt
+
+        with (
+            mock.patch.object(
+                AGENT_TASK,
+                "checkout_session_lock",
+                return_value=contextlib.nullcontext(True),
+            ),
+            mock.patch.object(AGENT_TASK, "launch_agent", side_effect=interrupted_launch),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            AGENT_TASK.launch_for_task(store, task, ["custom-agent"], integrate=True)
+
+        preserved = store.load(str(task["task_id"]))
+        self.assertEqual(preserved["status"], AGENT_TASK.RECOVERY)
+        self.assertEqual(preserved["result_commit"], result_commit)
+        self.assertEqual(preserved["launcher_exception"]["type"], "KeyboardInterrupt")
+        self.assertIn("KeyboardInterrupt", preserved["status_reason"])
+        self.assertTrue(worktree.exists())
+
+    def test_legacy_failed_launcher_commit_returns_to_recovery(self) -> None:
+        store = self.store()
+        arguments = argparse.Namespace(
+            launch_cwd=self.repository,
+            agent="codex",
+            target="main",
+            check=[],
+            check_timeout=AGENT_TASK.DEFAULT_CHECK_TIMEOUT_SECONDS,
+            no_integrate=False,
+            quiet=True,
+            task="legacy interrupted commit",
+            description="legacy interrupted commit",
+        )
+        task = AGENT_TASK.create_task(store, arguments)
+        worktree = Path(str(task["worktree_path"]))
+        (worktree / "legacy.txt").write_text("preserved\n")
+        self.git("add", "legacy.txt", cwd=worktree)
+        self.git("commit", "-m", "fix: preserve legacy result", cwd=worktree)
+        result_commit = self.git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
+        AGENT_TASK.unlock_worktree(self.repository, worktree)
+        self.git("worktree", "remove", str(worktree))
+        task["status"] = AGENT_TASK.FAILED
+        task["status_reason"] = "agent launch failed: "
+        task["launcher_interrupted_at"] = AGENT_TASK.now()
+        task["process"] = {"pid": 99999999, "start": "gone", "role": "agent"}
+        store.save(task)
+
+        refreshed = AGENT_TASK.refresh_interrupted_tasks(store, self.repository)
+        recovered = next(value for value in refreshed if value["task_id"] == task["task_id"])
+        self.assertEqual(recovered["status"], AGENT_TASK.RECOVERY)
+        self.assertEqual(recovered["result_commit"], result_commit)
+
+        AGENT_TASK.recreate_worktree(store, recovered)
+        self.assertEqual((worktree / "legacy.txt").read_text(), "preserved\n")
+
+    def test_terminal_unregistered_worktree_is_quarantined_without_reconcile_failure(self) -> None:
+        store = self.store()
+        arguments = argparse.Namespace(
+            launch_cwd=self.repository,
+            agent="custom",
+            target="main",
+            check=[],
+            check_timeout=AGENT_TASK.DEFAULT_CHECK_TIMEOUT_SECONDS,
+            no_integrate=False,
+            quiet=True,
+            task="quarantine corrupt path",
+            description="quarantine corrupt path",
+        )
+        task = AGENT_TASK.create_task(store, arguments)
+        worktree = Path(str(task["worktree_path"]))
+        AGENT_TASK.unlock_worktree(self.repository, worktree)
+        self.git("worktree", "remove", str(worktree))
+        worktree.mkdir(parents=True)
+        (worktree / "preserved.txt").write_text("do not discard\n")
+        task["status"] = AGENT_TASK.COMPLETED
+        store.save(task)
+
+        self.assertTrue(AGENT_TASK.cleanup_task(store, task))
+        cleaned = store.load(str(task["task_id"]))
+        quarantine = Path(cleaned["worktree_quarantines"][-1]["path"])
+        self.assertFalse(worktree.exists())
+        self.assertEqual((quarantine / "preserved.txt").read_text(), "do not discard\n")
+        self.assertNotIn("reconcile_error", cleaned)
 
     def test_reconcile_never_integrates_an_interrupted_clean_commit(self) -> None:
         started = self.cli(

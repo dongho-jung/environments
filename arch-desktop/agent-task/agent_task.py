@@ -370,6 +370,7 @@ class Store:
         self.controls = self.root / "controls"
         self.contexts = self.root / "contexts"
         self.proposals = self.root / "memory-proposals"
+        self.quarantine = self.root / "quarantine"
         for path in (
             self.root,
             self.tasks,
@@ -382,6 +383,7 @@ class Store:
             self.controls,
             self.contexts,
             self.proposals,
+            self.quarantine,
         ):
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
             info = path.stat(follow_symlinks=False)
@@ -1183,6 +1185,32 @@ def remove_session_metadata(
             store.control_socket_path(session_id).unlink(missing_ok=True)
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return
+
+
+def prune_dead_session_metadata(store: Store) -> int:
+    removed = 0
+    for path in store.sessions.glob("*.json"):
+        try:
+            value = read_json_file_safely(path)
+            if not isinstance(value, dict) or process_alive(value.get("process")):
+                continue
+            session_id = value.get("session_id")
+            checkout_value = value.get("checkout")
+            common_value = value.get("git_common_dir")
+            if not all(isinstance(item, str) and item for item in (session_id, checkout_value, common_value)):
+                continue
+            checkout = Path(checkout_value).resolve()
+            identity = f"{Path(common_value).resolve()}\0{checkout}"
+            if store.checkout_session_path(checkout, identity=identity) != path:
+                continue
+            if lock_file_is_busy(store.checkout_lock_path(checkout, identity=identity)):
+                continue
+            remove_session_metadata(store, checkout, session_id, identity=identity)
+            if not path.exists():
+                removed += 1
+        except (AgentTaskError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return removed
 
 
 @contextlib.contextmanager
@@ -3307,6 +3335,35 @@ def unlock_worktree(repository: Path, path: Path) -> None:
     git(repository, "worktree", "unlock", str(path), check=False)
 
 
+def worktree_is_registered(repository: Path, path: Path) -> bool:
+    expected = str(path.resolve())
+    return any(record.get("worktree") == expected for record in listed_worktrees(repository))
+
+
+def quarantine_unregistered_worktree(
+    store: Store,
+    task: dict[str, Any],
+    path: Path,
+) -> Path:
+    if worktree_is_registered(Path(task["repository"]), path):
+        raise AgentTaskError(f"refused to quarantine registered worktree: {path}")
+    destination = store.quarantine / f"{task['task_id']}-{os.urandom(4).hex()}"
+    path.rename(destination)
+    records = task.setdefault("worktree_quarantines", [])
+    if not isinstance(records, list):
+        records = []
+        task["worktree_quarantines"] = records
+    records.append(
+        {
+            "moved_at": now(),
+            "path": str(destination),
+            "reason": "managed path existed but was not registered as a Git worktree",
+        }
+    )
+    store.save(task)
+    return destination
+
+
 def cleanup_task_reserved(store: Store, task: dict[str, Any]) -> bool:
     path = managed_worktree_path(store, task)
     changed = False
@@ -3323,6 +3380,21 @@ def cleanup_task_reserved(store: Store, task: dict[str, Any]) -> bool:
         path.rmdir()
         task.setdefault("worktree_cleaned_at", now())
         changed = True
+    if (
+        path.exists()
+        and task_worktree_ready(task)
+        and not worktree_is_registered(Path(task["repository"]), path)
+    ):
+        destination = quarantine_unregistered_worktree(store, task, path)
+        changed = True
+        if task.get("status") not in (INTEGRATED, COMPLETED, FAILED):
+            set_status(
+                store,
+                task,
+                RECOVERY,
+                f"unregistered worktree preserved in quarantine: {destination}",
+            )
+            return False
     if path.exists():
         normal, _ignored = worktree_changes(path)
         if normal:
@@ -3418,7 +3490,11 @@ def cleanup_task(
             task["cleanup_warning"] = "repository is busy; cleanup queued"
             store.save(task)
             return False
-        reservation = contextlib.nullcontext(True) if checkout_reserved else checkout_lock_files(store, path)
+        reservation = (
+            contextlib.nullcontext(True)
+            if checkout_reserved
+            else checkout_lock_files(store, path, identity=task_checkout_identity(task))
+        )
         with reservation as checkout_available:
             if not checkout_available:
                 task["cleanup_warning"] = f"worktree has an active agent; cleanup queued: {path}"
@@ -3566,13 +3642,17 @@ def inspect_result(store: Store, task: dict[str, Any], *, trust_clean_commit: bo
     set_status(store, task, READY)
 
 
-def preserve_interrupted_task(store: Store, task: dict[str, Any]) -> None:
+def preserve_interrupted_task(
+    store: Store,
+    task: dict[str, Any],
+    reason: str = "agent process ended before lifecycle completion; resume required",
+) -> None:
     task.pop("process", None)
     head = current_head(task)
     if head and head != task.get("base_sha") and is_ancestor(Path(task["repository"]), task["base_sha"], head):
         task["result_commit"] = head
     task["interrupted_at"] = now()
-    set_status(store, task, RECOVERY, "agent process ended before lifecycle completion; resume required")
+    set_status(store, task, RECOVERY, reason)
 
 
 def listed_worktrees(repository: Path) -> list[dict[str, str]]:
@@ -4443,9 +4523,11 @@ def recreate_worktree(store: Store, task: dict[str, Any]) -> None:
         task.pop("provisioning_error", None)
         store.save(task)
         return
-    if path.exists():
-        return
     repository = Path(task["repository"])
+    if path.exists():
+        if worktree_is_registered(repository, path):
+            return
+        quarantine_unregistered_worktree(store, task, path)
     branch = task["branch"]
     if not branch_exists(repository, branch):
         start = task.get("result_commit") or task["base_sha"]
@@ -4469,6 +4551,14 @@ def recreate_worktree(store: Store, task: dict[str, Any]) -> None:
 def prepare_recovery(task: dict[str, Any]) -> str:
     path = Path(task["worktree_path"])
     notes: list[str] = []
+    quarantines = task.get("worktree_quarantines")
+    if isinstance(quarantines, list) and quarantines:
+        latest = quarantines[-1]
+        if isinstance(latest, dict) and isinstance(latest.get("path"), str):
+            notes.append(
+                "The previous managed path was not a registered Git worktree and was preserved at "
+                f"{latest['path']}; inspect it for any files that must be recovered."
+            )
     if task.get("memory_warning"):
         notes.append(
             f"A non-blocking {MEMORY_NAME} proposal is recorded in the task status: "
@@ -4573,12 +4663,37 @@ def launch_for_task(
             except BaseException as error:
                 launch_error = error
         if launch_error is not None:
+            error_type = type(launch_error).__name__
+            error_message = str(launch_error).strip()
+            task["launcher_exception"] = {
+                "at": now(),
+                "message": error_message,
+                "type": error_type,
+            }
             if process_alive(task.get("process")):
-                set_status(store, task, RUNNING, "launcher ended while the coding agent was still active")
+                set_status(
+                    store,
+                    task,
+                    RUNNING,
+                    f"launcher ended with {error_type} while the coding agent was still active",
+                )
             else:
                 task.pop("process", None)
-                set_status(store, task, FAILED, f"agent launch failed: {launch_error}")
-                cleanup_task(store, task)
+                interrupted = not isinstance(launch_error, Exception)
+                empty = interrupted_task_has_no_repository_work(task)
+                if empty and interrupted:
+                    complete_empty_interrupted_task(store, task)
+                elif empty:
+                    detail = f": {error_message}" if error_message else ""
+                    set_status(store, task, FAILED, f"agent launch failed ({error_type}){detail}")
+                    cleanup_task(store, task)
+                else:
+                    detail = f": {error_message}" if error_message else ""
+                    preserve_interrupted_task(
+                        store,
+                        task,
+                        f"launcher ended with {error_type}{detail}; resume required",
+                    )
             raise launch_error
         if exit_code == HANDOFF_EXIT_CODE and handoff_task_ids:
             record_agent_exit(task, 0)
@@ -4692,13 +4807,15 @@ def complete_empty_interrupted_task(store: Store, task: dict[str, Any]) -> bool:
 
 
 def refresh_interrupted_tasks(store: Store, repository: Path) -> list[dict[str, Any]]:
+    prune_dead_session_metadata(store)
     repository_common_dir = common_dir(repository)
     for snapshot in store.all():
         if not task_belongs_to_repository(snapshot, repository_common_dir):
             continue
         status = snapshot.get("status")
         empty_recovery = status == RECOVERY and bool(snapshot.get("interrupted_at"))
-        if status not in (CREATED, RUNNING) and not empty_recovery:
+        legacy_launcher_interruption = status == FAILED and bool(snapshot.get("launcher_interrupted_at"))
+        if status not in (CREATED, RUNNING) and not empty_recovery and not legacy_launcher_interruption:
             continue
         if process_alive(snapshot.get("process")):
             continue
@@ -4707,12 +4824,25 @@ def refresh_interrupted_tasks(store: Store, repository: Path) -> list[dict[str, 
                 current = store.load(snapshot["task_id"])
                 current_status = current.get("status")
                 current_empty_recovery = current_status == RECOVERY and bool(current.get("interrupted_at"))
+                current_legacy_interruption = current_status == FAILED and bool(
+                    current.get("launcher_interrupted_at")
+                )
                 if (
-                    (current_status in (CREATED, RUNNING) or current_empty_recovery)
+                    (
+                        current_status in (CREATED, RUNNING)
+                        or current_empty_recovery
+                        or current_legacy_interruption
+                    )
                     and not process_alive(current.get("process"))
                     and interrupted_task_has_no_repository_work(current)
                 ):
                     complete_empty_interrupted_task(store, current)
+                elif current_legacy_interruption and not process_alive(current.get("process")):
+                    preserve_interrupted_task(
+                        store,
+                        current,
+                        "launcher interruption preserved repository work; resume required",
+                    )
                 elif current_status in (CREATED, RUNNING) and not process_alive(current.get("process")):
                     preserve_interrupted_task(store, current)
         except LockBusy:
@@ -5445,6 +5575,15 @@ def reconcile_one(store: Store, task: dict[str, Any], *, integrate: bool) -> Non
         integrate_task(store, task)
     elif status == RECOVERY and task.get("result_commit"):
         recognize_result_already_on_target(store, task)
+    elif status == FAILED and task.get("launcher_interrupted_at"):
+        if interrupted_task_has_no_repository_work(task):
+            complete_empty_interrupted_task(store, task)
+        else:
+            preserve_interrupted_task(
+                store,
+                task,
+                "launcher interruption preserved repository work; resume required",
+            )
     elif status in (INTEGRATED, COMPLETED, FAILED):
         if task.get("integration_candidate"):
             clear_interrupted_integration(store, task)
@@ -5455,6 +5594,7 @@ def command_reconcile(args: argparse.Namespace, store: Store) -> int:
     failed = False
     try:
         with store.lock("reconcile", blocking=False):
+            prune_dead_session_metadata(store)
             record_orphans(store)
             repositories: set[Path] = set()
             for task in store.all():
