@@ -1,24 +1,21 @@
 # agent-task
 
-`agent-task` follows a repository-owned checkout policy: sessions either edit
-the reserved current checkout without creating a task branch, or always use
-temporary branches and worktrees. Stable checkout locks and separate session
+`agent-task` runs every ordinary repository session in a temporary branch and
+managed worktree. Stable checkout locks and separate session
 metadata live under
 `~/.local/state/agent-task`; no file inside the working tree is the source of
 lock ownership. A small supervisor holds the descriptor while the foreground
 CLI and every descendant it leaves behind are alive; the agent itself does not
 inherit the descriptor. A dead shell launcher therefore cannot release a
 checkout while its agent is still alive, and a daemonized child cannot keep
-editing after the checkout has been handed to another session. The
-ignored `.ai-lock` name is inspected only to interoperate safely with a session
-started by an older harness. The agent owns file edits and commits, while the
-harness owns integration and cleanup for its one assigned repository.
+editing after the checkout has been handed to another session. The agent owns
+file edits and commits, while the harness owns integration and cleanup for its
+one assigned repository.
 
 ```text
-settings.agent_task_mode=current  -> reserved current checkout
-settings.agent_task_mode=worktree -> managed worktree -> clean commit
-                                                      |-- publish -> target; session continues
-                                                      `-- exit -> integrate -> cleanup/recovery
+ordinary repository launch -> managed worktree -> clean commit
+                                             |-- publish -> target; session continues
+                                             `-- exit -> integrate -> cleanup/recovery
 ```
 
 Managed task state is keyed by repository and agent. One interrupted task
@@ -26,41 +23,17 @@ resumes automatically; several produce a small picker. A managed Codex process
 uses the stable original repository-relative path as its session cwd while
 `AI_TASK_WORKTREE` and `AI_TASK_WORKDIR` identify the isolated repository and
 starting directory it must edit. The worktree is also passed through Codex's
-`--add-dir`. Claude and legacy Codex tasks continue directly in their assigned
-worktree. Codex recovery asks App Server for the newest chat whose cwd exactly
+`--add-dir`. Claude and custom tasks run directly in their assigned worktree.
+Codex recovery asks App Server for the newest chat whose cwd exactly
 matches the preserved task's session cwd and resumes it by ID; if no matching
 chat was saved, it opens a fresh chat over the preserved files. Claude recovery
 runs `claude --continue`.
 
 Codex's built-in `/resume` picker is scoped to the current working directory.
 New managed chats therefore stay grouped under the original repository path
-instead of disposable worktree paths. `o resume` still offers preserved tasks
-first and can use the all-directory picker for legacy saved chats. The selected
-chat follows the same remembered repository policy.
-
-## Repository checkout policy
-
-Store the durable choice in the ignored repository memory:
-
-```json
-{
-  "settings": {
-    "integration_target": "main",
-    "agent_task_mode": "worktree"
-  }
-}
-```
-
-Use `worktree` when independent tasks and validation can safely run in parallel.
-Use `current` when the repository has an inherently serialized workflow, shared
-generated state, or tooling that requires the canonical checkout. A `current`
-repository fails when that checkout is already reserved; it never silently
-switches to a task branch. A `worktree` repository isolates the first task too.
-
-Existing repositories without `settings.agent_task_mode` retain the older
-contention-aware behavior (current checkout when free, worktree when busy) until
-an agent verifies the repository's collision boundaries and records one of the
-two durable modes. Transient lock ownership is never written to memory.
+instead of disposable worktree paths. `o resume` offers preserved tasks first
+and can use the all-directory picker for saved chats. Saved chats also resume in
+a managed worktree.
 
 ## Session handoff
 
@@ -68,9 +41,7 @@ When a completed managed task cannot integrate because another harness session
 still owns a repository lease, `agent-task` writes a deduplicated event to that
 session's private inbox under `~/.local/state/agent-task/inboxes/` and rings its
 supervisor with `SIGUSR1`. The signal is only a doorbell; the durable JSON event
-is the source of truth. A supervisor advertises protocol support before it can
-be signalled, so sessions launched by an older version are never sent a signal
-they do not handle.
+is the source of truth.
 
 For Codex, every new interactive harness session gets its own `codex app-server`
 Unix socket. The supervisor uses the supported JSON-RPC interface to
@@ -99,13 +70,10 @@ to merge, cherry-pick, switch branches, or clean worktrees. Interactive Codex
 handoff first requests the same graceful shutdown as `Ctrl+C`, allowing the TUI
 to restore the terminal and leave its alternate screen; it falls back to
 `SIGTERM` only if Codex does not exit promptly. After either a handoff or an
-ordinary exit, the supervisor announces finalization and gives the private
-control bridge two seconds to stop before forcing it, avoiding an unexplained
-post-TUI wait. Before closing the receiver, `handoff` rechecks whether the
-queued result is already on its target. A stale notice is resolved in place and
-the current session stays open. Tool subprocesses from a legacy App Server that
-predates inherited session variables recover the one live session from their
-managed task identity. A graceful ordinary exit
+ordinary exit, the supervisor gives the private control bridge two seconds to
+stop before forcing it. Before closing the receiver, `handoff` rechecks whether
+the queued result is already on its target. A stale notice is resolved in place
+and the current session stays open. A graceful ordinary exit
 (`/exit` or the interactive Codex TUI's exit status 130 after `Ctrl+C`) also
 drains auto-integrate tasks for that repository immediately after releasing its
 lease. The harness retains the raw 130 in task metadata while classifying it as
@@ -133,24 +101,22 @@ when a task can mutate a repository.
 
 ## Use
 
-Both launchers follow the remembered repository policy:
+Both launchers use managed worktrees for ordinary repository sessions:
 
 ```sh
-o                                   # repository-selected current/worktree mode
-o implement the login timeout       # same remembered selection
+o                                   # managed worktree
+o implement the login timeout       # managed worktree with initial prompt
 o resume                            # preserved task, or all saved Codex chats
-o resume SESSION_ID                 # repository-selected current/worktree mode
+o resume SESSION_ID                 # saved chat in a managed worktree
 o resume --last -m MODEL PROMPT     # Codex resume flags pass through unchanged
 o -C ../another-repo PROMPT         # reserve the repository selected by -C
 o review --uncommitted              # requires this exact checkout to be free
 o --local                           # bypass locking and run here explicitly
 o --new                             # force a new managed worktree
-o --task                            # compatibility path for managed recovery
 
-c implement the login timeout       # repository-selected current/worktree mode
+c implement the login timeout       # managed worktree
 c --local                            # bypass locking and run here explicitly
 c --new implement a parallel task   # new managed Claude worktree
-c --task                            # resume/create a managed Claude task
 c --bg investigate a flaky test     # Claude-managed background worktree
 c agents                            # manage Claude background sessions directly
 c -w feature-auth                   # Claude-managed explicit worktree
@@ -159,16 +125,14 @@ c -w feature-auth                   # Claude-managed explicit worktree
 Outside Git, inside an already managed task, with `o --local`/`c --local`, or
 for administrative subcommands such as `doctor`, `login`, and `mcp`, the shell
 launchers run the CLI directly. Ordinary repository sessions and mutating Codex
-subcommands use `agent-task open --auto`, which reads
-`settings.agent_task_mode`. Direct `agent-task open` has the same
-repository-policy default; `agent-task open --local` is its explicit bypass. An
-unclassified repository alone uses the compatibility contention fallback.
+subcommands use `agent-task open`, which always creates or resumes a managed
+worktree. `agent-task open --local` is the explicit native-checkout bypass.
 
 Codex `review` and Claude `ultrareview` are tied to the exact current checkout;
 they fail if it is busy instead of silently reviewing a different worktree.
-Codex `apply`, `exec`, `fork`, `cloud`, and `sandbox` go through contention
-handling because they can create or apply local changes. Codex `-C`/`--cd` is
-resolved before lock selection. Claude background, tmux, agent-view management,
+Codex `apply`, `exec`, `fork`, `cloud`, and `sandbox` use fresh managed
+worktrees because they can create or apply local changes. Codex `-C`/`--cd` is
+resolved before worktree creation. Claude background, tmux, agent-view management,
 and built-in worktree modes pass directly to Claude because they own a separate
 worktree/session lifecycle; the shell wrapper does not wrap or integrate them as
 `agent-task` tasks. For ordinary sessions, the harness supervisor keeps the
@@ -183,11 +147,9 @@ not that configured permission policy.
 Operator commands are available directly:
 
 ```sh
-agent-task open "implement feature X" --agent codex # repository policy
-agent-task open --auto "implement feature X" --agent codex
+agent-task open "implement feature X" --agent codex
 agent-task open --local "inspect here" --agent codex
-agent-task open --managed "implement feature X" --agent codex
-agent-task open --managed --new "parallel feature" --agent codex
+agent-task open --new "parallel feature" --agent codex
 agent-task resume --agent codex
 agent-task start "implement feature X" --agent codex
 agent-task start "implement feature X" --agent claude --target develop
@@ -258,38 +220,15 @@ The current entry stays pinned. If the remaining entries do not fit the
 terminal width, they move by one character per second in a repeating marquee.
 Claude runs the lightweight `agent_statusline.py --claude` renderer through its
 native status-line API. The command also recognizes Claude's current built-in
-Git worktree from the JSON payload. Managed Codex sessions enable the native
-footer with a short task slug, the actual managed scope, model/reasoning state,
-and active child-task progress. A typical managed item is
-`status-line-fix · projects/environments/arch-desktop · PR #321 · CAPE-123`.
-There is no harness task ID, task branch, integration target, or global
-worktree number in the footer; those remain available in task metadata. The
-path is the last three components of the logical project directory with a
-48-character cap and receives a leading `...` only when it is actually
-shortened. PR and Jira context appear only when known. The separate Codex
-`fast-mode` item is omitted because the model item already communicates the
-selected fast mode. Context remaining, hostname, and a redundant project name
-are intentionally omitted.
-
-The App Server bridge immediately names an unnamed thread so Codex never shows
-its internal UUID as the `thread-title` fallback. It reads Codex's first-message
-preview and starts one read-only, ephemeral `gpt-5.6-luna` turn in the
-background to summarize the task as a 1-16 character, lowercase ASCII slug
-whose words are separated by single hyphens. The temporary `starting` label is
-shown until that result arrives; an ASCII-only local summary is used if the
-model call fails. The result is kept in the task's local display context and
-reused after recovery. When a session owns attached secondary repositories,
-the scope item rotates through their
-path, PR, and Jira context every five seconds while retaining the session task
-slug. The compact
-`1/3*`, `2/3`, ... field appears only for a multi-repository session and names
-the carousel position, with `*` marking the primary task. Model, effort, and
-child-task progress remain fixed because they describe the Codex session rather
-than one repository. The bridge supplies repository values
-because a managed Codex chat keeps the canonical checkout as its logical cwd
-while editing assigned worktrees, so native `git-branch`, `current-dir`, and PR
-detection can describe the wrong checkout. Neither integration writes to
-Kitty's status line.
+Git worktree from the JSON payload. Managed Codex sessions use only native
+footer items: logical current directory, model/reasoning state, and child-task
+progress. Because these launchers already use YOLO permissions, they mark only
+the selected project paths trusted for the process and set
+`tui.show_tooltips=false`; Codex therefore skips both its first-project command
+list and rotating tips. The harness starts quietly and does not rename threads
+or use a thread-title footer item, avoiding task setup output, UUID fallback
+labels, and rename notifications. Neither integration writes to Kitty's status
+line.
 
 A Jira-shaped key, explicit `PR #321`, or a GitHub pull-request URL in the task's
 launch description is detected automatically. When an agent learns either value
@@ -307,8 +246,8 @@ directory, then falls back to `AI_TASK_ID`; `--task TASK_ID` selects one
 explicitly. This lets an attached repository carry its own PR while inheriting
 the primary Jira issue when it has no separate one. Context is a separate local
 record, so it does not contend with the lifecycle lock held by the running task.
-The status renderer never polls Jira or GitHub; normal Jira and pull-request
-workflows remain authoritative.
+The Claude status renderer never polls Jira or GitHub; normal Jira and
+pull-request workflows remain authoritative.
 
 ## Repository memory
 
@@ -338,9 +277,9 @@ conventions, deployment, dependencies, tools, or gotchas.
 Independent keys merge automatically. For a same-key race, the last completed
 task wins and the overwritten key remains visible in `agent-task status`.
 Invalid memory is fingerprinted in task state and preserved as a private file
-under `memory-proposals/` without blocking code integration. Both `.ai-memory`
-and `.ai-lock` are rejected if they appear in any newly introduced commit, even
-when a later commit deletes them. A valid proposal is
+under `memory-proposals/` without blocking code integration. `.ai-memory` is
+rejected if it appears in any newly introduced commit, even when a later commit
+deletes it. A valid proposal is
 captured before its worktree is removed but is merged into canonical memory only
 after the corresponding code commit reaches the target, or after a successful
 task that made no repository change. Failed validation, conflicts, and
@@ -374,15 +313,9 @@ session exits.
   holding an integration forever. Automatic harness integration itself does not
   fetch, push, deploy, or apply Terraform; the launched agent can perform
   user-authorized remote or operational work normally.
-- Every explicit managed task starts from the integration target's committed
-  `HEAD`, never from an arbitrary current feature branch. A dirty checkout is
-  left untouched. During the unclassified compatibility fallback, the harness
-  uses the active branch's actual creation commit from its reflog when that
-  branch was created during the session. If no usable creation record exists,
-  it uses a safe merge-base bounded by the captured session-start commit. While
-  the active agent remains on the target branch, the captured session-start
-  commit is used directly, so its mid-session commits are not inherited. Missing or invalid
-  live-session metadata falls back to target `HEAD`.
+- Every managed task starts from the integration target's committed `HEAD`,
+  never from an arbitrary current feature branch. Dirty checkout files and
+  branch-only commits are left untouched and are never inherited by a task.
 - Immediately before integration, the harness rechecks that the result descends
   from its recorded base, that the target still descends from that base, that
   the target ref has not moved, and that target checkout topology and cleanliness
@@ -405,9 +338,9 @@ session exits.
   dead `INTEGRATING`/`VALIDATING` attempts, terminates their owned validation
   process groups, detects an already-applied result, retries ready work, removes
   safe terminal worktrees, and registers unknown managed worktrees for
-  inspection. A transient record from an older harness with no owner metadata is
-  closed automatically only when its exact result is already present on the
-  target; otherwise it is preserved for an explicit
+  inspection. A transient integration record with no owner metadata is closed
+  automatically only when its exact result is already present on the target;
+  otherwise it is preserved for an explicit
   `agent-task integrate TASK_ID` and never retried automatically. Reconciliation
   never treats a crash-time agent commit as done.
 

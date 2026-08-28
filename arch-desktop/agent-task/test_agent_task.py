@@ -97,24 +97,13 @@ class LaunchBehaviorTest(unittest.TestCase):
         )
         self.assertEqual(popen.call_args.kwargs["env"]["AI_TASK_WORKDIR"], str(task_directory))
 
-    def test_legacy_codex_task_keeps_its_managed_worktree_cwd(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            worktree = Path(directory)
-            task = {
-                "worktree_path": str(worktree),
-                "workdir_relative": ".",
-            }
-
-            selected = AGENT_TASK.managed_agent_working_directory(task, ["codex"])
-
-        self.assertEqual(selected, worktree.resolve())
-
     def test_interactive_codex_sigint_is_recorded_as_graceful(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             task = {
                 "task_id": "codex-sigint",
                 "worktree_path": directory,
                 "workdir_relative": ".",
+                "origin_working_directory": directory,
                 "branch": "ai/codex/codex-sigint",
                 "target_branch": "main",
                 "agent": "codex",
@@ -239,30 +228,31 @@ class LaunchBehaviorTest(unittest.TestCase):
             self.assertNotIn("process", task)
             store.save.assert_called()
 
-    def test_launchers_follow_repository_checkout_policy(self) -> None:
+    def test_launchers_always_use_quiet_managed_worktrees(self) -> None:
         configuration = SCRIPT.parent.parent.joinpath("agent-task.tf").read_text()
         claude_settings = json.loads(SCRIPT.parent.parent.joinpath("claude/settings.json").read_text())
 
         self.assertIn('if [[ "$${1-}" == "--local" ]]', configuration)
         self.assertIn('if [[ "$${1-}" == "resume" ]]', configuration)
         self.assertIn('if [[ "$${1-}" == "--new" ]]', configuration)
-        self.assertIn('if [[ "$${1-}" == "--task" ]]', configuration)
-        self.assertIn("agent-task open --auto --agent codex", configuration)
-        self.assertIn("agent-task open --managed --new --agent codex", configuration)
-        self.assertIn("agent-task resume --agent codex", configuration)
-        self.assertIn("agent-task open --auto --agent claude", configuration)
-        self.assertIn("agent-task open --managed --new --agent claude", configuration)
-        self.assertIn("agent-task open --auto --agent codex -- codex", configuration)
-        self.assertIn("agent-task open --auto --agent claude -- env", configuration)
-        self.assertIn("agent-task open --auto --fresh --agent codex", configuration)
+        self.assertNotIn('if [[ "$${1-}" == "--task" ]]', configuration)
+        self.assertIn("agent-task open --quiet --agent codex", configuration)
+        self.assertIn("agent-task open --quiet --new --agent codex", configuration)
+        self.assertIn("agent-task resume --quiet --agent codex", configuration)
+        self.assertIn("agent-task open --quiet --agent claude", configuration)
+        self.assertIn("agent-task open --quiet --new --agent claude", configuration)
+        self.assertIn("agent-task open --quiet --fresh --agent codex", configuration)
+        self.assertNotIn("agent-task open --auto", configuration)
+        self.assertNotIn("agent-task open --managed", configuration)
         self.assertIn("exec|e|apply|a|fork|cloud|cloud-tasks|sandbox", configuration)
         self.assertIn("--require-current", configuration)
-        self.assertIn("agent-task resume --agent codex --", configuration)
+        self.assertIn("agent-task resume --quiet --agent codex --", configuration)
         self.assertIn("review|resume|apply", configuration)
         self.assertIn("agents|attach|logs|stop|rm)", configuration)
         self.assertIn("claude_owns_lifecycle", configuration)
         self.assertNotIn("require explicit c --local", configuration)
-        self.assertIn('command codex --dangerously-bypass-approvals-and-sandbox "$@"', configuration)
+        self.assertIn("tui.show_tooltips=false", configuration)
+        self.assertIn('command codex "$${codex_tui[@]}"', configuration)
         self.assertIn('command env IS_DEMO=1 claude', configuration)
         self.assertNotIn('resource "host_package_pacman" "bubblewrap"', configuration)
         self.assertIn('name = "python-websockets"', configuration)
@@ -279,23 +269,20 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn('source       = "agent-task/agent_statusline.py"', configuration)
         self.assertEqual(
             AGENT_TASK.CODEX_STATUS_LINE_CONFIG,
-            'tui.status_line=["thread-title","model-with-reasoning","task-progress"]',
+            'tui.status_line=["current-dir","model-with-reasoning","task-progress"]',
         )
-        self.assertIn('"thread/name/set"', SCRIPT.read_text())
+        self.assertEqual(AGENT_TASK.CODEX_SHOW_TOOLTIPS_CONFIG, "tui.show_tooltips=false")
+        self.assertNotIn('"thread/name/set"', SCRIPT.read_text())
         kitty_configuration = SCRIPT.parent.parent.joinpath("kitty/kitty.conf").read_text()
         self.assertNotIn("tab_bar_min_tabs 1", kitty_configuration)
         self.assertNotIn('tab_title_template " {title} "', kitty_configuration)
         self.assertNotIn("tui.terminal_title", SCRIPT.read_text())
 
-    def test_repository_memory_accepts_only_durable_checkout_modes(self) -> None:
+    def test_repository_memory_has_no_checkout_mode(self) -> None:
         memory = AGENT_TASK.memory_template("main")
-        for mode in AGENT_TASK.AGENT_TASK_MODES:
-            memory["settings"]["agent_task_mode"] = mode
-            self.assertIs(AGENT_TASK.validate_memory(memory), memory)
-
-        memory["settings"]["agent_task_mode"] = "sometimes"
-        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "agent_task_mode"):
-            AGENT_TASK.validate_memory(memory)
+        self.assertEqual(memory["settings"], {"integration_target": "main"})
+        help_text = AGENT_TASK.build_parser().format_help()
+        self.assertNotIn("agent_task_mode", help_text)
 
     def test_codex_notification_starts_an_idle_remote_tui_thread(self) -> None:
         class FakeSocket:
@@ -362,20 +349,38 @@ class LaunchBehaviorTest(unittest.TestCase):
         opened = AGENT_TASK.codex_remote_command(
             ["codex", "--dangerously-bypass-approvals-and-sandbox", "work here"],
             socket,
+            [Path("/repo")],
         )
-        resumed = AGENT_TASK.codex_remote_command(["codex", "resume", "--last"], socket)
-        review = AGENT_TASK.codex_remote_command(["codex", "review", "--uncommitted"], socket)
+        resumed = AGENT_TASK.codex_remote_command(
+            ["codex", "resume", "--last"], socket, [Path("/repo")]
+        )
+        review = AGENT_TASK.codex_remote_command(
+            ["codex", "review", "--uncommitted"], socket, [Path("/repo")]
+        )
 
         prefix = [
             "codex",
             "--remote",
             f"unix://{socket}",
             "-c",
+            'projects={"/repo"={trust_level="trusted"}}',
+            "-c",
+            AGENT_TASK.CODEX_SHOW_TOOLTIPS_CONFIG,
+            "-c",
             AGENT_TASK.CODEX_STATUS_LINE_CONFIG,
         ]
-        self.assertEqual(opened[:5], prefix)
-        self.assertEqual(resumed[:6], [*prefix, "resume"])
+        self.assertEqual(opened[:9], prefix)
+        self.assertEqual(resumed[:10], [*prefix, "resume"])
         self.assertIsNone(review)
+
+    def test_codex_trusted_projects_config_is_stable_and_quoted(self) -> None:
+        self.assertEqual(
+            AGENT_TASK.codex_trusted_projects_config(
+                [Path('/repo/with "quotes"'), Path("/repo/with spaces"), Path("/repo/with spaces")]
+            ),
+            'projects={"/repo/with \\"quotes\\""={trust_level="trusted"},'
+            '"/repo/with spaces"={trust_level="trusted"}}',
+        )
 
     def test_codex_app_server_inherits_handoff_session_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -416,234 +421,11 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(observed["id"], "session-one")
         self.assertEqual(observed["path"], str(session_path))
 
-    def test_codex_statusline_replaces_an_unnamed_thread_immediately(self) -> None:
-        statusline = "statuslinefix · projects/environments/arch-desktop · CAPE-456"
-        self.assertIn('"model-with-reasoning"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
+    def test_codex_tui_uses_native_path_without_thread_renames(self) -> None:
+        self.assertIn('"current-dir"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
+        self.assertNotIn('"thread-title"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
         self.assertNotIn('"fast-mode"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
-        self.assertNotIn('"pull-request-number"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
-        self.assertEqual(AGENT_TASK.codex_statusline_thread_title(statusline, None), statusline)
-        self.assertEqual(
-            AGENT_TASK.codex_statusline_thread_title(
-                statusline,
-                "WT | *codex/backend@21:31[CAPE-123] :: Investigate ordering",
-            ),
-            statusline,
-        )
-        self.assertEqual(
-            AGENT_TASK.codex_statusline_thread_title(
-                statusline,
-                "WT#17 · ai/codex/old-task→main · projects/environments/arch-desktop",
-            ),
-            statusline,
-        )
-        self.assertEqual(
-            AGENT_TASK.codex_statusline_thread_title(
-                "main · projects/environments/arch-desktop",
-                statusline,
-            ),
-            "main · projects/environments/arch-desktop",
-        )
-        self.assertEqual(
-            AGENT_TASK.codex_statusline_thread_title(statusline, "# investigate ordering"),
-            statusline,
-        )
-        self.assertEqual(
-            AGENT_TASK.codex_statusline_thread_title(
-                statusline,
-                "Implement the Very Long Statusline Behavior for Multiple Repositories",
-            ),
-            statusline,
-        )
-        self.assertEqual(
-            AGENT_TASK.codex_statusline_thread_title(statusline, "상태 표시줄 정리"),
-            statusline,
-        )
-
-        class FakeSocket:
-            def __init__(self, name: str | None) -> None:
-                self.name = name
-                self.responses: list[str] = []
-                self.requests: list[dict[str, object]] = []
-
-            async def send(self, raw: str) -> None:
-                request = json.loads(raw)
-                self.requests.append(request)
-                if "id" not in request:
-                    return
-                method = request["method"]
-                if method == "initialize":
-                    result: object = {}
-                elif method == "thread/loaded/list":
-                    result = {"data": ["current"]}
-                elif method == "thread/list":
-                    result = {
-                        "data": [
-                            {
-                                "id": "current",
-                                "cwd": "/repo",
-                                "source": "vscode",
-                                "status": {"type": "idle"},
-                                "recencyAt": 2,
-                                "name": self.name,
-                                "preview": "Fix the Codex status line",
-                            }
-                        ]
-                    }
-                elif method == "thread/name/set":
-                    result = {}
-                else:
-                    raise AssertionError(method)
-                self.responses.append(json.dumps({"id": request["id"], "result": result}))
-
-            async def recv(self) -> str:
-                return self.responses.pop(0)
-
-        class FakeConnection:
-            def __init__(self, socket: FakeSocket) -> None:
-                self.socket = socket
-
-            async def __aenter__(self) -> FakeSocket:
-                return self.socket
-
-            async def __aexit__(self, *_args: object) -> None:
-                return None
-
-        observed: list[tuple[str, str]] = []
-        titled = FakeSocket("Investigate ordering")
-        thread_id = AGENT_TASK.refresh_codex_statusline(
-            Path("/control.sock"),
-            Path("/repo"),
-            statusline,
-            connector=lambda: FakeConnection(titled),
-            thread_observer=lambda current, preview: observed.append((current, preview)),
-        )
-        self.assertEqual(thread_id, "current")
-        renamed = next(
-            request for request in titled.requests if request.get("method") == "thread/name/set"
-        )
-        self.assertEqual(
-            renamed["params"],
-            {"threadId": "current", "name": statusline},
-        )
-        self.assertEqual(observed, [("current", "Fix the Codex status line")])
-
-        untitled = FakeSocket(None)
-        self.assertEqual(
-            AGENT_TASK.refresh_codex_statusline(
-                Path("/control.sock"),
-                Path("/repo"),
-                statusline,
-                connector=lambda: FakeConnection(untitled),
-            ),
-            "current",
-        )
-        unnamed_rename = next(
-            request for request in untitled.requests if request.get("method") == "thread/name/set"
-        )
-        self.assertEqual(
-            unnamed_rename["params"],
-            {"threadId": "current", "name": statusline},
-        )
-
-    def test_codex_task_slug_uses_an_ephemeral_luna_turn(self) -> None:
-        class FakeSocket:
-            def __init__(self) -> None:
-                self.responses: list[str] = []
-                self.requests: list[dict[str, object]] = []
-
-            async def send(self, raw: str) -> None:
-                request = json.loads(raw)
-                self.requests.append(request)
-                if "id" not in request:
-                    return
-                method = request["method"]
-                if method == "initialize":
-                    result: object = {}
-                elif method == "thread/start":
-                    result = {"thread": {"id": "slug-thread"}}
-                elif method == "turn/start":
-                    result = {"turn": {"id": "slug-turn"}}
-                else:
-                    raise AssertionError(method)
-                self.responses.append(json.dumps({"id": request["id"], "result": result}))
-                if method == "turn/start":
-                    self.responses.extend(
-                        (
-                            json.dumps(
-                                {
-                                    "method": "item/completed",
-                                    "params": {
-                                        "item": {
-                                            "id": "message",
-                                            "text": '{"slug":"status-line-fix"}',
-                                            "type": "agentMessage",
-                                        },
-                                        "threadId": "slug-thread",
-                                        "turnId": "slug-turn",
-                                    },
-                                }
-                            ),
-                            json.dumps(
-                                {
-                                    "method": "turn/completed",
-                                    "params": {
-                                        "threadId": "slug-thread",
-                                        "turn": {"id": "slug-turn", "status": "completed"},
-                                    },
-                                }
-                            ),
-                        )
-                    )
-
-            async def recv(self) -> str:
-                return self.responses.pop(0)
-
-        class FakeConnection:
-            def __init__(self, socket: FakeSocket) -> None:
-                self.socket = socket
-
-            async def __aenter__(self) -> FakeSocket:
-                return self.socket
-
-            async def __aexit__(self, *_args: object) -> None:
-                return None
-
-        socket = FakeSocket()
-        slug = AGENT_TASK.generate_codex_task_slug(
-            Path("/control.sock"),
-            "상태 표시줄을 짧게 정리해줘",
-            connector=lambda: FakeConnection(socket),
-        )
-
-        self.assertEqual(slug, "status-line-fix")
-        thread_start = next(
-            request for request in socket.requests if request.get("method") == "thread/start"
-        )
-        self.assertEqual(thread_start["params"]["model"], "gpt-5.6-luna")
-        self.assertTrue(thread_start["params"]["ephemeral"])
-        self.assertNotIn("environments", thread_start["params"])
-        self.assertNotIn("selectedCapabilityRoots", thread_start["params"])
-        turn_start = next(
-            request for request in socket.requests if request.get("method") == "turn/start"
-        )
-        self.assertEqual(turn_start["params"]["effort"], "none")
-        self.assertEqual(
-            turn_start["params"]["outputSchema"]["properties"]["slug"]["pattern"],
-            "^[a-z0-9]+(?:-[a-z0-9]+)*$",
-        )
-        self.assertEqual(AGENT_TASK.task_slug("status-line-fix"), "status-line-fix")
-        for invalid in ("Status-Line", "-status", "status-", "status--line", "status-line-title"):
-            with self.subTest(invalid=invalid):
-                with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid task slug"):
-                    AGENT_TASK.task_slug(invalid)
-
-    def test_codex_task_slug_fallback_separates_complete_words(self) -> None:
-        self.assertEqual(
-            AGENT_TASK.fallback_task_slug("Fix login flow in the app"),
-            "fix-login-flow",
-        )
-        self.assertEqual(AGENT_TASK.fallback_task_slug("supercalifragilistic"), "task")
-        self.assertEqual(AGENT_TASK.fallback_task_slug("상태 표시줄 정리"), "task")
+        self.assertNotIn('"thread/name/set"', SCRIPT.read_text())
 
     def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
         class FakeSocket:
@@ -868,60 +650,19 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(inbox["messages"][0]["status"], "accepted")
         kill.assert_any_call(os.getpid(), AGENT_TASK.signal.SIGUSR2)
 
-    def test_current_session_is_inferred_from_the_managed_task(self) -> None:
+    def test_current_session_requires_the_inherited_session_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            state = root / "state"
-            repository = root / "repo"
-            subprocess.run(["git", "init", "-b", "main", str(repository)], check=True, capture_output=True)
-            (repository / "tracked.txt").write_text("base\n")
-            subprocess.run(["git", "-C", str(repository), "add", "tracked.txt"], check=True)
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(repository),
-                    "-c",
-                    "user.name=Test Agent",
-                    "-c",
-                    "user.email=agent@example.com",
-                    "commit",
-                    "-m",
-                    "base",
-                ],
-                check=True,
-                capture_output=True,
-            )
             environment = {
-                "AGENT_TASK_STATE_DIR": str(state),
+                "AGENT_TASK_STATE_DIR": str(Path(directory) / "state"),
                 "AI_TASK_ID": "managed-task",
                 AGENT_TASK.AGENT_SESSION_ID_ENV: "",
                 AGENT_TASK.AGENT_SESSION_PATH_ENV: "",
             }
             with mock.patch.dict(os.environ, environment, clear=False):
                 store = AGENT_TASK.Store()
-                task_owner = AGENT_TASK.process_record(os.getpid(), role="agent")
-                self.assertIsNotNone(task_owner)
-                store.save({"task_id": "managed-task", "process": task_owner})
-                session_id = "legacy-app-server-session"
-                session = AGENT_TASK.checkout_session_metadata(
-                    repository,
-                    session_id,
-                    task_id="managed-task",
-                )
-                session["process"] = AGENT_TASK.process_record(os.getpid(), role="lock-supervisor")
-                session_path = store.checkout_session_path(repository)
-                AGENT_TASK.atomic_write_private(
-                    session_path,
-                    (json.dumps(session) + "\n").encode(),
-                )
-                with AGENT_TASK.checkout_lock_files(store, repository) as reservation:
-                    self.assertTrue(reservation)
-                    selected, selected_path, selected_session = AGENT_TASK.current_agent_session(store)
+                with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "managed agent session"):
+                    AGENT_TASK.current_agent_session(store)
 
-        self.assertEqual(selected, session_id)
-        self.assertEqual(selected_path, session_path)
-        self.assertEqual(selected_session["task_id"], "managed-task")
 
     def test_claude_stop_hook_injects_and_delivers_an_inbox_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -971,157 +712,59 @@ class LaunchBehaviorTest(unittest.TestCase):
                 with AGENT_TASK.checkout_session_lock(store, checkout) as after_release:
                     self.assertTrue(after_release)
                 self.assertTrue(store.checkout_lock_path(checkout).exists())
-                self.assertFalse((checkout / ".ai-lock").exists())
 
-    def test_auto_open_uses_the_current_checkout_when_available(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(["open", "work here", "--auto"])
+    def test_open_always_uses_a_managed_worktree(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "isolated work"])
         arguments.command = []
-        completed = mock.Mock(returncode=0)
+        arguments.launch_cwd = Path("/repo")
 
         with (
+            mock.patch.object(AGENT_TASK, "prepare_launch_working_directory"),
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value="current"),
-            mock.patch.object(
-                AGENT_TASK,
-                "checkout_session_lock",
-                return_value=contextlib.nullcontext(True),
-            ),
-            mock.patch.object(AGENT_TASK, "prepare_native_repository_memory"),
-            mock.patch.object(AGENT_TASK, "retry_ready_integrations_for_repository"),
-            mock.patch.object(AGENT_TASK.subprocess, "run", return_value=completed) as run,
-        ):
-            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(run.call_args.args[0][-1], "work here")
-
-    def test_direct_open_defaults_to_the_safe_auto_path(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(["open", "safe default"])
-        arguments.command = []
-        completed = mock.Mock(returncode=0)
-
-        with (
-            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value=None),
-            mock.patch.object(
-                AGENT_TASK,
-                "checkout_session_lock",
-                return_value=contextlib.nullcontext(True),
-            ) as checkout_lock,
-            mock.patch.object(AGENT_TASK, "prepare_native_repository_memory"),
-            mock.patch.object(AGENT_TASK, "retry_ready_integrations_for_repository"),
-            mock.patch.object(AGENT_TASK.subprocess, "run", return_value=completed),
-        ):
-            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
-
-        self.assertEqual(exit_code, 0)
-        self.assertTrue(arguments.auto)
-        checkout_lock.assert_called_once()
-
-    def test_auto_open_falls_back_to_a_worktree_when_busy(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(["open", "parallel work", "--auto"])
-        arguments.command = []
-
-        with (
-            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value=None),
-            mock.patch.object(
-                AGENT_TASK,
-                "checkout_session_lock",
-                return_value=contextlib.nullcontext(False),
-            ),
-            mock.patch.object(AGENT_TASK, "read_active_checkout_session", return_value=None),
+            mock.patch.object(AGENT_TASK, "validate_foreground_agent_command"),
             mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
-            mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
-        ):
-            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
-
-        self.assertEqual(exit_code, 0)
-        self.assertTrue(start.call_args.args[0].new)
-        self.assertTrue(start.call_args.args[0].isolate_from_active_checkout)
-        self.assertIsNone(start.call_args.args[0].active_session_base_sha)
-
-    def test_worktree_policy_skips_the_current_checkout(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(["open", "isolated work", "--auto"])
-        arguments.command = []
-
-        with (
-            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value="worktree"),
             mock.patch.object(AGENT_TASK, "checkout_session_lock") as checkout_lock,
-            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
-            mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
+            mock.patch.object(AGENT_TASK, "command_start", return_value=17) as start,
         ):
-            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
+            result = AGENT_TASK.command_open(arguments, mock.Mock())
 
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(result, 17)
         checkout_lock.assert_not_called()
-        self.assertTrue(start.call_args.args[0].managed)
+        start.assert_called_once_with(arguments, mock.ANY)
 
-    def test_current_policy_refuses_a_busy_checkout_without_fallback(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(["open", "serialized work", "--auto"])
+    def test_open_starts_quietly_when_another_managed_task_is_active(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "parallel work", "--quiet"])
         arguments.command = []
-
-        with (
-            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value="current"),
-            mock.patch.object(
-                AGENT_TASK,
-                "checkout_session_lock",
-                return_value=contextlib.nullcontext(False),
-            ),
-            mock.patch.object(AGENT_TASK, "command_start") as start,
-            self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "repository policy"),
-        ):
-            AGENT_TASK.command_open(arguments, mock.Mock())
-
-        start.assert_not_called()
-
-    def test_managed_open_starts_separately_when_another_task_is_active(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(["open", "parallel work", "--managed"])
-        arguments.command = []
+        arguments.launch_cwd = Path("/repo")
         active = {
             "task_id": "active-task",
             "agent": "codex",
             "status": AGENT_TASK.RUNNING,
-            "worktree_path": "/state/active-task",
-            "process": {"pid": 123, "start": "456"},
-            "updated_at": "now",
+            "process": {"pid": 123},
         }
 
         with (
+            mock.patch.object(AGENT_TASK, "prepare_launch_working_directory"),
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "validate_foreground_agent_command"),
             mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[active]),
             mock.patch.object(AGENT_TASK, "process_alive", return_value=True),
             mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
         ):
-            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
+            result = AGENT_TASK.command_open(arguments, mock.Mock())
 
-        self.assertEqual(exit_code, 0)
-        self.assertTrue(start.call_args.args[0].new)
+        self.assertEqual(result, 0)
+        self.assertEqual(stdout.getvalue(), "")
+        start.assert_called_once_with(arguments, mock.ANY)
 
-    def test_cross_worktree_resume_uses_the_current_new_worktree(self) -> None:
-        command = AGENT_TASK.default_chat_resume_command(
-            "codex",
-            None,
-            last=False,
-            include_non_interactive=False,
-        )
-
-        self.assertEqual(command[:2], ["codex", "resume"])
-        self.assertIn("--all", command)
-        self.assertIn('tui.resume_cwd="current"', command)
-        self.assertIn("--dangerously-bypass-approvals-and-sandbox", command)
-
-    def test_resume_prefers_a_preserved_task_before_the_global_picker(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(["resume"])
-        task = {
+    def test_open_prefers_preserved_work_when_no_task_is_live(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(["open", "finish it", "--quiet"])
+        arguments.command = []
+        arguments.launch_cwd = Path("/repo")
+        preserved = {
             "task_id": "preserved-task",
             "agent": "codex",
             "status": AGENT_TASK.RECOVERY,
@@ -1129,115 +772,64 @@ class LaunchBehaviorTest(unittest.TestCase):
         }
 
         with (
+            mock.patch.object(AGENT_TASK, "prepare_launch_working_directory"),
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[task]),
-            mock.patch.object(AGENT_TASK, "command_recover", return_value=0) as recover,
+            mock.patch.object(AGENT_TASK, "validate_foreground_agent_command"),
+            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[preserved]),
+            mock.patch.object(AGENT_TASK, "command_recover", return_value=23) as recover,
         ):
-            exit_code = AGENT_TASK.command_resume(arguments, mock.Mock())
+            result = AGENT_TASK.command_open(arguments, mock.Mock())
 
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(recover.call_args.args[0].task_id, "preserved-task")
-        self.assertEqual(recover.call_args.args[0].command, [])
+        self.assertEqual(result, 23)
+        recovery_args = recover.call_args.args[0]
+        self.assertEqual(recovery_args.task_id, "preserved-task")
+        self.assertTrue(recovery_args.quiet)
 
-    def test_resume_without_preserved_work_uses_a_fresh_worktree(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(["resume"])
+    def test_saved_chat_resume_uses_a_managed_worktree(self) -> None:
+        arguments = AGENT_TASK.build_parser().parse_args(
+            ["resume", "01a0479b-3a2a-77a0-8bc5-c2913ebe5247", "--quiet"]
+        )
+        arguments.command = []
+        arguments.launch_cwd = Path("/repo")
 
         with (
+            mock.patch.object(AGENT_TASK, "prepare_launch_working_directory"),
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
-            mock.patch.object(AGENT_TASK, "repository_agent_task_mode", return_value="worktree"),
             mock.patch.object(AGENT_TASK, "checkout_session_lock") as checkout_lock,
-            mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
+            mock.patch.object(AGENT_TASK, "command_start", return_value=29) as start,
         ):
-            exit_code = AGENT_TASK.command_resume(arguments, mock.Mock())
+            result = AGENT_TASK.command_resume(arguments, mock.Mock())
 
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(result, 29)
         checkout_lock.assert_not_called()
-        command = start.call_args.args[0].command
-        self.assertEqual(command[:2], ["codex", "resume"])
-        self.assertIn("--all", command)
-        self.assertIn('tui.resume_cwd="current"', command)
-
-    def test_resume_passthrough_preserves_global_options_and_prompt(self) -> None:
-        command = AGENT_TASK.passthrough_chat_resume_command(
-            ["--last", "-m", "gpt-5.6", "continue the audit"]
-        )
-
-        self.assertEqual(command[:2], ["codex", "resume"])
-        self.assertEqual(command[-4:], ["--last", "-m", "gpt-5.6", "continue the audit"])
-        self.assertNotIn("--all", command)
-
-        picker = AGENT_TASK.passthrough_chat_resume_command(["-m", "gpt-5.6"])
-        self.assertIn("--all", picker)
-
-    def test_codex_cd_is_normalized_before_checkout_selection(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            origin = Path(directory) / "origin"
-            target = Path(directory) / "target"
-            origin.mkdir()
-            target.mkdir()
-            command, selected = AGENT_TASK.normalize_codex_working_directory(
-                ["codex", "-C", "../target", "work here"],
-                origin,
-            )
-
-        self.assertEqual(selected, target.resolve())
-        self.assertEqual(command[2], str(target.resolve()))
+        start.assert_called_once_with(arguments, mock.ANY)
+        self.assertIn("resume", arguments.command)
+        self.assertIn("01a0479b-3a2a-77a0-8bc5-c2913ebe5247", arguments.command)
 
     def test_review_style_command_refuses_a_busy_current_checkout(self) -> None:
         arguments = AGENT_TASK.build_parser().parse_args(
-            ["open", "--auto", "--require-current", "--agent", "custom"]
+            ["open", "--require-current", "--agent", "custom"]
         )
-        arguments.command = ["true"]
+        arguments.command = ["custom-agent"]
+        arguments.launch_cwd = Path("/repo")
 
         with (
+            mock.patch.object(AGENT_TASK, "prepare_launch_working_directory"),
             mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
             mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
+            mock.patch.object(AGENT_TASK, "validate_foreground_agent_command"),
             mock.patch.object(
                 AGENT_TASK,
                 "checkout_session_lock",
-                return_value=contextlib.nullcontext(False),
+                return_value=contextlib.nullcontext(None),
             ),
-            self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "different snapshot"),
         ):
-            AGENT_TASK.command_open(arguments, mock.Mock())
+            with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "current checkout is busy"):
+                AGENT_TASK.command_open(arguments, mock.Mock())
 
-    def test_review_is_detected_after_codex_global_options(self) -> None:
-        command = [
-            "codex",
-            "-m",
-            "gpt-5.6",
-            "--enable",
-            "example",
-            "-C",
-            "/tmp",
-            "review",
-            "--uncommitted",
-        ]
-
-        self.assertEqual(AGENT_TASK.codex_subcommand(command), "review")
-        self.assertIsNone(AGENT_TASK.codex_subcommand(["codex", "--", "review"]))
-
-    def test_new_takes_precedence_over_auto(self) -> None:
-        arguments = AGENT_TASK.build_parser().parse_args(
-            ["open", "--auto", "--new", "--agent", "custom"]
-        )
-        arguments.command = ["true"]
-
-        with (
-            mock.patch.object(AGENT_TASK, "repo_root", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "primary_worktree", return_value=Path("/repo")),
-            mock.patch.object(AGENT_TASK, "refresh_interrupted_tasks", return_value=[]),
-            mock.patch.object(AGENT_TASK, "checkout_session_lock") as checkout_lock,
-            mock.patch.object(AGENT_TASK, "command_start", return_value=0) as start,
-        ):
-            exit_code = AGENT_TASK.command_open(arguments, mock.Mock())
-
-        self.assertEqual(exit_code, 0)
-        checkout_lock.assert_not_called()
-        self.assertTrue(start.call_args.args[0].new)
 
     def test_nested_claude_worktree_lifecycles_are_refused(self) -> None:
         for flag in ("--background", "--bg", "--tmux", "--worktree", "-w"):
@@ -1277,11 +869,11 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn("from = host_package_pacman.bubblewrap", configuration)
         self.assertIn("destroy = false", configuration)
 
-    def test_agent_lock_is_globally_ignored(self) -> None:
+    def test_only_repository_memory_is_globally_ignored(self) -> None:
         configuration = SCRIPT.parent.parent.joinpath("git.tf").read_text()
 
         self.assertIn(".ai-memory", configuration)
-        self.assertIn(".ai-lock", configuration)
+        self.assertNotIn(".ai-lock", configuration)
 
     def test_global_agents_preflight_shared_operational_resources(self) -> None:
         root = SCRIPT.parent.parent
@@ -1394,7 +986,7 @@ class WorktreeStatuslineTest(unittest.TestCase):
             store = self.make_store(Path(directory))
             task_id = "20260826-204635-a5bc90"
             store.save(self.task(task_id, "environments"))
-            AGENT_TASK.write_task_context(store, task_id, {"task_slug": "contextfix"})
+            AGENT_TASK.write_task_context(store, task_id, {"external_label": "preserved"})
             arguments = argparse.Namespace(
                 task_id=task_id,
                 jira="cape-456",
@@ -1409,7 +1001,10 @@ class WorktreeStatuslineTest(unittest.TestCase):
             ):
                 AGENT_TASK.command_context(arguments, store)
             self.assertEqual(AGENT_TASK.read_task_context(store, task_id)["jira_issue"], "CAPE-456")
-            self.assertEqual(AGENT_TASK.read_task_context(store, task_id)["task_slug"], "contextfix")
+            self.assertEqual(
+                AGENT_TASK.read_task_context(store, task_id)["external_label"],
+                "preserved",
+            )
 
             arguments.jira = None
             arguments.pr = "https://github.com/capelabs/backend/pull/321"
@@ -1484,137 +1079,6 @@ class WorktreeStatuslineTest(unittest.TestCase):
 
         self.assertTrue(any("·" in line for line in lines))
         self.assertTrue(all("|  |" not in line for line in lines))
-
-    def test_codex_statusline_shows_short_task_path_pr_and_optional_jira(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            store = self.make_store(Path(directory))
-            task_id = "20260828-150920-7fb1e6"
-            task = self.task(task_id, "environments")
-            task.update(
-                {
-                    "worktree_number": 17,
-                    "branch": f"ai/codex/{task_id}",
-                    "target_branch": "main",
-                    "origin_working_directory": "/home/dongho/projects/environments/arch-desktop",
-                }
-            )
-            store.save(task)
-
-            without_jira = AGENT_TASK.codex_worktree_statusline(store, task_id)
-            AGENT_TASK.write_task_context(
-                store,
-                task_id,
-                {
-                    "jira_issue": "CAPE-123",
-                    "pull_request_number": 321,
-                    "task_slug": "statuslinefix",
-                },
-            )
-            with_context = AGENT_TASK.codex_worktree_statusline(store, task_id)
-
-        self.assertEqual(without_jira, "starting · projects/environments/arch-desktop")
-        self.assertEqual(
-            with_context,
-            "statuslinefix · projects/environments/arch-desktop · PR #321 · CAPE-123",
-        )
-
-    def test_codex_statusline_rotates_attached_repository_scopes(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            store = self.make_store(Path(directory))
-            parent_id = "20260828-150920-7fb1e6"
-            parent = self.task(parent_id, "environments")
-            parent.update(
-                {
-                    "worktree_number": 17,
-                    "branch": f"ai/codex/{parent_id}",
-                    "target_branch": "main",
-                    "origin_working_directory": "/projects/environments/arch-desktop",
-                }
-            )
-            backend = self.task("20260828-151000-backend", "certmind-backend")
-            backend.update(
-                {
-                    "attachment_parent_task_id": parent_id,
-                    "branch": "ai/codex/backend-task",
-                    "target_branch": "develop",
-                    "origin_working_directory": "/projects/capelabs/certmind-backend",
-                }
-            )
-            web = self.task("20260828-151100-web0000", "certmind-web")
-            web.update(
-                {
-                    "attachment_parent_task_id": parent_id,
-                    "branch": "ai/codex/web-task",
-                    "target_branch": "main",
-                    "origin_working_directory": "/projects/capelabs/certmind-web",
-                }
-            )
-            for task in (parent, backend, web):
-                store.save(task)
-            AGENT_TASK.write_task_context(
-                store,
-                parent_id,
-                {
-                    "jira_issue": "CAPE-123",
-                    "pull_request_number": 101,
-                    "task_slug": "statuslinefix",
-                },
-            )
-            AGENT_TASK.write_task_context(
-                store,
-                str(backend["task_id"]),
-                {"pull_request_number": 202},
-            )
-            AGENT_TASK.write_task_context(
-                store,
-                str(web["task_id"]),
-                {"pull_request_number": 303},
-            )
-
-            lines = [
-                AGENT_TASK.codex_worktree_statusline(store, parent_id, epoch=epoch)
-                for epoch in (0, 5, 10, 15)
-            ]
-
-        self.assertTrue(lines[0].startswith("1/3* · statuslinefix ·"), lines[0])
-        self.assertIn("environments/arch-desktop", lines[0])
-        self.assertIn("PR #101 · CAPE-123", lines[0])
-        self.assertTrue(lines[1].startswith("2/3 · statuslinefix ·"), lines[1])
-        self.assertIn("capelabs/certmind-backend", lines[1])
-        self.assertIn("PR #202 · CAPE-123", lines[1])
-        self.assertTrue(lines[2].startswith("3/3 · statuslinefix ·"), lines[2])
-        self.assertIn("capelabs/certmind-web", lines[2])
-        self.assertIn("PR #303 · CAPE-123", lines[2])
-        self.assertEqual(lines[3], lines[0])
-
-    def test_codex_statusline_path_keeps_three_tail_parts_with_a_hard_limit(self) -> None:
-        self.assertEqual(
-            AGENT_TASK.compact_statusline_path(
-                "/home/dongho/projects/environments/arch-desktop",
-            ),
-            "projects/environments/arch-desktop",
-        )
-        compact = AGENT_TASK.compact_statusline_path(
-            "/one/two/three/this-directory-name-is-far-too-long/another-long-directory/final",
-            limit=36,
-        )
-
-        self.assertEqual(len(compact), 36)
-        self.assertTrue(compact.startswith("..."))
-        self.assertTrue(compact.endswith("/final"))
-        compact_branch = AGENT_TASK.compact_statusline_tail(
-            "ai/codex/a-branch-name-that-is-much-too-long-for-the-footer→main",
-            limit=32,
-        )
-        self.assertEqual(len(compact_branch), 32)
-        self.assertTrue(compact_branch.startswith("..."))
-        self.assertTrue(compact_branch.endswith("→main"))
-        self.assertEqual(
-            AGENT_TASK.next_worktree_number(
-                [{"task_id": "old"}, {"task_id": "new", "worktree_number": 7}]
-            ),
-            8,
-        )
 
     def test_jira_issue_is_detected_from_the_launch_description(self) -> None:
         task = {"description": "Implement CAPE-789 for PR #456 without changing the API"}
@@ -1691,7 +1155,7 @@ class HarnessTest(unittest.TestCase):
         self.git("config", "user.email", "agent@example.com")
         self.git("config", "commit.gpgsign", "false")
         exclude = self.repository / ".git/info/exclude"
-        exclude.write_text(exclude.read_text() + "\n.ai-memory\n.ai-lock\n")
+        exclude.write_text(exclude.read_text() + "\n.ai-memory\n")
         (self.repository / ".gitignore").write_text(".agent-cache/\n")
         (self.repository / "shared.txt").write_text("base\n")
         self.git("add", ".")
@@ -1740,35 +1204,10 @@ class HarnessTest(unittest.TestCase):
         task_id = next(line.removeprefix("task: ") for line in result.stdout.splitlines() if line.startswith("task: "))
         return json.loads((self.state / "tasks" / f"{task_id}.json").read_text())
 
-    def test_auto_open_runs_natively_when_the_checkout_is_free(self) -> None:
-        memory = AGENT_TASK.memory_template("main")
-        memory["settings"]["agent_task_mode"] = "current"
-        AGENT_TASK.write_memory(self.repository / ".ai-memory", memory)
+    def test_open_isolates_and_integrates_the_first_task(self) -> None:
         result = self.cli(
             "open",
-            "--auto",
-            "--agent",
-            "custom",
-            "--",
-            "sh",
-            "-lc",
-            f"test \"$PWD\" = {shlex.quote(str(self.repository))}",
-            check=True,
-        )
-
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(list((self.state / "tasks").glob("*.json")), [])
-        self.assertEqual(self.git("status", "--porcelain").stdout, "")
-
-    def test_worktree_policy_isolates_and_integrates_the_first_task(self) -> None:
-        memory = AGENT_TASK.memory_template("main")
-        memory["settings"]["agent_task_mode"] = "worktree"
-        AGENT_TASK.write_memory(self.repository / ".ai-memory", memory)
-
-        result = self.cli(
-            "open",
-            "isolated by repository policy",
-            "--auto",
+            "isolated by default",
             "--agent",
             "custom",
             "--",
@@ -1783,17 +1222,19 @@ class HarnessTest(unittest.TestCase):
         task = self.task_from(result)
 
         self.assertEqual(task["status"], AGENT_TASK.INTEGRATED)
+        self.assertEqual(task["base_source"], "integration_target")
         self.assertEqual(task["worktree_number"], 1)
         self.assertEqual(task["origin_working_directory"], str(self.repository))
         self.assertEqual((self.repository / "policy-result.txt").read_text(), "isolated\n")
 
-    def test_native_session_records_main_as_target_before_branch_contention(self) -> None:
+    def test_open_records_main_as_the_default_target(self) -> None:
         self.git("branch", "develop")
 
-        self.cli("open", "--auto", "--agent", "custom", "--", "true", check=True)
+        self.cli("open", "--agent", "custom", "--", "true", check=True)
         memory = json.loads((self.repository / ".ai-memory").read_text())
 
         self.assertEqual(memory["settings"]["integration_target"], "main")
+
 
     def test_managed_session_attaches_and_integrates_a_secondary_repository(self) -> None:
         secondary = Path(self.temporary.name) / "secondary"
@@ -1802,7 +1243,7 @@ class HarnessTest(unittest.TestCase):
         self.git("config", "user.email", "agent@example.com", cwd=secondary)
         self.git("config", "commit.gpgsign", "false", cwd=secondary)
         exclude = secondary / ".git/info/exclude"
-        exclude.write_text(exclude.read_text() + "\n.ai-memory\n.ai-lock\n")
+        exclude.write_text(exclude.read_text() + "\n.ai-memory\n")
         (secondary / "base.txt").write_text("base\n")
         self.git("add", ".", cwd=secondary)
         self.git("commit", "-m", "base", cwd=secondary)
@@ -1829,7 +1270,6 @@ class HarnessTest(unittest.TestCase):
         )
         result = self.cli(
             "open",
-            "--managed",
             "--new",
             "--agent",
             "custom",
@@ -1858,7 +1298,7 @@ class HarnessTest(unittest.TestCase):
         self.git("config", "user.email", "agent@example.com", cwd=secondary)
         self.git("config", "commit.gpgsign", "false", cwd=secondary)
         exclude = secondary / ".git/info/exclude"
-        exclude.write_text(exclude.read_text() + "\n.ai-memory\n.ai-lock\n")
+        exclude.write_text(exclude.read_text() + "\n.ai-memory\n")
         (secondary / "base.txt").write_text("base\n")
         self.git("add", ".", cwd=secondary)
         self.git("commit", "-m", "base", cwd=secondary)
@@ -1874,7 +1314,6 @@ class HarnessTest(unittest.TestCase):
         )
         result = self.cli(
             "open",
-            "--managed",
             "--new",
             "--agent",
             "custom",
@@ -1898,7 +1337,6 @@ class HarnessTest(unittest.TestCase):
     def test_regular_exit_75_is_not_mistaken_for_a_handoff(self) -> None:
         result = self.cli(
             "open",
-            "--auto",
             "--agent",
             "custom",
             "--",
@@ -1909,14 +1347,13 @@ class HarnessTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 75)
 
-    def test_auto_open_isolates_busy_dirty_work_and_queues_integration(self) -> None:
+    def test_open_isolates_busy_dirty_work_and_queues_integration(self) -> None:
         local_only = self.repository / "local-only.txt"
         local_only.write_text("owned by the in-place session\n")
         with AGENT_TASK.checkout_session_lock(self.store(), self.repository) as acquired:
             self.assertTrue(acquired)
             result = self.cli(
                 "open",
-                "--auto",
                 "--agent",
                 "custom",
                 "--task",
@@ -1965,7 +1402,6 @@ class HarnessTest(unittest.TestCase):
                 sys.executable,
                 str(SCRIPT),
                 "open",
-                "--auto",
                 "--agent",
                 "custom",
                 "--task",
@@ -1990,7 +1426,6 @@ class HarnessTest(unittest.TestCase):
             queued = self.cli(
                 "open",
                 "parallel handoff work",
-                "--auto",
                 "--agent",
                 "custom",
                 "--task",
@@ -2032,7 +1467,6 @@ class HarnessTest(unittest.TestCase):
                 sys.executable,
                 str(SCRIPT),
                 "open",
-                "--auto",
                 "--agent",
                 "custom",
                 "--task",
@@ -2057,7 +1491,6 @@ class HarnessTest(unittest.TestCase):
             queued = self.cli(
                 "open",
                 "normal exit drain work",
-                "--auto",
                 "--agent",
                 "custom",
                 "--task",
@@ -2084,182 +1517,17 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(updated["status"], AGENT_TASK.INTEGRATED)
         self.assertEqual((self.repository / "exit-drained.txt").read_text(), "integrated after exit\n")
 
-    def test_auto_open_uses_the_active_session_start_before_later_commits(self) -> None:
-        session_base = self.git("rev-parse", "HEAD").stdout.strip()
-        store = self.store()
-        with AGENT_TASK.checkout_session_lock(store, self.repository, record_session_base=True) as acquired:
-            self.assertTrue(acquired)
-            metadata = AGENT_TASK.read_active_checkout_session(store, self.repository)
-            self.assertIsNotNone(metadata)
-            self.assertEqual(metadata["base_sha"], session_base)
-
-            (self.repository / "target-before-branch.txt").write_text("safe target work\n")
-            self.git("add", "target-before-branch.txt")
-            self.git("commit", "-m", "chore: advance target before branch")
-            fork_point = self.git("rev-parse", "HEAD").stdout.strip()
-            self.git("switch", "-c", "feature/active-agent")
-            (self.repository / "active-agent.txt").write_text("must stay on J\n")
-            self.git("add", "active-agent.txt")
-            self.git("commit", "-m", "feat: add active agent work")
-
-            result = self.cli(
-                "open",
-                "parallel work",
-                "--auto",
-                "--agent",
-                "custom",
-                "--task",
-                "parallel work",
-                "--",
-                "sh",
-                "-lc",
-                "printf 'parallel only\\n' > parallel-only.txt && git add parallel-only.txt && git commit -m 'feat: add parallel-only result'",
-            )
-            task = self.task_from(result)
-
-        self.assertEqual(result.returncode, 2)
-        self.cli("reconcile", check=True)
-        task = json.loads((self.state / "tasks" / f"{task['task_id']}.json").read_text())
-        self.assertEqual(task["base_sha"], fork_point)
-        self.assertNotEqual(task["base_sha"], session_base)
-        self.assertEqual(task["base_source"], "active_branch_creation")
-        self.assertEqual(task["source_branch"], "main")
-        self.assertEqual(self.git("show", "main:parallel-only.txt").stdout, "parallel only\n")
-        self.assertNotEqual(self.git("show", "main:active-agent.txt", check=False).returncode, 0)
-        self.assertEqual(self.git("show", "feature/active-agent:active-agent.txt").stdout, "must stay on J\n")
-        self.assertFalse((self.repository / ".ai-lock").exists())
-
-    def test_auto_open_excludes_commits_made_on_target_by_the_active_session(self) -> None:
-        session_base = self.git("rev-parse", "HEAD").stdout.strip()
-        store = self.store()
-        with AGENT_TASK.checkout_session_lock(store, self.repository, record_session_base=True) as acquired:
-            self.assertTrue(acquired)
-            (self.repository / "active-target-only.txt").write_text("X owns this commit\n")
-            self.git("add", "active-target-only.txt")
-            self.git("commit", "-m", "feat: add active target work")
-
-            result = self.cli(
-                "open",
-                "parallel without active target work",
-                "--auto",
-                "--agent",
-                "custom",
-                "--task",
-                "parallel without active target work",
-                "--",
-                "sh",
-                "-lc",
-                (
-                    "test ! -e active-target-only.txt && "
-                    "printf 'K only\n' > isolated-target-result.txt && "
-                    "git add isolated-target-result.txt && git commit -m 'feat: add isolated target result'"
-                ),
-            )
-            task = self.task_from(result)
-
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(task["base_sha"], session_base)
-        self.assertEqual(task["base_source"], "checkout_session_start")
-        self.cli("reconcile", check=True)
-        self.assertEqual((self.repository / "active-target-only.txt").read_text(), "X owns this commit\n")
-        self.assertEqual((self.repository / "isolated-target-result.txt").read_text(), "K only\n")
-
-    def test_auto_open_uses_branch_creation_point_after_active_branch_rebase(self) -> None:
-        store = self.store()
-        with AGENT_TASK.checkout_session_lock(
-            store,
-            self.repository,
-            record_session_base=True,
-        ) as acquired:
-            self.assertTrue(acquired)
-            (self.repository / "before-branch.txt").write_text("shared before J\n")
-            self.git("add", "before-branch.txt")
-            self.git("commit", "-m", "chore: add pre-branch commit")
-            branch_creation = self.git("rev-parse", "HEAD").stdout.strip()
-
-            self.git("switch", "-c", "feature/rebased-active-agent")
-            (self.repository / "active-branch.txt").write_text("J only\n")
-            self.git("add", "active-branch.txt")
-            self.git("commit", "-m", "feat: add active branch result")
-
-            target_worktree = self.repository.parent / "advance-main"
-            self.git("worktree", "add", str(target_worktree), "main")
-            (target_worktree / "target-after-branch.txt").write_text("later target\n")
-            self.git("-C", str(target_worktree), "add", "target-after-branch.txt")
-            self.git("-C", str(target_worktree), "commit", "-m", "chore: advance target after branch")
-            self.git("worktree", "remove", str(target_worktree))
-            target_after_branch = self.git("rev-parse", "main").stdout.strip()
-
-            self.git("rebase", "main")
-            self.assertEqual(self.git("merge-base", "HEAD", "main").stdout.strip(), target_after_branch)
-
-            result = self.cli(
-                "open",
-                "parallel from the real branch parent",
-                "--auto",
-                "--agent",
-                "custom",
-                "--task",
-                "parallel from the real branch parent",
-                "--",
-                "sh",
-                "-lc",
-                (
-                    "test ! -e target-after-branch.txt && "
-                    "test ! -e active-branch.txt && "
-                    "printf 'K only\\n' > isolated-from-creation.txt && "
-                    "git add isolated-from-creation.txt && "
-                    "git commit -m 'feat: add branch-creation-isolated result'"
-                ),
-            )
-            task = self.task_from(result)
-
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(task["base_sha"], branch_creation)
-        self.assertEqual(task["base_source"], "active_branch_creation")
-        self.cli("reconcile", check=True)
-        self.assertEqual(self.git("show", "main:isolated-from-creation.txt").stdout, "K only\n")
-        self.assertEqual(self.git("show", "main:target-after-branch.txt").stdout, "later target\n")
-        self.assertNotEqual(self.git("show", "main:active-branch.txt", check=False).returncode, 0)
-
     def test_git_clean_cannot_bypass_the_stable_lock(self) -> None:
-        legacy = self.repository / ".ai-lock"
-        legacy.write_text("")
         store = self.store()
 
         with AGENT_TASK.checkout_session_lock(store, self.repository) as first:
             self.assertTrue(first)
             self.git("clean", "-fdx")
-            self.assertFalse(legacy.exists())
             with AGENT_TASK.checkout_session_lock(store, self.repository) as second:
                 self.assertFalse(second)
 
         with AGENT_TASK.checkout_session_lock(store, self.repository) as released:
             self.assertTrue(released)
-
-    def test_legacy_session_is_never_sent_the_handoff_signal(self) -> None:
-        store = self.store()
-        with AGENT_TASK.checkout_lock_files(store, self.repository) as reservation:
-            self.assertTrue(reservation)
-            metadata = AGENT_TASK.checkout_session_metadata(self.repository, "legacy-session")
-            metadata["process"] = AGENT_TASK.process_record(os.getpid(), role="lock-supervisor")
-            AGENT_TASK.atomic_write_private(
-                store.checkout_session_path(self.repository),
-                (json.dumps(metadata) + "\n").encode(),
-            )
-            with mock.patch.object(AGENT_TASK.os, "kill") as kill:
-                notified = AGENT_TASK.notify_active_sessions(
-                    store,
-                    self.repository,
-                    {
-                        "task_id": "ready-task",
-                        "target_branch": "main",
-                        "repository": str(self.repository),
-                    },
-                )
-
-        self.assertEqual(notified, 0)
-        kill.assert_not_called()
 
     def test_agent_child_keeps_the_checkout_lock_after_launcher_release(self) -> None:
         store = self.store()
@@ -2323,7 +1591,7 @@ class HarnessTest(unittest.TestCase):
         with AGENT_TASK.checkout_session_lock(store, self.repository) as after_descendant:
             self.assertTrue(after_descendant)
 
-    def test_session_base_survives_launcher_exit_while_supervisor_is_alive(self) -> None:
+    def test_open_uses_the_target_while_a_native_supervisor_is_alive(self) -> None:
         store = self.store()
         session_base = self.git("rev-parse", "HEAD").stdout.strip()
         supervisor: subprocess.Popen[bytes] | None = None
@@ -2336,6 +1604,7 @@ class HarnessTest(unittest.TestCase):
             (self.repository / "active-after-session-start.txt").write_text("X only\n")
             self.git("add", "active-after-session-start.txt")
             self.git("commit", "-m", "feat: add active session commit")
+            target_head = self.git("rev-parse", "main").stdout.strip()
             command, environment = AGENT_TASK.guarded_agent_invocation(
                 ["sleep", "1"],
                 os.environ.copy(),
@@ -2365,7 +1634,6 @@ class HarnessTest(unittest.TestCase):
             result = self.cli(
                 "open",
                 "parallel after launcher exit",
-                "--auto",
                 "--agent",
                 "custom",
                 "--task",
@@ -2374,7 +1642,7 @@ class HarnessTest(unittest.TestCase):
                 "sh",
                 "-lc",
                 (
-                    "test ! -e active-after-session-start.txt && "
+                    "test -e active-after-session-start.txt && "
                     "printf 'K only\\n' > isolated-after-launcher.txt && "
                     "git add isolated-after-launcher.txt && "
                     "git commit -m 'feat: add isolated result after launcher exit'"
@@ -2382,42 +1650,14 @@ class HarnessTest(unittest.TestCase):
             )
             task = self.task_from(result)
             self.assertEqual(result.returncode, 2)
-            self.assertEqual(task["base_sha"], session_base)
-            self.assertEqual(task["base_source"], "checkout_session_start")
+            self.assertEqual(task["base_sha"], target_head)
+            self.assertEqual(task["base_source"], "integration_target")
         finally:
             if supervisor is not None:
                 supervisor.wait(timeout=5)
 
         self.cli("reconcile", check=True)
         self.assertEqual((self.repository / "isolated-after-launcher.txt").read_text(), "K only\n")
-
-    def test_symlinked_legacy_lock_is_refused_without_touching_its_target(self) -> None:
-        important = self.repository.parent / "important.txt"
-        important.write_text("must survive\n")
-        (self.repository / ".ai-lock").symlink_to(important)
-
-        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "cannot safely open lock file"):
-            with AGENT_TASK.checkout_session_lock(self.store(), self.repository):
-                pass
-
-        self.assertEqual(important.read_text(), "must survive\n")
-
-    def test_live_legacy_session_is_detected_during_upgrade(self) -> None:
-        legacy = self.repository / ".ai-lock"
-        metadata = AGENT_TASK.checkout_session_metadata(self.repository, "legacy-session")
-        legacy.write_text(json.dumps(metadata) + "\n")
-        descriptor = os.open(legacy, os.O_RDWR)
-        AGENT_TASK.fcntl.flock(descriptor, AGENT_TASK.fcntl.LOCK_EX)
-        try:
-            store = self.store()
-            active = AGENT_TASK.read_active_checkout_session(store, self.repository)
-            with AGENT_TASK.checkout_session_lock(store, self.repository) as reservation:
-                self.assertFalse(reservation)
-        finally:
-            AGENT_TASK.fcntl.flock(descriptor, AGENT_TASK.fcntl.LOCK_UN)
-            os.close(descriptor)
-
-        self.assertEqual(active["base_sha"], metadata["base_sha"])
 
     def test_explicit_managed_task_does_not_inherit_the_current_feature(self) -> None:
         target_base = self.git("rev-parse", "main").stdout.strip()
@@ -2455,7 +1695,6 @@ class HarnessTest(unittest.TestCase):
         result = self.cli(
             "open",
             "new managed work",
-            "--managed",
             "--new",
             "--agent",
             "custom",
@@ -2900,23 +2139,6 @@ class HarnessTest(unittest.TestCase):
         self.assertNotIn(secret, serialized)
         self.assertFalse((self.repository / "safe.txt").exists())
 
-    def test_tracked_legacy_lock_is_forbidden_too(self) -> None:
-        result = self.cli(
-            "start",
-            "reject tracked lock",
-            "--agent",
-            "custom",
-            "--",
-            "sh",
-            "-lc",
-            "printf 'not metadata\n' > .ai-lock && git add -f .ai-lock && git commit -m 'chore: track lock'",
-        )
-        task = self.task_from(result)
-
-        self.assertEqual(result.returncode, 2)
-        self.assertIn(".ai-lock", task["status_reason"])
-        self.assertNotEqual(self.git("cat-file", "-e", "main:.ai-lock", check=False).returncode, 0)
-
     def test_memory_selects_target_and_persists_general_knowledge(self) -> None:
         self.git("branch", "develop")
         memory = {
@@ -3144,7 +2366,6 @@ class HarnessTest(unittest.TestCase):
         self.assertTrue((self.repository / ".ai-memory").is_symlink())
 
     def test_native_manual_worktree_memory_merges_back_to_primary(self) -> None:
-        self.cli("open", "--auto", "--agent", "custom", "--", "true", check=True)
         manual = self.repository.parent / "manual-worktree"
         self.git("worktree", "add", "-b", "manual-memory", str(manual), "main")
         store = self.store()
@@ -3203,7 +2424,6 @@ class HarnessTest(unittest.TestCase):
         resumed = self.cli(
             "open",
             "finish it",
-            "--managed",
             "--agent",
             "custom",
             "--",
@@ -3234,7 +2454,7 @@ class HarnessTest(unittest.TestCase):
                 f"printf '{name}\\n' > {name}.txt",
             )
 
-        opened = self.cli("open", "another instruction", "--managed", "--agent", "custom", "--", "true")
+        opened = self.cli("open", "another instruction", "--agent", "custom", "--", "true")
 
         self.assertEqual(opened.returncode, 2)
         self.assertIn("multiple interrupted tasks require a terminal selection", opened.stderr)
@@ -3576,17 +2796,17 @@ class HarnessTest(unittest.TestCase):
         self.assertNotIn("validation_process", updated)
         self.assertEqual((self.repository / "crash-result.txt").read_text(), "recovered\n")
 
-    def test_legacy_transient_state_requires_explicit_integration(self) -> None:
+    def test_unowned_transient_state_requires_explicit_integration(self) -> None:
         result = self.cli(
             "start",
-            "preserve legacy transient state",
+            "preserve unowned transient state",
             "--agent",
             "custom",
             "--no-integrate",
             "--",
             "sh",
             "-lc",
-            "printf 'legacy\n' > legacy-result.txt && git add legacy-result.txt && git commit -m 'feat: add legacy result'",
+            "printf 'unowned\n' > unowned-result.txt && git add unowned-result.txt && git commit -m 'feat: add unowned result'",
             check=True,
         )
         task = self.task_from(result)
@@ -3600,16 +2820,16 @@ class HarnessTest(unittest.TestCase):
 
         self.assertEqual(reconciled.returncode, 2)
         self.assertEqual(preserved["status"], AGENT_TASK.RECOVERY)
-        self.assertTrue(preserved["legacy_integration_interrupted"])
-        self.assertFalse((self.repository / "legacy-result.txt").exists())
+        self.assertTrue(preserved["unowned_integration_interrupted"])
+        self.assertFalse((self.repository / "unowned-result.txt").exists())
 
         self.cli("integrate", str(task["task_id"]), check=True)
-        self.assertEqual((self.repository / "legacy-result.txt").read_text(), "legacy\n")
+        self.assertEqual((self.repository / "unowned-result.txt").read_text(), "unowned\n")
 
-    def test_reconcile_closes_a_legacy_record_whose_result_is_already_on_target(self) -> None:
+    def test_reconcile_closes_an_unowned_record_whose_result_is_already_on_target(self) -> None:
         result = self.cli(
             "start",
-            "recognize an already applied legacy result",
+            "recognize an already applied unowned result",
             "--agent",
             "custom",
             "--no-integrate",
@@ -3623,15 +2843,15 @@ class HarnessTest(unittest.TestCase):
         task_path = self.state / "tasks" / f"{task['task_id']}.json"
         self.git("merge", "--no-ff", "-m", "chore: apply result outside harness", task["result_commit"])
         task["status"] = AGENT_TASK.RECOVERY
-        task["legacy_integration_interrupted"] = True
-        task["status_reason"] = "legacy interrupted integration has no owner metadata"
+        task["unowned_integration_interrupted"] = True
+        task["status_reason"] = "interrupted integration has no owner metadata"
         task_path.write_text(json.dumps(task, indent=2, sort_keys=True) + "\n")
 
         self.cli("reconcile", "--quiet", check=True)
         updated = json.loads(task_path.read_text())
 
         self.assertEqual(updated["status"], AGENT_TASK.INTEGRATED)
-        self.assertNotIn("legacy_integration_interrupted", updated)
+        self.assertNotIn("unowned_integration_interrupted", updated)
         self.assertNotEqual(
             self.git("show-ref", "--verify", "--quiet", f"refs/heads/{task['branch']}", check=False).returncode,
             0,

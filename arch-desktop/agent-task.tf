@@ -46,23 +46,45 @@ resource "host_link" "agent_task_statusline" {
 
 }
 
-# Interactive Codex and Claude tasks follow settings.agent_task_mode in each
-# repository's ignored .ai-memory. "worktree" always isolates tasks, while
-# "current" reserves and edits the current checkout without a task branch.
-# Repositories without a recorded choice retain contention-aware compatibility
-# behavior until an agent verifies and records the durable policy.
+# Ordinary interactive Codex and Claude sessions always use harness-managed
+# worktrees. Explicit local launches and exact-checkout review commands remain
+# direct because the operator or command has selected that checkout deliberately.
 resource "host_file_block" "agent_task_functions" {
   block = host_file.zshrc.blocks.functions
 
   content = <<-EOT
     o() {
+      local codex_project="$PWD" codex_arg
+      local codex_expect_cd=0
+      for codex_arg in "$@"; do
+        if (( codex_expect_cd )); then
+          codex_project="$codex_arg"
+          codex_expect_cd=0
+          continue
+        fi
+        case "$codex_arg" in
+          --) break ;;
+          -C|--cd) codex_expect_cd=1 ;;
+          --cd=*) codex_project="$${codex_arg#--cd=}" ;;
+        esac
+      done
+      if [[ "$codex_project" != /* ]]; then
+        codex_project="$PWD/$codex_project"
+      fi
+      codex_project="$${codex_project:A}"
+      local codex_trust="projects={$${(qqq)codex_project}={trust_level=\"trusted\"}}"
+      local -a codex_tui=(
+        -c "$codex_trust"
+        -c 'tui.show_tooltips=false'
+        -c 'tui.status_line=["current-dir","model-with-reasoning","task-progress"]'
+      )
       if [[ "$${1-}" == "--local" ]]; then
         shift
-        command codex --dangerously-bypass-approvals-and-sandbox "$@"
+        command codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
         return
       fi
       if [[ "$${AI_TASK_HARNESS-}" == "agent-task" ]]; then
-        command codex --dangerously-bypass-approvals-and-sandbox "$@"
+        command codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
         return
       fi
       if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -74,40 +96,31 @@ resource "host_file_block" "agent_task_functions" {
           esac
         done
         if (( codex_has_cd )); then
-          agent-task open --auto --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+          agent-task open --quiet --agent codex -- codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
         else
-          command codex --dangerously-bypass-approvals-and-sandbox "$@"
+          command codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
         fi
         return
       fi
       if [[ "$${1-}" == "resume" ]]; then
         shift
-        agent-task resume --agent codex -- "$@"
-        return
-      fi
-      if [[ "$${1-}" == "--task" ]]; then
-        shift
-        if (( $# )); then
-          agent-task open --auto --agent codex "$*"
-        else
-          agent-task open --auto --agent codex
-        fi
+        agent-task resume --quiet --agent codex -- "$@"
         return
       fi
       if [[ "$${1-}" == "--new" ]]; then
         shift
         case "$${1-}" in
           exec|e|review|resume|apply|a|fork|cloud|cloud-tasks|sandbox|--*)
-            agent-task open --managed --new --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+            agent-task open --quiet --new --agent codex -- codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
             ;;
           -*)
-            agent-task open --managed --new --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+            agent-task open --quiet --new --agent codex -- codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
             ;;
           *)
             if (( $# )); then
-              agent-task open --managed --new --agent codex "$*"
+              agent-task open --quiet --new --agent codex "$*"
             else
-              agent-task open --managed --new --agent codex
+              agent-task open --quiet --new --agent codex
             fi
             ;;
         esac
@@ -115,24 +128,24 @@ resource "host_file_block" "agent_task_functions" {
       fi
       case "$${1-}" in
         review)
-          agent-task open --auto --require-current --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+          agent-task open --quiet --require-current --agent codex -- codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
           return
           ;;
         exec|e|apply|a|fork|cloud|cloud-tasks|sandbox)
-          agent-task open --auto --fresh --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+          agent-task open --quiet --fresh --agent codex -- codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
           return
           ;;
         login|logout|mcp|plugin|mcp-server|app-server|remote-control|completion|update|doctor|debug|archive|delete|migrate-rollouts|unarchive|exec-server|features|help|-h|--help|-V|--version)
-          command codex --dangerously-bypass-approvals-and-sandbox "$@"
+          command codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
           return
           ;;
       esac
       if [[ "$${1-}" == -* ]]; then
-        agent-task open --auto --agent codex -- codex --dangerously-bypass-approvals-and-sandbox "$@"
+        agent-task open --quiet --agent codex -- codex "$${codex_tui[@]}" --dangerously-bypass-approvals-and-sandbox "$@"
       elif (( $# )); then
-        agent-task open --auto --agent codex "$*"
+        agent-task open --quiet --agent codex "$*"
       else
-        agent-task open --auto --agent codex
+        agent-task open --quiet --agent codex
       fi
     }
 
@@ -162,9 +175,6 @@ resource "host_file_block" "agent_task_functions" {
       if (( claude_owns_lifecycle )); then
         if [[ "$${1-}" == "--new" ]]; then
           shift
-        elif [[ "$${1-}" == "--task" ]]; then
-          print -u2 "c: --task cannot be combined with Claude-managed background or worktree modes"
-          return 2
         fi
         command env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
         return
@@ -177,30 +187,21 @@ resource "host_file_block" "agent_task_functions" {
         shift
         case "$${1-}" in
           ultrareview|--*|-*)
-            agent-task open --managed --new --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
+            agent-task open --quiet --new --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
             ;;
           *)
             if (( $# )); then
-              agent-task open --managed --new --agent claude "$*"
+              agent-task open --quiet --new --agent claude "$*"
             else
-              agent-task open --managed --new --agent claude
+              agent-task open --quiet --new --agent claude
             fi
             ;;
         esac
         return
       fi
-      if [[ "$${1-}" == "--task" ]]; then
-        shift
-        if (( $# )); then
-          agent-task open --auto --agent claude "$*"
-        else
-          agent-task open --auto --agent claude
-        fi
-        return
-      fi
       case "$${1-}" in
         ultrareview)
-          agent-task open --auto --require-current --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
+          agent-task open --quiet --require-current --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
           return
           ;;
         auth|auto-mode|doctor|gateway|import|install|mcp|plugin|plugins|project|setup-token|update|upgrade|version|-h|--help|--version)
@@ -209,11 +210,11 @@ resource "host_file_block" "agent_task_functions" {
           ;;
       esac
       if [[ "$${1-}" == -* ]]; then
-        agent-task open --auto --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
+        agent-task open --quiet --agent claude -- env IS_DEMO=1 claude --ide --chrome --allow-dangerously-skip-permissions --effort max --permission-mode bypassPermissions "$@"
       elif (( $# )); then
-        agent-task open --auto --agent claude "$*"
+        agent-task open --quiet --agent claude "$*"
       else
-        agent-task open --auto --agent claude
+        agent-task open --quiet --agent claude
       fi
     }
   EOT
