@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -2448,6 +2449,53 @@ class HarnessTest(unittest.TestCase):
         supervisor.wait(timeout=5)
         with AGENT_TASK.checkout_session_lock(store, self.repository) as after_descendant:
             self.assertTrue(after_descendant)
+
+    def test_detached_onepassword_daemon_releases_the_checkout(self) -> None:
+        store = self.store()
+        daemon_pid_path = self.repository.parent / "op-daemon-pid.txt"
+        daemon_code = (
+            "import ctypes,os,time; from pathlib import Path; "
+            "child=os.fork(); "
+            "os._exit(0) if child else None; "
+            "os.setsid(); ctypes.CDLL(None).prctl(15,b'op',0,0,0); "
+            f"Path({str(daemon_pid_path)!r}).write_text(str(os.getpid())); "
+            "time.sleep(10)"
+        )
+        daemon_pid: int | None = None
+        supervisor: subprocess.Popen[bytes] | None = None
+        with AGENT_TASK.checkout_session_lock(store, self.repository) as reservation:
+            self.assertTrue(reservation)
+            command, environment = AGENT_TASK.guarded_agent_invocation(
+                [sys.executable, "-c", daemon_code],
+                os.environ.copy(),
+                tuple(reservation),
+            )
+            supervisor = subprocess.Popen(
+                command,
+                env=environment,
+                pass_fds=tuple(reservation),
+            )
+
+        try:
+            supervisor.wait(timeout=3)
+            for _ in range(100):
+                if daemon_pid_path.exists():
+                    break
+                time.sleep(0.01)
+            self.assertTrue(daemon_pid_path.exists())
+            daemon_pid = int(daemon_pid_path.read_text())
+            os.kill(daemon_pid, 0)
+            with AGENT_TASK.checkout_session_lock(store, self.repository) as after_supervisor:
+                self.assertTrue(after_supervisor)
+        finally:
+            if daemon_pid is not None:
+                try:
+                    os.kill(daemon_pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            if supervisor is not None and supervisor.poll() is None:
+                supervisor.kill()
+                supervisor.wait(timeout=5)
 
     def test_open_uses_the_target_while_a_native_supervisor_is_alive(self) -> None:
         store = self.store()

@@ -3100,6 +3100,25 @@ def direct_child_pids(pid: int) -> list[int]:
     return result
 
 
+def detached_onepassword_daemon_child(pid: int) -> bool:
+    try:
+        value = Path(f"/proc/{pid}/stat").read_text()
+        opening = value.find("(")
+        closing = value.rfind(")")
+        fields = value[closing + 2 :].split()
+        process_group = int(fields[2])
+        session = int(fields[3])
+    except (OSError, ValueError, IndexError):
+        return False
+    return (
+        opening >= 0
+        and closing > opening
+        and value[opening + 1 : closing] == "op"
+        and process_group == pid
+        and session == pid
+    )
+
+
 def command_lock_exec(raw: Sequence[str]) -> int:
     command = list(raw)
     if command and command[0] == "--":
@@ -3365,6 +3384,21 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                         terminate_process_tree_child(descendant, signal.SIGKILL)
                 elif not descendants:
                     descendant_deadline = None
+
+            if (
+                not intentional_handoff
+                and main_status is not None
+                and (control_pid is None or control_status is not None)
+            ):
+                descendants = direct_child_pids(os.getpid())
+                if descendants and all(
+                    detached_onepassword_daemon_child(descendant)
+                    for descendant in descendants
+                ):
+                    # The 1Password CLI cache daemon is designed to outlive
+                    # the command that started it. Reparent it on supervisor
+                    # exit without treating it as unfinished agent work.
+                    break
 
             if child_pid == -1:
                 break
