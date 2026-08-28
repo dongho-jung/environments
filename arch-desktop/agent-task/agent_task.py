@@ -27,6 +27,7 @@ try:
         claude_worktree_label,
         render as render_worktree_statusline,
         task_for_working_directory,
+        task_label as worktree_task_label,
     )
 except ModuleNotFoundError as error:
     if error.name != "agent_statusline":
@@ -36,6 +37,7 @@ except ModuleNotFoundError as error:
         claude_worktree_label,
         render as render_worktree_statusline,
         task_for_working_directory,
+        task_label as worktree_task_label,
     )
 
 
@@ -59,6 +61,7 @@ MAX_JSON_FILE_BYTES = 8 * 1024 * 1024
 MAX_MEMORY_BYTES = 1024 * 1024
 MAX_INBOX_BYTES = 1024 * 1024
 MAX_STATUSLINE_INPUT_BYTES = 1024 * 1024
+MAX_CODEX_RPC_BYTES = 32 * 1024 * 1024
 DEFAULT_CHECK_TIMEOUT_SECONDS = 3600.0
 HANDOFF_EXIT_CODE = 75
 HANDOFF_CODEX_GRACE_SECONDS = 2.0
@@ -72,6 +75,12 @@ LOCK_SESSION_ID_ENV = "AGENT_TASK_LOCK_SESSION_ID"
 AGENT_SESSION_PATH_ENV = "AGENT_TASK_SESSION_PATH"
 AGENT_SESSION_ID_ENV = "AGENT_TASK_SESSION_ID"
 CODEX_RECOVERY_CWD_ENV = "AGENT_TASK_CODEX_RECOVERY_CWD"
+CODEX_STATUS_LINE_CONFIG = (
+    'tui.status_line=["thread-title","model-with-reasoning","context-remaining"]'
+)
+CODEX_STATUS_LINE_REFRESH_SECONDS = 5.0
+CODEX_STATUS_LINE_TITLE_PREFIX = "WT | "
+CODEX_STATUS_LINE_TITLE_SEPARATOR = " :: "
 AGENT_TASK_MODES = ("current", "worktree")
 JIRA_ISSUE_PATTERN = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]*)(?![A-Z0-9])")
 MISSING = object()
@@ -533,6 +542,31 @@ def worktree_statusline(
         epoch=epoch,
         extra_entry=extra_entry,
     )
+
+
+def codex_worktree_statusline(store: Store, current_task_id: str | None) -> str:
+    if not current_task_id:
+        return ""
+    current = next(
+        (
+            task
+            for task in active_worktree_tasks(store)
+            if task.get("task_id") == current_task_id
+        ),
+        None,
+    )
+    if current is None:
+        return ""
+    return f"{CODEX_STATUS_LINE_TITLE_PREFIX}{worktree_task_label(current, current=True)}"
+
+
+def codex_statusline_thread_title(statusline: str, current_name: str | None) -> str:
+    if not current_name or current_name == statusline:
+        return statusline
+    if current_name.startswith(CODEX_STATUS_LINE_TITLE_PREFIX):
+        _managed, separator, original = current_name.partition(CODEX_STATUS_LINE_TITLE_SEPARATOR)
+        return f"{statusline}{separator}{original}" if separator and original else statusline
+    return f"{statusline}{CODEX_STATUS_LINE_TITLE_SEPARATOR}{current_name}"
 
 
 def terminal_columns(default: int = 100) -> int:
@@ -1546,7 +1580,12 @@ def codex_remote_command(command: Sequence[str], socket_path: Path) -> list[str]
     ):
         return None
     result = list(command)
-    result[executable + 1 : executable + 1] = ["--remote", f"unix://{socket_path}"]
+    result[executable + 1 : executable + 1] = [
+        "--remote",
+        f"unix://{socket_path}",
+        "-c",
+        CODEX_STATUS_LINE_CONFIG,
+    ]
     return result
 
 
@@ -1597,6 +1636,7 @@ def codex_unix_connection(socket_path: Path) -> Any:
         uri="ws://localhost/rpc",
         compression=None,
         user_agent_header=None,
+        max_size=MAX_CODEX_RPC_BYTES,
         open_timeout=2,
         close_timeout=1,
     )
@@ -1659,6 +1699,158 @@ def latest_codex_thread_id(
     import asyncio
 
     return asyncio.run(_latest_codex_thread_id(socket_path, working_directory, connector))
+
+
+async def _refresh_codex_statusline(
+    socket_path: Path,
+    working_directory: Path,
+    title: str,
+    known_thread_id: str | None,
+    known_title: str | None,
+    connector: Callable[[], Any] | None,
+) -> str | None:
+    if not title:
+        return None
+    if connector is None:
+        connector = lambda: codex_unix_connection(socket_path)
+    exact_cwd = str(working_directory.resolve())
+    async with connector() as websocket:
+        request_id = 1
+        await _codex_rpc_request(
+            websocket,
+            request_id,
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "agent-task",
+                    "title": "agent-task status line bridge",
+                    "version": "1",
+                }
+            },
+        )
+        await websocket.send(json.dumps({"method": "initialized", "params": {}}))
+        request_id += 1
+        loaded = await _codex_rpc_request(
+            websocket,
+            request_id,
+            "thread/loaded/list",
+            {},
+        )
+        request_id += 1
+        thread_ids = [
+            thread_id
+            for thread_id in (loaded.get("data", []) if isinstance(loaded, dict) else [])
+            if isinstance(thread_id, str)
+        ]
+        if known_thread_id in thread_ids and known_title == title:
+            return known_thread_id
+        listed = await _codex_rpc_request(
+            websocket,
+            request_id,
+            "thread/list",
+            {
+                "cwd": exact_cwd,
+                "limit": 100,
+                "sortKey": "recency_at",
+                "sortDirection": "desc",
+            },
+        )
+        request_id += 1
+        candidates: list[tuple[int, str, str | None]] = []
+        threads = listed.get("data", []) if isinstance(listed, dict) else []
+        # Codex currently labels a terminal TUI connected through --remote as
+        # "vscode" internally even when no VS Code client is involved.
+        for thread in threads:
+            if not isinstance(thread, dict):
+                continue
+            thread_id = thread.get("id")
+            if not (
+                isinstance(thread_id, str)
+                and thread_id in thread_ids
+                and thread.get("cwd") == exact_cwd
+                and thread.get("source") in ("cli", "vscode")
+                and codex_status_type(thread.get("status")) in ("active", "idle")
+            ):
+                continue
+            recency = thread.get("recencyAt")
+            candidates.append(
+                (
+                    recency if isinstance(recency, int) else 0,
+                    thread_id,
+                    thread.get("name") if isinstance(thread.get("name"), str) else None,
+                )
+            )
+        inspect_ids: list[str] = []
+        if not candidates:
+            if known_thread_id in thread_ids:
+                inspect_ids = [known_thread_id]
+            elif len(thread_ids) == 1:
+                candidates.append((0, thread_ids[0], None))
+            else:
+                inspect_ids = thread_ids
+        for thread_id in inspect_ids:
+            try:
+                response = await _codex_rpc_request(
+                    websocket,
+                    request_id,
+                    "thread/read",
+                    {"threadId": thread_id, "includeTurns": False},
+                )
+            except AgentTaskError:
+                request_id += 1
+                continue
+            request_id += 1
+            thread = response.get("thread") if isinstance(response, dict) else None
+            if not (
+                isinstance(thread, dict)
+                and thread.get("cwd") == exact_cwd
+                and thread.get("source") in ("cli", "vscode")
+                and codex_status_type(thread.get("status")) in ("active", "idle")
+            ):
+                continue
+            recency = thread.get("recencyAt")
+            candidates.append(
+                (
+                    recency if isinstance(recency, int) else 0,
+                    thread_id,
+                    thread.get("name") if isinstance(thread.get("name"), str) else None,
+                )
+            )
+        if not candidates:
+            return None
+        _recency, thread_id, current_name = max(candidates)
+        applied_title = codex_statusline_thread_title(title, current_name)
+        if current_name != applied_title:
+            await _codex_rpc_request(
+                websocket,
+                request_id,
+                "thread/name/set",
+                {"threadId": thread_id, "name": applied_title},
+            )
+        return thread_id
+
+
+def refresh_codex_statusline(
+    socket_path: Path,
+    working_directory: Path,
+    title: str,
+    *,
+    known_thread_id: str | None = None,
+    known_title: str | None = None,
+    connector: Callable[[], Any] | None = None,
+) -> str | None:
+    import asyncio
+
+    return asyncio.run(
+        _refresh_codex_statusline(
+            socket_path,
+            working_directory,
+            title,
+            known_thread_id,
+            known_title,
+            connector,
+        )
+    )
 
 
 def start_codex_app_server(
@@ -2089,6 +2281,18 @@ def command_lock_exec(raw: Sequence[str]) -> int:
     handoff_force_deadline: float | None = None
     descendant_deadline: float | None = None
     notification_retry_at: float | None = None
+    codex_statusline_refresh_at: float | None = (
+        time.monotonic()
+        if (
+            control_pid is not None
+            and control_socket is not None
+            and store is not None
+            and os.environ.get("AI_TASK_ID")
+        )
+        else None
+    )
+    codex_statusline_thread_id: str | None = None
+    codex_statusline_title: str | None = None
     notification_closed = False
     try:
         while True:
@@ -2122,6 +2326,54 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                 notification_closed = True
 
             if session_path and store is not None and main_status is None:
+                current_time = time.monotonic()
+                if (
+                    codex_statusline_refresh_at is not None
+                    and current_time >= codex_statusline_refresh_at
+                    and control_pid is not None
+                    and control_status is None
+                    and control_socket is not None
+                ):
+                    title = codex_worktree_statusline(store, os.environ.get("AI_TASK_ID"))
+                    try:
+                        thread_id = refresh_codex_statusline(
+                            control_socket,
+                            working_directory,
+                            title,
+                            known_thread_id=codex_statusline_thread_id,
+                            known_title=codex_statusline_title,
+                        )
+                        if thread_id is None:
+                            codex_statusline_thread_id = None
+                            codex_statusline_title = None
+                            codex_statusline_refresh_at = current_time + 0.5
+                        else:
+                            codex_statusline_thread_id = thread_id
+                            codex_statusline_title = title
+                            codex_statusline_refresh_at = (
+                                current_time + CODEX_STATUS_LINE_REFRESH_SECONDS
+                            )
+                            update_session_metadata(
+                                Path(session_path),
+                                session_id,
+                                {
+                                    "codex_statusline_status": "ready",
+                                    "codex_statusline_thread_id": thread_id,
+                                    "codex_statusline_error": None,
+                                },
+                            )
+                    except Exception as error:
+                        # Status decoration is best-effort and must never stop the agent supervisor.
+                        codex_statusline_refresh_at = current_time + 10.0
+                        update_session_metadata(
+                            Path(session_path),
+                            session_id,
+                            {
+                                "codex_statusline_status": "unavailable",
+                                "codex_statusline_error": str(error),
+                            },
+                        )
+
                 if notification_requested or (
                     notification_retry_at is not None and time.monotonic() >= notification_retry_at
                 ):
