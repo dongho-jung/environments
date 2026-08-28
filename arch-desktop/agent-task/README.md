@@ -101,7 +101,11 @@ to restore the terminal and leave its alternate screen; it falls back to
 `SIGTERM` only if Codex does not exit promptly. After either a handoff or an
 ordinary exit, the supervisor announces finalization and gives the private
 control bridge two seconds to stop before forcing it, avoiding an unexplained
-post-TUI wait. A graceful ordinary exit
+post-TUI wait. Before closing the receiver, `handoff` rechecks whether the
+queued result is already on its target. A stale notice is resolved in place and
+the current session stays open. Tool subprocesses from a legacy App Server that
+predates inherited session variables recover the one live session from their
+managed task identity. A graceful ordinary exit
 (`/exit` or the interactive Codex TUI's exit status 130 after `Ctrl+C`) also
 drains auto-integrate tasks for that repository immediately after releasing its
 lease. The harness retains the raw 130 in task metadata while classifying it as

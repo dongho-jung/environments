@@ -4891,13 +4891,55 @@ def command_reconcile(args: argparse.Namespace, store: Store) -> int:
     return 2 if failed else 0
 
 
+def infer_agent_session_from_task(store: Store, task_id: str) -> tuple[str, Path]:
+    """Recover session identity for tools launched by a legacy Codex App Server."""
+    validate_identifier(task_id, "task id")
+    task = store.load(task_id)
+    task_owner = task.get("process")
+    matches: list[tuple[str, Path]] = []
+    for candidate in store.sessions.glob("*.json"):
+        try:
+            value = read_json_file_safely(candidate)
+            checkout_value = value.get("checkout") if isinstance(value, dict) else None
+            session_id = value.get("session_id") if isinstance(value, dict) else None
+            owner = value.get("process") if isinstance(value, dict) else None
+            checkout = Path(checkout_value) if isinstance(checkout_value, str) else None
+            if (
+                not isinstance(value, dict)
+                or value.get("task_id") != task_id
+                or not isinstance(session_id, str)
+                or checkout is None
+                or not isinstance(owner, dict)
+                or owner.get("role") != "lock-supervisor"
+                or not isinstance(task_owner, dict)
+                or owner.get("pid") != task_owner.get("pid")
+                or owner.get("start") != task_owner.get("start")
+                or not valid_checkout_session(value, checkout)
+                or store.checkout_session_path(checkout) != candidate.resolve()
+                or not lock_file_is_busy(store.checkout_lock_path(checkout))
+            ):
+                continue
+        except (AgentTaskError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+        matches.append((session_id, candidate.resolve()))
+    if len(matches) != 1:
+        raise AgentTaskError(f"cannot find one active session record for managed task {task_id}")
+    return matches[0]
+
+
 def current_agent_session(store: Store, session_id: str | None = None) -> tuple[str, Path, dict[str, Any]]:
     selected = session_id or os.environ.get(AGENT_SESSION_ID_ENV)
+    inferred_path: Path | None = None
     if not selected:
-        raise AgentTaskError("this command must run inside a managed agent session, or use --session")
+        task_id = os.environ.get("AI_TASK_ID")
+        if not task_id:
+            raise AgentTaskError("this command must run inside a managed agent session, or use --session")
+        selected, inferred_path = infer_agent_session_from_task(store, task_id)
     validate_identifier(selected, "session id")
     configured_path = os.environ.get(AGENT_SESSION_PATH_ENV) if session_id is None else None
-    if configured_path:
+    if inferred_path is not None:
+        path = inferred_path
+    elif configured_path:
         path = Path(configured_path).resolve()
     else:
         matches: list[Path] = []
@@ -5066,6 +5108,39 @@ def command_inbox(args: argparse.Namespace, store: Store) -> int:
     return 0
 
 
+def resolve_obsolete_handoff(store: Store, task_id: str) -> bool:
+    """Finish an already-satisfied integration notice without closing its receiver."""
+    validate_identifier(task_id, "task id in inbox event")
+    try:
+        with store.lock(f"task:{task_id}", blocking=False):
+            try:
+                task = store.load(task_id)
+            except AgentTaskError:
+                return False
+            if task.get("status") == INTEGRATED:
+                resolve_task_notices(store, task_id)
+                return True
+            if task.get("status") != READY:
+                return False
+            repository_value = task.get("repository")
+            target = task.get("target_branch")
+            result_commit = task.get("result_commit")
+            if not all(
+                isinstance(value, str) and value
+                for value in (repository_value, target, result_commit)
+            ):
+                return False
+            repository = Path(repository_value)
+            if not branch_exists(repository, target):
+                return False
+            target_sha = ref(repository, f"refs/heads/{target}")
+            if not is_ancestor(repository, result_commit, target_sha):
+                return False
+            return integrate_task(store, task) and task.get("status") == INTEGRATED
+    except LockBusy:
+        return False
+
+
 def command_handoff(args: argparse.Namespace, store: Store) -> int:
     session_id, _path, session = current_agent_session(store)
     if session.get("notification_protocol") != NOTIFICATION_PROTOCOL:
@@ -5077,6 +5152,13 @@ def command_handoff(args: argparse.Namespace, store: Store) -> int:
         raise AgentTaskError(f"inbox event is not pending: {event_id}")
     if message.get("type") != "integration_ready" or not isinstance(message.get("task_id"), str):
         raise AgentTaskError(f"inbox event cannot trigger a repository handoff: {event_id}")
+    task_id = message["task_id"]
+    if resolve_obsolete_handoff(store, task_id):
+        print(
+            f"handoff no longer required: {event_id}\n"
+            f"task {task_id} is already present on its target; this session remains open."
+        )
+        return 0
     owner = session.get("process")
     if (
         not isinstance(owner, dict)
