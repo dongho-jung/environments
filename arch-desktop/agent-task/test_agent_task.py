@@ -2095,7 +2095,71 @@ class HarnessTest(unittest.TestCase):
         self.assertFalse(Path(str(task["worktree_path"])).exists())
         self.assertFalse((self.state / "scratch" / str(task["task_id"])).exists())
         self.assertNotEqual(self.git("show-ref", "--verify", "--quiet", f"refs/heads/{task['branch']}", check=False).returncode, 0)
-        self.assertEqual(self.git("log", "-1", "--format=%s", "main").stdout.strip(), "chore: integrate agent task")
+        self.assertEqual(self.git("log", "-1", "--format=%s", "main").stdout.strip(), "feat: add feature")
+        self.assertEqual(task["integration_strategy"], "fast-forward")
+        self.assertEqual(len(self.git("rev-list", "--parents", "-1", "main").stdout.split()), 2)
+
+    def test_diverged_task_uses_a_meaningful_merge_message(self) -> None:
+        result = self.cli(
+            "start",
+            "add divergent result",
+            "--agent",
+            "custom",
+            "--no-integrate",
+            "--",
+            "sh",
+            "-lc",
+            "printf 'task\\n' > task-only.txt && git add task-only.txt && "
+            "git commit -m 'feat: add divergent result'",
+            check=True,
+        )
+        task = self.task_from(result)
+        (self.repository / "target-only.txt").write_text("target\n")
+        self.git("add", "target-only.txt")
+        self.git("commit", "-m", "fix: advance target independently")
+
+        self.cli("integrate", str(task["task_id"]), check=True)
+        updated = json.loads((self.state / "tasks" / f"{task['task_id']}.json").read_text())
+        message = self.git("show", "-s", "--format=%B", "main").stdout
+
+        self.assertEqual(updated["integration_strategy"], "merge")
+        self.assertEqual(len(self.git("rev-list", "--parents", "-1", "main").stdout.split()), 3)
+        self.assertTrue(message.startswith("feat: add divergent result\n"), message)
+        self.assertIn(f"작업 ID: {task['task_id']}", message)
+        self.assertIn("feat: add divergent result", message)
+        self.assertIn(f"{task['branch']} -> main", message)
+
+    def test_equivalent_diverged_result_does_not_add_an_empty_merge(self) -> None:
+        result = self.cli(
+            "start",
+            "add equivalent result",
+            "--agent",
+            "custom",
+            "--no-integrate",
+            "--",
+            "sh",
+            "-lc",
+            "printf 'same\\n' > equivalent.txt && git add equivalent.txt && "
+            "git commit -m 'feat: add equivalent result'",
+            check=True,
+        )
+        task = self.task_from(result)
+        (self.repository / "equivalent.txt").write_text("same\n")
+        self.git("add", "equivalent.txt")
+        self.git("commit", "-m", "feat: add equivalent target result")
+        target_before = self.git("rev-parse", "main").stdout.strip()
+
+        self.cli("integrate", str(task["task_id"]), check=True)
+        updated = json.loads((self.state / "tasks" / f"{task['task_id']}.json").read_text())
+
+        self.assertEqual(self.git("rev-parse", "main").stdout.strip(), target_before)
+        self.assertEqual(updated["status"], AGENT_TASK.INTEGRATED)
+        self.assertEqual(updated["integration_strategy"], "redundant")
+        self.assertEqual(updated["integration_redundant_result"], task["result_commit"])
+        self.assertNotEqual(
+            self.git("show-ref", "--verify", "--quiet", f"refs/heads/{task['branch']}", check=False).returncode,
+            0,
+        )
 
     def test_successful_no_change_task_is_completed_and_cleaned(self) -> None:
         result = self.cli(

@@ -2815,6 +2815,10 @@ def cleanup_task_reserved(store: Store, task: dict[str, Any]) -> bool:
                 and not trees_differ(repository, task["base_sha"], head)
             )
             or (task.get("integrated_commit") and is_ancestor(repository, head, task["integrated_commit"]))
+            or (
+                task.get("integrated_commit")
+                and task.get("integration_redundant_result") == head
+            )
         )
         if safe_to_delete:
             git(repository, "branch", "-D", branch)
@@ -3232,6 +3236,128 @@ def queued_for_active_session_reason(store: Store, repository: Path, task: dict[
     return reason
 
 
+def compact_commit_title(value: str, *, fallback: str = "chore: integrate task result") -> str:
+    title = " ".join(value.split()) or fallback
+    if re.match(r"^(?:fix|feat|refactor|chore|docs|test|style)(?:\([^)]*\))?!?:\s+", title) is None:
+        title = f"chore: integrate {title}"
+    return title if len(title) <= 50 else f"{title[:47].rstrip()}..."
+
+
+def integration_commit_message(
+    repository: Path,
+    task: dict[str, Any],
+    target_sha: str,
+    result_commit: str,
+) -> tuple[str, str]:
+    commits: list[tuple[str, str]] = []
+    for line in git(
+        repository,
+        "log",
+        "--reverse",
+        "--format=%h%x09%s",
+        f"{target_sha}..{result_commit}",
+    ).stdout.splitlines():
+        commit, separator, subject = line.partition("\t")
+        if separator and commit and subject:
+            commits.append((commit, " ".join(subject.split())))
+    title = compact_commit_title(commits[0][1] if commits else "")
+    branch = str(task.get("branch") or "task branch")
+    target = str(task.get("target_branch") or "target")
+    body = [
+        "- 관리형 에이전트 결과 통합",
+        f"  - 작업 ID: {task['task_id']}",
+        f"  - 경로: {branch} -> {target}",
+        "- 포함 커밋",
+    ]
+    for commit, subject in commits[:20]:
+        body.append(f"  - {commit} {subject}")
+    if len(commits) > 20:
+        body.append(f"  - 그 외 {len(commits) - 20}개 커밋")
+    if not commits:
+        body.append(f"  - {result_commit[:12]} 작업 결과")
+    return title, "\n".join(body)
+
+
+def create_integration_candidate(
+    repository: Path,
+    task: dict[str, Any],
+    target_sha: str,
+    result_commit: str,
+    candidate: Path,
+) -> tuple[str | None, str]:
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    if is_ancestor(repository, target_sha, result_commit):
+        git(
+            repository,
+            "-c",
+            "core.hooksPath=/dev/null",
+            "worktree",
+            "add",
+            "--detach",
+            str(candidate),
+            result_commit,
+        )
+        return result_commit, "fast-forward"
+
+    git(
+        repository,
+        "-c",
+        "core.hooksPath=/dev/null",
+        "worktree",
+        "add",
+        "--detach",
+        str(candidate),
+        target_sha,
+    )
+    title, body = integration_commit_message(repository, task, target_sha, result_commit)
+    merge = git(
+        candidate,
+        "-c",
+        "core.hooksPath=/dev/null",
+        "merge",
+        "--no-ff",
+        "-m",
+        title,
+        "-m",
+        body,
+        result_commit,
+        check=False,
+    )
+    return (ref(candidate, "HEAD"), "merge") if merge.returncode == 0 else (None, "merge")
+
+
+def advance_integration_target(
+    repository: Path,
+    target: str,
+    target_sha: str,
+    candidate_head: str,
+    initial_checkout: Path | None,
+) -> str | None:
+    target_ref = f"refs/heads/{target}"
+    if ref(repository, target_ref) != target_sha:
+        return "target advanced during validation"
+    current_checkout = target_checkout(repository, target)
+    initial = initial_checkout.resolve() if initial_checkout else None
+    final = current_checkout.resolve() if current_checkout else None
+    if final != initial:
+        return "target checkout topology changed during validation"
+    if current_checkout:
+        if worktree_changes(current_checkout)[0]:
+            return f"target checkout became dirty: {current_checkout}"
+        advanced = git(
+            current_checkout,
+            "-c",
+            "core.hooksPath=/dev/null",
+            "merge",
+            "--ff-only",
+            candidate_head,
+            check=False,
+        )
+        return None if advanced.returncode == 0 else "target could not fast-forward"
+    updated = git(repository, "update-ref", target_ref, candidate_head, target_sha, check=False)
+    return None if updated.returncode == 0 else "target advanced"
+
+
 def integrate_task(store: Store, task: dict[str, Any]) -> bool:
     repository = Path(task["repository"])
     target = task.get("target_branch")
@@ -3354,7 +3480,6 @@ def integrate_task_with_repository_reserved(
             store, task, READY, f"target checkout is dirty; integration queued: {checkout}", repository_reserved=True
         )
 
-    candidate.parent.mkdir(parents=True, exist_ok=True)
     owner = process_record(os.getpid(), role="integration")
     if owner is None:
         return defer_integration(
@@ -3368,25 +3493,17 @@ def integrate_task_with_repository_reserved(
     task["integration_candidate"] = str(candidate)
     set_status(store, task, INTEGRATING)
     try:
-        git(repository, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", str(candidate), target_sha)
-        merge = git(
-            candidate,
-            "-c",
-            "core.hooksPath=/dev/null",
-            "merge",
-            "--no-ff",
-            "-m",
-            "chore: integrate agent task",
-            "-m",
-            f"- 관리형 에이전트 결과 통합\n  - 작업 ID: {task['task_id']}",
+        candidate_head, strategy = create_integration_candidate(
+            repository,
+            task,
+            target_sha,
             result_commit,
-            check=False,
+            candidate,
         )
-        if merge.returncode:
+        if candidate_head is None:
             return defer_integration(
                 store, task, RECOVERY, "integration conflict; committed result preserved", repository_reserved=True
             )
-        candidate_head = ref(candidate, "HEAD")
         set_status(store, task, VALIDATING)
         if not validate_candidate(store, task, candidate, target_sha, candidate_head):
             return defer_integration(
@@ -3401,54 +3518,36 @@ def integrate_task_with_repository_reserved(
                 store, task, RECOVERY, "merged candidate changed after validation", repository_reserved=True
             )
 
-        if ref(repository, target_ref) != target_sha:
-            return defer_integration(
-                store, task, READY, "target advanced during validation; integration queued", repository_reserved=True
+        if not trees_differ(repository, target_sha, candidate_head):
+            task["integrated_commit"] = target_sha
+            task["integration_strategy"] = "redundant"
+            task["integration_redundant_result"] = result_commit
+            set_status(store, task, INTEGRATED, "result changes were already present on target")
+            resolve_task_notices(store, task["task_id"])
+            apply_memory_update(store, task)
+        else:
+            advance_error = advance_integration_target(
+                repository,
+                target,
+                target_sha,
+                candidate_head,
+                checkout,
             )
-        current_checkout = target_checkout(repository, target)
-        initial_checkout = checkout.resolve() if checkout else None
-        final_checkout = current_checkout.resolve() if current_checkout else None
-        if final_checkout != initial_checkout:
-            return defer_integration(
-                store,
-                task,
-                READY,
-                "target checkout topology changed during validation; integration queued",
-                repository_reserved=True,
-            )
-        if current_checkout:
-            if worktree_changes(current_checkout)[0]:
+            if advance_error:
                 return defer_integration(
                     store,
                     task,
                     READY,
-                    f"target checkout became dirty; integration queued: {current_checkout}",
+                    f"{advance_error}; integration queued",
                     repository_reserved=True,
                 )
-            advanced = git(
-                current_checkout,
-                "-c",
-                "core.hooksPath=/dev/null",
-                "merge",
-                "--ff-only",
-                candidate_head,
-                check=False,
-            )
-            if advanced.returncode:
-                return defer_integration(
-                    store, task, READY, "target could not fast-forward; integration queued", repository_reserved=True
-                )
-        else:
-            updated = git(repository, "update-ref", target_ref, candidate_head, target_sha, check=False)
-            if updated.returncode:
-                return defer_integration(
-                    store, task, READY, "target advanced; integration queued", repository_reserved=True
-                )
 
-        task["integrated_commit"] = candidate_head
-        set_status(store, task, INTEGRATED)
-        resolve_task_notices(store, task["task_id"])
-        apply_memory_update(store, task)
+            task["integrated_commit"] = candidate_head
+            task["integration_strategy"] = strategy
+            task.pop("integration_redundant_result", None)
+            set_status(store, task, INTEGRATED)
+            resolve_task_notices(store, task["task_id"])
+            apply_memory_update(store, task)
     finally:
         terminate_owned_process(task.get("validation_process"))
         if remove_integration_worktree(repository, candidate):
