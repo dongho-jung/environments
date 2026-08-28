@@ -267,10 +267,12 @@ shortened. The arrow names the integration target. Jira appears only when known.
 remaining, hostname, and a redundant project name are intentionally omitted.
 
 The App Server bridge immediately names an unnamed thread so Codex never shows
-its internal UUID as the `thread-title` fallback. Existing generated names and
-later `/rename` values are retained after ` :: `. When a session owns attached
-secondary repositories, the managed identity rotates through their actual task
-branches and logical paths every five seconds. The compact `1/3*`, `2/3`, ...
+its internal UUID as the `thread-title` fallback. An existing generated name or
+later `/rename` value is reduced to two or three lowercase ASCII alphanumeric
+words after ` :: `; when no such short label can be formed, it is omitted. When
+a session owns attached secondary repositories, the managed identity rotates
+through their actual task branches and logical paths every five seconds. The
+compact `1/3*`, `2/3`, ...
 field identifies the carousel position, with `*` marking the primary task. The
 bridge supplies these values because a managed Codex chat keeps the canonical
 checkout as its logical cwd while editing assigned worktrees, so native

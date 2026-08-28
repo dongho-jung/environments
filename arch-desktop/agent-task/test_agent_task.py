@@ -427,7 +427,7 @@ class LaunchBehaviorTest(unittest.TestCase):
                 statusline,
                 "WT | *codex/backend@21:31[CAPE-123] :: Investigate ordering",
             ),
-            f"{statusline} :: Investigate ordering",
+            f"{statusline} :: investigate ordering",
         )
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(
@@ -438,7 +438,18 @@ class LaunchBehaviorTest(unittest.TestCase):
         )
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(statusline, "# investigate ordering"),
-            f"{statusline} :: # investigate ordering",
+            f"{statusline} :: investigate ordering",
+        )
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(
+                statusline,
+                "Implement the Very Long Statusline Behavior for Multiple Repositories",
+            ),
+            f"{statusline} :: implement very long",
+        )
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(statusline, "상태 표시줄 정리"),
+            statusline,
         )
 
         class FakeSocket:
@@ -502,7 +513,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         )
         self.assertEqual(
             renamed["params"],
-            {"threadId": "current", "name": f"{statusline} :: Investigate ordering"},
+            {"threadId": "current", "name": f"{statusline} :: investigate ordering"},
         )
 
         untitled = FakeSocket(None)

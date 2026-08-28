@@ -655,15 +655,27 @@ def codex_statusline_thread_title(statusline: str, current_name: str | None) -> 
         # Codex renders an unnamed thread's full UUID for the thread-title
         # status item. Install the managed identity immediately instead.
         return statusline
-    if current_name == statusline:
-        return statusline
-    if (
+    managed = bool(
         CODEX_STATUS_LINE_TITLE_PATTERN.match(current_name)
         or current_name.startswith(CODEX_STATUS_LINE_LEGACY_TITLE_PREFIXES)
-    ):
+    )
+    if managed:
         _managed, separator, original = current_name.partition(CODEX_STATUS_LINE_TITLE_SEPARATOR)
-        return f"{statusline}{separator}{original}" if separator and original else statusline
-    return f"{statusline}{CODEX_STATUS_LINE_TITLE_SEPARATOR}{current_name}"
+        if not separator or not original:
+            return statusline
+        current_name = original
+    words = [
+        word
+        for word in re.findall(r"[a-z0-9]+", current_name.lower())
+        if word not in {"a", "an", "and", "for", "in", "of", "on", "the", "to", "with"}
+    ]
+    if len(words) < 2:
+        return statusline
+    words = [word[:12] for word in words[:3]]
+    if len(" ".join(words)) > 32:
+        words = words[:2]
+    label = " ".join(words)
+    return f"{statusline}{CODEX_STATUS_LINE_TITLE_SEPARATOR}{label}"
 
 
 def terminal_columns(default: int = 100) -> int:
