@@ -86,7 +86,7 @@ CODEX_TASK_SLUG_MODEL = "gpt-5.6-luna"
 CODEX_TASK_SLUG_LIMIT = 16
 CODEX_TASK_SLUG_PREVIEW_LIMIT = 4000
 CODEX_TASK_SLUG_TIMEOUT_SECONDS = 30.0
-CODEX_TASK_SLUG_PATTERN = re.compile(rf"[a-z0-9]{{1,{CODEX_TASK_SLUG_LIMIT}}}")
+CODEX_TASK_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 AGENT_TASK_MODES = ("current", "worktree")
 JIRA_ISSUE_PATTERN = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]*)(?![A-Z0-9])")
 MISSING = object()
@@ -509,9 +509,10 @@ def pull_request_from_task_text(task: dict[str, Any]) -> int | None:
 
 def task_slug(value: str) -> str:
     slug = value.strip()
-    if CODEX_TASK_SLUG_PATTERN.fullmatch(slug) is None:
+    if len(slug) > CODEX_TASK_SLUG_LIMIT or CODEX_TASK_SLUG_PATTERN.fullmatch(slug) is None:
         raise AgentTaskError(
-            f"invalid task slug (expected 1-{CODEX_TASK_SLUG_LIMIT} lowercase alphanumeric characters): "
+            f"invalid task slug (expected 1-{CODEX_TASK_SLUG_LIMIT} lowercase alphanumeric "
+            "characters in words separated by single hyphens): "
             f"{value!r}"
         )
     return slug
@@ -523,8 +524,16 @@ def fallback_task_slug(value: str) -> str:
         for word in re.findall(r"[a-z0-9]+", value.lower())
         if word not in {"a", "an", "and", "for", "in", "of", "on", "the", "to", "with"}
     ]
-    combined = "".join(words)
-    return task_slug(combined[:CODEX_TASK_SLUG_LIMIT] or "task")
+    selected: list[str] = []
+    for word in words:
+        if len(word) > CODEX_TASK_SLUG_LIMIT:
+            continue
+        candidate = "-".join((*selected, word))
+        if len(candidate) <= CODEX_TASK_SLUG_LIMIT:
+            selected.append(word)
+        if len(selected) == 3:
+            break
+    return task_slug("-".join(selected) or "task")
 
 
 def read_task_context(store: Store, task_id: str) -> dict[str, Any]:
@@ -2146,10 +2155,11 @@ async def _generate_codex_task_slug(
                 ),
                 "cwd": "/tmp",
                 "developerInstructions": (
-                    "Join one to three short, complete semantic words. Use only lowercase ASCII "
-                    "letters and digits, with no separators, usually 8-14 characters and never more "
-                    f"than {CODEX_TASK_SLUG_LIMIT}. Never truncate a word. Examples: fixlogin, "
-                    "compactstatus, updatecache."
+                    "Return one to three short, complete semantic words separated by single hyphens. "
+                    "Use only lowercase ASCII letters and digits within words, with no leading, "
+                    "trailing, or repeated hyphens. Never concatenate separate words or truncate a "
+                    f"word. Keep the entire identifier at most {CODEX_TASK_SLUG_LIMIT} characters. "
+                    "Examples: fix-login, compact-status, update-cache."
                 ),
                 "ephemeral": True,
                 "model": CODEX_TASK_SLUG_MODEL,

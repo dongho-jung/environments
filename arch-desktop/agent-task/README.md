@@ -261,7 +261,7 @@ native status-line API. The command also recognizes Claude's current built-in
 Git worktree from the JSON payload. Managed Codex sessions enable the native
 footer with a short task slug, the actual managed scope, model/reasoning state,
 and active child-task progress. A typical managed item is
-`statuslinefix · projects/environments/arch-desktop · PR #321 · CAPE-123`.
+`status-line-fix · projects/environments/arch-desktop · PR #321 · CAPE-123`.
 There is no harness task ID, task branch, integration target, or global
 worktree number in the footer; those remain available in task metadata. The
 path is the last three components of the logical project directory with a
@@ -274,11 +274,12 @@ are intentionally omitted.
 The App Server bridge immediately names an unnamed thread so Codex never shows
 its internal UUID as the `thread-title` fallback. It reads Codex's first-message
 preview and starts one read-only, ephemeral `gpt-5.6-luna` turn in the
-background to summarize the task as 1-16 lowercase ASCII alphanumeric
-characters. The temporary `starting` label is shown until that result arrives;
-an ASCII-only local summary is used if the model call fails. The result is kept
-in the task's local display context and reused after recovery. When a session
-owns attached secondary repositories, the scope item rotates through their
+background to summarize the task as a 1-16 character, lowercase ASCII slug
+whose words are separated by single hyphens. The temporary `starting` label is
+shown until that result arrives; an ASCII-only local summary is used if the
+model call fails. The result is kept in the task's local display context and
+reused after recovery. When a session owns attached secondary repositories,
+the scope item rotates through their
 path, PR, and Jira context every five seconds while retaining the session task
 slug. The compact
 `1/3*`, `2/3`, ... field appears only for a multi-repository session and names

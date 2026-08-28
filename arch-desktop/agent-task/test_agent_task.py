@@ -575,7 +575,7 @@ class LaunchBehaviorTest(unittest.TestCase):
                                     "params": {
                                         "item": {
                                             "id": "message",
-                                            "text": '{"slug":"statuslinefix"}',
+                                            "text": '{"slug":"status-line-fix"}',
                                             "type": "agentMessage",
                                         },
                                         "threadId": "slug-thread",
@@ -615,7 +615,7 @@ class LaunchBehaviorTest(unittest.TestCase):
             connector=lambda: FakeConnection(socket),
         )
 
-        self.assertEqual(slug, "statuslinefix")
+        self.assertEqual(slug, "status-line-fix")
         thread_start = next(
             request for request in socket.requests if request.get("method") == "thread/start"
         )
@@ -629,10 +629,21 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(turn_start["params"]["effort"], "none")
         self.assertEqual(
             turn_start["params"]["outputSchema"]["properties"]["slug"]["pattern"],
-            "[a-z0-9]{1,16}",
+            "^[a-z0-9]+(?:-[a-z0-9]+)*$",
         )
-        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid task slug"):
-            AGENT_TASK.task_slug("Status-Line")
+        self.assertEqual(AGENT_TASK.task_slug("status-line-fix"), "status-line-fix")
+        for invalid in ("Status-Line", "-status", "status-", "status--line", "status-line-title"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid task slug"):
+                    AGENT_TASK.task_slug(invalid)
+
+    def test_codex_task_slug_fallback_separates_complete_words(self) -> None:
+        self.assertEqual(
+            AGENT_TASK.fallback_task_slug("Fix login flow in the app"),
+            "fix-login-flow",
+        )
+        self.assertEqual(AGENT_TASK.fallback_task_slug("supercalifragilistic"), "task")
+        self.assertEqual(AGENT_TASK.fallback_task_slug("상태 표시줄 정리"), "task")
 
     def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
         class FakeSocket:
