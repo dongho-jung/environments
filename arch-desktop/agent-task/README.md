@@ -195,6 +195,8 @@ agent-task start --agent custom --task "custom run" -- ./runner
 
 agent-task context --jira CAPE-123
 agent-task context --clear-jira
+agent-task context --pr 321
+agent-task context --clear-pr
 agent-task statusline
 agent-task list
 agent-task status TASK_ID
@@ -257,41 +259,49 @@ terminal width, they move by one character per second in a repeating marquee.
 Claude runs the lightweight `agent_statusline.py --claude` renderer through its
 native status-line API. The command also recognizes Claude's current built-in
 Git worktree from the JSON payload. Managed Codex sessions enable the native
-footer with a compact managed-worktree identity, model/reasoning/fast mode, and
-active child-task progress. A typical first item is
-`#17 · ai/codex/20260828-150920-7fb1e6→main · projects/environments/arch-desktop · CAPE-123`.
-The number is a stable, global harness worktree number; the path is the last
-three components of the logical project directory with a 48-character cap; a
-leading `...` appears only when that tail or the branch must actually be
-shortened. The arrow names the integration target. Jira appears only when known. Context
-remaining, hostname, and a redundant project name are intentionally omitted.
+footer with the actual managed scope, model/reasoning effort, explicit fast-mode
+state, and active child-task progress. A typical line is
+`ai/codex/20260828-150920-7fb1e6→main · projects/environments/arch-desktop · PR #321 · CAPE-123 · gpt-5.6-sol ultra · Fast off`.
+There is no harness task ID or global worktree number field. The first item is
+the actual task branch and its integration target, followed by the last three
+components of the logical project directory. Branches and paths have separate
+48-character caps; a leading `...` appears only when that value must actually
+be shortened. PR and Jira context appear only when known. Context remaining,
+hostname, and a redundant project name are intentionally omitted.
 
 The App Server bridge immediately names an unnamed thread so Codex never shows
 its internal UUID as the `thread-title` fallback. An existing generated name or
 later `/rename` value is reduced to two or three lowercase ASCII alphanumeric
 words after ` :: `; when no such short label can be formed, it is omitted. When
-a session owns attached secondary repositories, the managed identity rotates
-through their actual task branches and logical paths every five seconds. The
-compact `1/3*`, `2/3`, ...
-field identifies the carousel position, with `*` marking the primary task. The
-bridge supplies these values because a managed Codex chat keeps the canonical
-checkout as its logical cwd while editing assigned worktrees, so native
-`git-branch` and `current-dir` can describe the wrong checkout. Neither
-integration writes to Kitty's status line.
+a session owns attached secondary repositories, the scope item rotates through
+their branch, target, path, PR, and Jira context every five seconds. The compact
+`1/3*`, `2/3`, ... field appears only for a multi-repository session and names
+the carousel position, with `*` marking the primary task. Model, effort, fast
+mode, and child-task progress remain fixed because they describe the Codex
+session rather than one repository. The bridge supplies repository values
+because a managed Codex chat keeps the canonical checkout as its logical cwd
+while editing assigned worktrees, so native `git-branch`, `current-dir`, and PR
+detection can describe the wrong checkout. Neither integration writes to
+Kitty's status line.
 
-A Jira-shaped key in the task's launch description is detected automatically.
-When an agent selects or creates the issue later, it records display-only local
-context without touching Jira:
+A Jira-shaped key, explicit `PR #321`, or a GitHub pull-request URL in the task's
+launch description is detected automatically. When an agent learns either value
+later, it records display-only local context without touching Jira or GitHub:
 
 ```sh
 agent-task context --jira CAPE-123
 agent-task context --clear-jira
+agent-task context --pr 321
+agent-task context --clear-pr
 ```
 
-The context command defaults to `AI_TASK_ID` and writes a separate local context
+The context command selects the managed scope containing the current working
+directory, then falls back to `AI_TASK_ID`; `--task TASK_ID` selects one
+explicitly. This lets an attached repository carry its own PR while inheriting
+the primary Jira issue when it has no separate one. Context is a separate local
 record, so it does not contend with the lifecycle lock held by the running task.
-The status renderer never polls Jira; normal Jira assignment, transitions,
-comments, and completion remain owned by the Jira workflow.
+The status renderer never polls Jira or GitHub; normal Jira and pull-request
+workflows remain authoritative.
 
 ## Repository memory
 

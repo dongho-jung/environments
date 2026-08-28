@@ -279,7 +279,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn('source       = "agent-task/agent_statusline.py"', configuration)
         self.assertEqual(
             AGENT_TASK.CODEX_STATUS_LINE_CONFIG,
-            'tui.status_line=["thread-title","model-with-reasoning","task-progress"]',
+            'tui.status_line=["thread-title","model-with-reasoning","fast-mode","task-progress"]',
         )
         self.assertIn('"thread/name/set"', SCRIPT.read_text())
         kitty_configuration = SCRIPT.parent.parent.joinpath("kitty/kitty.conf").read_text()
@@ -418,9 +418,12 @@ class LaunchBehaviorTest(unittest.TestCase):
 
     def test_codex_statusline_replaces_an_unnamed_thread_immediately(self) -> None:
         statusline = (
-            "#17 · ai/codex/20260828-150920-7fb1e6 · "
+            "ai/codex/20260828-150920-7fb1e6→main · "
             "projects/environments/arch-desktop · CAPE-456"
         )
+        self.assertIn('"model-with-reasoning"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
+        self.assertIn('"fast-mode"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
+        self.assertNotIn('"pull-request-number"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
         self.assertEqual(AGENT_TASK.codex_statusline_thread_title(statusline, None), statusline)
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(
@@ -435,6 +438,13 @@ class LaunchBehaviorTest(unittest.TestCase):
                 "WT#17 · ai/codex/old-task→main · projects/environments/arch-desktop",
             ),
             statusline,
+        )
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(
+                "main · projects/environments/arch-desktop",
+                statusline,
+            ),
+            "main · projects/environments/arch-desktop",
         )
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(statusline, "# investigate ordering"),
@@ -1278,12 +1288,18 @@ class WorktreeStatuslineTest(unittest.TestCase):
         self.assertNotIn("stale", first)
         self.assertEqual(standalone, first)
 
-    def test_jira_context_can_be_set_and_cleared_without_the_task_lock(self) -> None:
+    def test_display_context_can_be_set_and_cleared_without_the_task_lock(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self.make_store(Path(directory))
             task_id = "20260826-204635-a5bc90"
             store.save(self.task(task_id, "environments"))
-            arguments = argparse.Namespace(task_id=task_id, jira="cape-456", clear_jira=False)
+            arguments = argparse.Namespace(
+                task_id=task_id,
+                jira="cape-456",
+                clear_jira=False,
+                pr=None,
+                clear_pr=False,
+            )
 
             with (
                 store.lock(f"task:{task_id}"),
@@ -1292,10 +1308,57 @@ class WorktreeStatuslineTest(unittest.TestCase):
                 AGENT_TASK.command_context(arguments, store)
             self.assertEqual(AGENT_TASK.read_task_context(store, task_id)["jira_issue"], "CAPE-456")
 
+            arguments.jira = None
+            arguments.pr = "https://github.com/capelabs/backend/pull/321"
+            with contextlib.redirect_stdout(io.StringIO()):
+                AGENT_TASK.command_context(arguments, store)
+            self.assertEqual(
+                AGENT_TASK.read_task_context(store, task_id)["pull_request_number"],
+                321,
+            )
+
             arguments.clear_jira = True
+            arguments.pr = None
             with contextlib.redirect_stdout(io.StringIO()):
                 AGENT_TASK.command_context(arguments, store)
             self.assertNotIn("jira_issue", AGENT_TASK.read_task_context(store, task_id))
+
+            arguments.clear_jira = False
+            arguments.clear_pr = True
+            with contextlib.redirect_stdout(io.StringIO()):
+                AGENT_TASK.command_context(arguments, store)
+            self.assertNotIn("pull_request_number", AGENT_TASK.read_task_context(store, task_id))
+
+    def test_display_context_selects_an_attached_task_from_the_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self.make_store(Path(directory))
+            parent_id = "20260826-204635-a5bc90"
+            attachment_id = "20260826-204700-b5cd91"
+            parent = self.task(parent_id, "environments")
+            attachment = self.task(attachment_id, "backend")
+            attachment["attachment_parent_task_id"] = parent_id
+            store.save(parent)
+            store.save(attachment)
+            arguments = argparse.Namespace(
+                task_id=None,
+                jira=None,
+                clear_jira=False,
+                pr="456",
+                clear_pr=False,
+            )
+
+            with (
+                mock.patch.dict(os.environ, {"AI_TASK_ID": parent_id}, clear=False),
+                mock.patch.object(AGENT_TASK.os, "getcwd", return_value=attachment["worktree_path"]),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                AGENT_TASK.command_context(arguments, store)
+
+            self.assertNotIn("pull_request_number", AGENT_TASK.read_task_context(store, parent_id))
+            self.assertEqual(
+                AGENT_TASK.read_task_context(store, attachment_id)["pull_request_number"],
+                456,
+            )
 
     def test_statusline_scroll_does_not_repeat_the_fixed_separator(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1319,7 +1382,7 @@ class WorktreeStatuslineTest(unittest.TestCase):
         self.assertTrue(any("·" in line for line in lines))
         self.assertTrue(all("|  |" not in line for line in lines))
 
-    def test_codex_statusline_shows_number_branch_path_and_optional_jira(self) -> None:
+    def test_codex_statusline_shows_branch_path_pr_and_optional_jira(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self.make_store(Path(directory))
             task_id = "20260828-150920-7fb1e6"
@@ -1335,15 +1398,19 @@ class WorktreeStatuslineTest(unittest.TestCase):
             store.save(task)
 
             without_jira = AGENT_TASK.codex_worktree_statusline(store, task_id)
-            AGENT_TASK.write_task_context(store, task_id, {"jira_issue": "CAPE-123"})
-            with_jira = AGENT_TASK.codex_worktree_statusline(store, task_id)
+            AGENT_TASK.write_task_context(
+                store,
+                task_id,
+                {"jira_issue": "CAPE-123", "pull_request_number": 321},
+            )
+            with_context = AGENT_TASK.codex_worktree_statusline(store, task_id)
 
         expected = (
-            "#17 · ai/codex/20260828-150920-7fb1e6→main · "
+            "ai/codex/20260828-150920-7fb1e6→main · "
             "projects/environments/arch-desktop"
         )
         self.assertEqual(without_jira, expected)
-        self.assertEqual(with_jira, f"{expected} · CAPE-123")
+        self.assertEqual(with_context, f"{expected} · PR #321 · CAPE-123")
 
     def test_codex_statusline_rotates_attached_repository_scopes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1378,18 +1445,36 @@ class WorktreeStatuslineTest(unittest.TestCase):
             )
             for task in (parent, backend, web):
                 store.save(task)
+            AGENT_TASK.write_task_context(
+                store,
+                parent_id,
+                {"jira_issue": "CAPE-123", "pull_request_number": 101},
+            )
+            AGENT_TASK.write_task_context(
+                store,
+                str(backend["task_id"]),
+                {"pull_request_number": 202},
+            )
+            AGENT_TASK.write_task_context(
+                store,
+                str(web["task_id"]),
+                {"pull_request_number": 303},
+            )
 
             lines = [
                 AGENT_TASK.codex_worktree_statusline(store, parent_id, epoch=epoch)
                 for epoch in (0, 5, 10, 15)
             ]
 
-        self.assertIn("#17 · 1/3* ·", lines[0])
+        self.assertTrue(lines[0].startswith("1/3* ·"), lines[0])
         self.assertIn("environments/arch-desktop", lines[0])
-        self.assertIn("#17 · 2/3 · ai/codex/backend-task→develop", lines[1])
+        self.assertIn("PR #101 · CAPE-123", lines[0])
+        self.assertTrue(lines[1].startswith("2/3 · ai/codex/backend-task→develop"), lines[1])
         self.assertIn("capelabs/certmind-backend", lines[1])
-        self.assertIn("#17 · 3/3 · ai/codex/web-task→main", lines[2])
+        self.assertIn("PR #202 · CAPE-123", lines[1])
+        self.assertTrue(lines[2].startswith("3/3 · ai/codex/web-task→main"), lines[2])
         self.assertIn("capelabs/certmind-web", lines[2])
+        self.assertIn("PR #303 · CAPE-123", lines[2])
         self.assertEqual(lines[3], lines[0])
 
     def test_codex_statusline_path_keeps_three_tail_parts_with_a_hard_limit(self) -> None:
@@ -1422,11 +1507,20 @@ class WorktreeStatuslineTest(unittest.TestCase):
         )
 
     def test_jira_issue_is_detected_from_the_launch_description(self) -> None:
-        task = {"description": "Implement CAPE-789 without changing the API"}
+        task = {"description": "Implement CAPE-789 for PR #456 without changing the API"}
 
         self.assertEqual(AGENT_TASK.jira_issue_from_task_text(task), "CAPE-789")
+        self.assertEqual(AGENT_TASK.pull_request_from_task_text(task), 456)
+        self.assertEqual(
+            AGENT_TASK.pull_request_from_task_text(
+                {"description": "Review https://github.com/capelabs/backend/pull/789/files"}
+            ),
+            789,
+        )
         with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid Jira issue"):
             AGENT_TASK.jira_issue_key("not a ticket")
+        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid pull request"):
+            AGENT_TASK.pull_request_number("not a pull request")
 
     def test_claude_native_worktree_is_visible_without_a_harness_task(self) -> None:
         store = mock.Mock()

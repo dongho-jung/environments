@@ -75,12 +75,14 @@ AGENT_SESSION_PATH_ENV = "AGENT_TASK_SESSION_PATH"
 AGENT_SESSION_ID_ENV = "AGENT_TASK_SESSION_ID"
 CODEX_RECOVERY_CWD_ENV = "AGENT_TASK_CODEX_RECOVERY_CWD"
 CODEX_STATUS_LINE_CONFIG = (
-    'tui.status_line=["thread-title","model-with-reasoning","task-progress"]'
+    'tui.status_line=["thread-title","model-with-reasoning","fast-mode","task-progress"]'
 )
 CODEX_STATUS_LINE_REFRESH_SECONDS = 5.0
-CODEX_STATUS_LINE_TITLE_PREFIX = "#"
 CODEX_STATUS_LINE_LEGACY_TITLE_PREFIXES = ("WT#", "WT | ")
-CODEX_STATUS_LINE_TITLE_PATTERN = re.compile(r"^#(?:[1-9][0-9]*|[0-9a-f]{6}) · ")
+CODEX_STATUS_LINE_LEGACY_NUMBER_PATTERN = re.compile(r"^#(?:[1-9][0-9]*|[0-9a-f]{6}) · ")
+CODEX_STATUS_LINE_SCOPE_PATTERN = re.compile(
+    r"^(?:[1-9][0-9]*/[1-9][0-9]*\*? · )?(?:\.\.\.)?[^ ·]+(?:→[^ ·]+)? · "
+)
 CODEX_STATUS_LINE_TITLE_SEPARATOR = " :: "
 CODEX_STATUS_LINE_BRANCH_LIMIT = 48
 CODEX_STATUS_LINE_PATH_LIMIT = 48
@@ -472,6 +474,39 @@ def jira_issue_from_task_text(task: dict[str, Any]) -> str | None:
     return None
 
 
+def pull_request_number(value: str | int) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value > 0:
+            return value
+        raise AgentTaskError(f"invalid pull request number: {value!r}")
+    text = str(value).strip()
+    patterns = (
+        r"#?([1-9][0-9]*)",
+        r"(?:pr|pull[ _-]*request)\s*#?\s*([1-9][0-9]*)",
+        r"https://github\.com/[^/\s]+/[^/\s]+/pull/([1-9][0-9]*)(?:[/?#].*)?",
+    )
+    for pattern in patterns:
+        match = re.fullmatch(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    raise AgentTaskError(f"invalid pull request number: {value!r}")
+
+
+def pull_request_from_task_text(task: dict[str, Any]) -> int | None:
+    value = task.get("description")
+    if not isinstance(value, str):
+        return None
+    match = re.search(
+        r"https://github\.com/[^/\s]+/[^/\s]+/pull/([1-9][0-9]*)"
+        r"|\b(?:pr|pull[ _-]*request)\s*#?\s*([1-9][0-9]*)\b",
+        value,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    return int(match.group(1) or match.group(2))
+
+
 def read_task_context(store: Store, task_id: str) -> dict[str, Any]:
     path = store.context_path(task_id)
     if not os.path.lexists(path):
@@ -492,6 +527,12 @@ def read_task_context(store: Store, task_id: str) -> dict[str, Any]:
             value["jira_issue"] = jira_issue_key(str(issue))
         except AgentTaskError:
             return {}
+    pull_request = value.get("pull_request_number")
+    if pull_request is not None:
+        try:
+            value["pull_request_number"] = pull_request_number(pull_request)
+        except AgentTaskError:
+            return {}
     return value
 
 
@@ -508,16 +549,10 @@ def write_task_context(store: Store, task_id: str, context: dict[str, Any]) -> N
     issue = value.get("jira_issue")
     if issue is not None:
         value["jira_issue"] = jira_issue_key(str(issue))
+    pull_request = value.get("pull_request_number")
+    if pull_request is not None:
+        value["pull_request_number"] = pull_request_number(pull_request)
     atomic_write_private(store.context_path(task_id), (json.dumps(value, sort_keys=True) + "\n").encode())
-
-
-def indexed_worktree_numbers(tasks: Sequence[dict[str, Any]]) -> dict[str, int]:
-    task_ids = sorted(
-        task_id
-        for task in tasks
-        if isinstance((task_id := task.get("task_id")), str)
-    )
-    return {task_id: index for index, task_id in enumerate(task_ids, start=1)}
 
 
 def next_worktree_number(tasks: Sequence[dict[str, Any]]) -> int:
@@ -533,7 +568,6 @@ def next_worktree_number(tasks: Sequence[dict[str, Any]]) -> int:
 
 def active_worktree_tasks(store: Store) -> list[dict[str, Any]]:
     tasks = store.all(warn=False)
-    legacy_numbers = indexed_worktree_numbers(tasks)
     result: list[dict[str, Any]] = []
     for task in tasks:
         if not (
@@ -545,15 +579,13 @@ def active_worktree_tasks(store: Store) -> list[dict[str, Any]]:
             continue
         item = dict(task)
         task_id = item.get("task_id")
-        number = item.get("worktree_number")
-        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
-            number = legacy_numbers.get(task_id) if isinstance(task_id, str) else None
-        if isinstance(number, int):
-            item["statusline_worktree_number"] = number
         context = read_task_context(store, task_id) if isinstance(task_id, str) else {}
         issue = context.get("jira_issue") or jira_issue_from_task_text(item)
         if isinstance(issue, str):
             item["statusline_jira_issue"] = issue
+        pull_request = context.get("pull_request_number") or pull_request_from_task_text(item)
+        if isinstance(pull_request, int):
+            item["statusline_pull_request_number"] = pull_request
         result.append(item)
     return result
 
@@ -627,8 +659,6 @@ def codex_worktree_statusline(
         % len(scopes)
     )
     selected = scopes[selected_index]
-    number = current.get("statusline_worktree_number")
-    identifier = str(number) if isinstance(number, int) else str(current_task_id)[-6:]
     branch_value = str(selected.get("branch") or "detached")
     target = selected.get("target_branch")
     if isinstance(target, str) and target and target != branch_value:
@@ -639,11 +669,14 @@ def codex_worktree_statusline(
         repository = Path(str(selected.get("repository") or "."))
         origin = str(repository / str(selected.get("workdir_relative") or "."))
     path = compact_statusline_path(origin)
-    fields = [f"{CODEX_STATUS_LINE_TITLE_PREFIX}{identifier}"]
+    fields: list[str] = []
     if len(scopes) > 1:
         primary_marker = "*" if selected_index == 0 else ""
         fields.append(f"{selected_index + 1}/{len(scopes)}{primary_marker}")
     fields.extend((branch, path))
+    pull_request = selected.get("statusline_pull_request_number")
+    if isinstance(pull_request, int):
+        fields.append(f"PR #{pull_request}")
     issue = selected.get("statusline_jira_issue") or current.get("statusline_jira_issue")
     if isinstance(issue, str) and issue:
         fields.append(issue)
@@ -656,7 +689,8 @@ def codex_statusline_thread_title(statusline: str, current_name: str | None) -> 
         # status item. Install the managed identity immediately instead.
         return statusline
     managed = bool(
-        CODEX_STATUS_LINE_TITLE_PATTERN.match(current_name)
+        CODEX_STATUS_LINE_SCOPE_PATTERN.match(current_name)
+        or CODEX_STATUS_LINE_LEGACY_NUMBER_PATTERN.match(current_name)
         or current_name.startswith(CODEX_STATUS_LINE_LEGACY_TITLE_PREFIXES)
     )
     if managed:
@@ -4522,22 +4556,32 @@ def command_statusline(args: argparse.Namespace, store: Store) -> int:
 
 
 def command_context(args: argparse.Namespace, store: Store) -> int:
-    task_id = args.task_id or os.environ.get("AI_TASK_ID")
+    task_id = (
+        args.task_id
+        or task_for_working_directory(active_worktree_tasks(store), os.getcwd())
+        or os.environ.get("AI_TASK_ID")
+    )
     if not task_id:
         raise AgentTaskError("no managed task; pass --task TASK_ID")
     validate_identifier(task_id, "task id")
     store.load(task_id)
+    action: str
     with store.lock(f"context:{task_id}"):
         context = read_task_context(store, task_id)
-        if args.clear_jira:
+        if getattr(args, "clear_jira", False):
             context.pop("jira_issue", None)
-        else:
+            action = "Jira cleared"
+        elif getattr(args, "clear_pr", False):
+            context.pop("pull_request_number", None)
+            action = "PR cleared"
+        elif getattr(args, "jira", None) is not None:
             context["jira_issue"] = jira_issue_key(args.jira)
+            action = f"Jira {context['jira_issue']}"
+        else:
+            context["pull_request_number"] = pull_request_number(args.pr)
+            action = f"PR #{context['pull_request_number']}"
         write_task_context(store, task_id, context)
-    if args.clear_jira:
-        print(f"context {task_id}: Jira cleared")
-    else:
-        print(f"context {task_id}: Jira {context['jira_issue']}")
+    print(f"context {task_id}: {action}")
     return 0
 
 
@@ -5291,10 +5335,16 @@ def build_parser() -> argparse.ArgumentParser:
     start.set_defaults(func=command_start)
 
     context = subparsers.add_parser("context", help="set local display context for a managed task")
-    context.add_argument("--task", dest="task_id", help="task id (defaults to AI_TASK_ID)")
-    context_jira = context.add_mutually_exclusive_group(required=True)
-    context_jira.add_argument("--jira", help="current Jira issue key")
-    context_jira.add_argument("--clear-jira", action="store_true", help="clear the current Jira issue")
+    context.add_argument(
+        "--task",
+        dest="task_id",
+        help="task id (defaults to matching cwd, then AI_TASK_ID)",
+    )
+    context_action = context.add_mutually_exclusive_group(required=True)
+    context_action.add_argument("--jira", help="current Jira issue key")
+    context_action.add_argument("--clear-jira", action="store_true", help="clear the current Jira issue")
+    context_action.add_argument("--pr", help="current GitHub pull request number or URL")
+    context_action.add_argument("--clear-pr", action="store_true", help="clear the current pull request")
     context.set_defaults(func=command_context)
     listing = subparsers.add_parser("list", help="list tasks")
     listing.set_defaults(func=command_list)
