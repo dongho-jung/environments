@@ -78,6 +78,7 @@ CODEX_SHOW_TOOLTIPS_CONFIG = "tui.show_tooltips=false"
 CODEX_STATUS_LINE_CONFIG = (
     'tui.status_line=["current-dir","thread-title","model-with-reasoning"]'
 )
+CODEX_PENDING_THREAD_NAME = "\u200b"
 CODEX_TASK_SLUG_MODEL = "gpt-5.6-luna"
 CODEX_TASK_SLUG_LIMIT = 48
 CODEX_TASK_SLUG_PREVIEW_LIMIT = 4000
@@ -1511,6 +1512,7 @@ CODEX_SUBCOMMANDS = {
     "unarchive",
     "update",
 }
+CODEX_NONINTERACTIVE_GLOBAL_FLAGS = {"-h", "--help", "-V", "--version"}
 
 
 def codex_subcommand(command: Sequence[str]) -> str | None:
@@ -1530,6 +1532,27 @@ def codex_subcommand(command: Sequence[str]) -> str | None:
             continue
         return value if value in CODEX_SUBCOMMANDS else None
     return None
+
+
+def fresh_interactive_codex_command(command: Sequence[str]) -> bool:
+    executable = command_executable_index(command, "codex")
+    if executable is None or codex_subcommand(command) is not None:
+        return False
+    index = executable + 1
+    while index < len(command):
+        value = command[index]
+        if value == "--":
+            return False
+        if value in CODEX_NONINTERACTIVE_GLOBAL_FLAGS:
+            return False
+        if value in CODEX_GLOBAL_VALUE_OPTIONS:
+            index += 2
+            continue
+        if value.startswith("-"):
+            index += 1
+            continue
+        return False
+    return True
 
 
 def interactive_codex_command(command: Sequence[str]) -> bool:
@@ -1936,6 +1959,61 @@ def latest_codex_thread_id(
     return asyncio.run(_latest_codex_thread_id(socket_path, working_directory, connector))
 
 
+async def _start_named_codex_thread(
+    socket_path: Path,
+    working_directory: Path,
+    name: str,
+    connector: Callable[[], Any] | None,
+) -> str:
+    if connector is None:
+        connector = lambda: codex_unix_connection(socket_path)
+    async with connector() as websocket:
+        await _codex_rpc_request(
+            websocket,
+            1,
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "agent-task",
+                    "title": "agent-task pending title bootstrap",
+                    "version": "1",
+                }
+            },
+        )
+        await websocket.send(json.dumps({"method": "initialized", "params": {}}))
+        started = await _codex_rpc_request(
+            websocket,
+            2,
+            "thread/start",
+            {"cwd": str(working_directory.resolve())},
+        )
+        thread = started.get("thread") if isinstance(started, dict) else None
+        thread_id = thread.get("id") if isinstance(thread, dict) else None
+        if not isinstance(thread_id, str):
+            raise AgentTaskError("Codex pending-title thread did not start")
+        await _codex_rpc_request(
+            websocket,
+            3,
+            "thread/name/set",
+            {"threadId": thread_id, "name": name},
+        )
+        return thread_id
+
+
+def start_named_codex_thread(
+    socket_path: Path,
+    working_directory: Path,
+    name: str,
+    *,
+    connector: Callable[[], Any] | None = None,
+) -> str:
+    import asyncio
+
+    return asyncio.run(
+        _start_named_codex_thread(socket_path, working_directory, name, connector)
+    )
+
+
 def codex_app_server_command(
     agent_command: Sequence[str],
     socket_path: Path,
@@ -1973,15 +2051,16 @@ def start_codex_app_server(
     remote_command = codex_remote_command(agent_command, socket_path, trusted_directories)
     if remote_command is None:
         return None
+    provision_hook = (
+        os.environ.get("AI_TASK_HARNESS") == "agent-task"
+        and bool(os.environ.get("AI_TASK_ID"))
+        and not os.environ.get("AI_TASK_BRANCH")
+    )
     socket_path.unlink(missing_ok=True)
     server_command = codex_app_server_command(
         agent_command,
         socket_path,
-        provision_hook=(
-            os.environ.get("AI_TASK_HARNESS") == "agent-task"
-            and bool(os.environ.get("AI_TASK_ID"))
-            and not os.environ.get("AI_TASK_BRANCH")
-        ),
+        provision_hook=provision_hook,
     )
     try:
         server_pid = os.fork()
@@ -2020,6 +2099,18 @@ def start_codex_app_server(
                         "starting a new chat with its preserved checkout",
                         file=sys.stderr,
                     )
+            elif provision_hook and fresh_interactive_codex_command(agent_command):
+                try:
+                    thread_id = start_named_codex_thread(
+                        socket_path,
+                        Path.cwd(),
+                        CODEX_PENDING_THREAD_NAME,
+                    )
+                    remote_command.extend(("resume", thread_id))
+                except Exception as error:
+                    # This is display-only. Fall back to Codex's ordinary
+                    # fresh-thread launch if the bootstrap is unavailable.
+                    print(f"agent-task: Codex pending title unavailable: {error}", file=sys.stderr)
             return server_pid, remote_command
         try:
             finished, status = os.waitpid(server_pid, os.WNOHANG)

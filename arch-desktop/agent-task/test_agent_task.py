@@ -352,6 +352,7 @@ class LaunchBehaviorTest(unittest.TestCase):
             AGENT_TASK.CODEX_STATUS_LINE_CONFIG,
             'tui.status_line=["current-dir","thread-title","model-with-reasoning"]',
         )
+        self.assertEqual(AGENT_TASK.CODEX_PENDING_THREAD_NAME, "\u200b")
         self.assertEqual(AGENT_TASK.CODEX_SHOW_TOOLTIPS_CONFIG, "tui.show_tooltips=false")
         self.assertIn('"thread/name/set"', SCRIPT.read_text())
         self.assertNotIn('"task-progress"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
@@ -454,6 +455,58 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(opened[:9], prefix)
         self.assertEqual(resumed[:10], [*prefix, "resume"])
         self.assertIsNone(review)
+
+    def test_pending_title_bootstrap_only_wraps_a_fresh_promptless_tui(self) -> None:
+        self.assertTrue(
+            AGENT_TASK.fresh_interactive_codex_command(
+                ["codex", "-c", 'model="gpt-5.6"', "--dangerously-bypass-approvals-and-sandbox"]
+            )
+        )
+        self.assertTrue(AGENT_TASK.fresh_interactive_codex_command(["env", "MODE=test", "codex"]))
+        self.assertFalse(AGENT_TASK.fresh_interactive_codex_command(["codex", "work here"]))
+        self.assertFalse(AGENT_TASK.fresh_interactive_codex_command(["codex", "resume", "thread-one"]))
+        self.assertFalse(AGENT_TASK.fresh_interactive_codex_command(["codex", "fork", "thread-one"]))
+        self.assertFalse(AGENT_TASK.fresh_interactive_codex_command(["codex", "--help"]))
+        self.assertFalse(AGENT_TASK.fresh_interactive_codex_command(["codex", "-V"]))
+        self.assertFalse(AGENT_TASK.fresh_interactive_codex_command(["codex", "--"]))
+
+    def test_pending_title_bootstrap_resumes_the_pre_named_thread(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket = Path(directory) / "control.sock"
+            environment = os.environ.copy()
+            environment["AI_TASK_HARNESS"] = "agent-task"
+            environment["AI_TASK_ID"] = "task-one"
+            environment.pop("AI_TASK_BRANCH", None)
+
+            def fork() -> int:
+                socket.touch()
+                return 12345
+
+            with (
+                mock.patch.dict(os.environ, environment, clear=True),
+                mock.patch.object(AGENT_TASK.os, "fork", side_effect=fork),
+                mock.patch.object(
+                    AGENT_TASK,
+                    "start_named_codex_thread",
+                    return_value="thread-one",
+                ) as start_thread,
+            ):
+                started = AGENT_TASK.start_codex_app_server(
+                    ["codex", "--dangerously-bypass-approvals-and-sandbox"],
+                    socket,
+                    (),
+                    [Path("/repo")],
+                )
+
+        assert started is not None
+        server_pid, command = started
+        self.assertEqual(server_pid, 12345)
+        self.assertEqual(command[-2:], ["resume", "thread-one"])
+        start_thread.assert_called_once_with(
+            socket,
+            Path.cwd(),
+            AGENT_TASK.CODEX_PENDING_THREAD_NAME,
+        )
 
     def test_managed_codex_replaces_stale_launcher_footer_configs(self) -> None:
         stale_status = 'tui.status_line=["current-dir","task-progress"]'
@@ -749,6 +802,54 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(
             socket.requests[-1]["params"],
             {"threadId": "thread-one", "name": "skip-read-worktree -> main"},
+        )
+
+    def test_codex_pending_title_bootstrap_names_the_thread_before_resume(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.requests: list[dict[str, object]] = []
+                self.responses: list[str] = []
+
+            async def send(self, raw: str) -> None:
+                request = json.loads(raw)
+                self.requests.append(request)
+                if "id" not in request:
+                    return
+                result: object = {}
+                if request["method"] == "thread/start":
+                    result = {"thread": {"id": "thread-one"}}
+                self.responses.append(json.dumps({"id": request["id"], "result": result}))
+
+            async def recv(self) -> str:
+                return self.responses.pop(0)
+
+        class FakeConnection:
+            def __init__(self, socket: FakeSocket) -> None:
+                self.socket = socket
+
+            async def __aenter__(self) -> FakeSocket:
+                return self.socket
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        socket = FakeSocket()
+        thread_id = AGENT_TASK.start_named_codex_thread(
+            Path("/control.sock"),
+            Path("/repo"),
+            AGENT_TASK.CODEX_PENDING_THREAD_NAME,
+            connector=lambda: FakeConnection(socket),
+        )
+
+        self.assertEqual(thread_id, "thread-one")
+        self.assertEqual(
+            [request.get("method") for request in socket.requests],
+            ["initialize", "initialized", "thread/start", "thread/name/set"],
+        )
+        self.assertEqual(socket.requests[-2]["params"], {"cwd": "/repo"})
+        self.assertEqual(
+            socket.requests[-1]["params"],
+            {"threadId": "thread-one", "name": AGENT_TASK.CODEX_PENDING_THREAD_NAME},
         )
 
     def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
