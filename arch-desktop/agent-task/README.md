@@ -76,7 +76,10 @@ For Codex, every new interactive harness session gets its own `codex app-server`
 Unix socket. The supervisor uses the supported JSON-RPC interface to
 `turn/steer` the current turn or `turn/start` an idle one. Delivery failures stay
 in the durable inbox and retry without writing raw output into Codex's
-full-screen TUI. For Claude, `Stop` and `UserPromptSubmit` hooks inject the same
+full-screen TUI. The App Server and foreground TUI inherit the same durable
+session identity, so tool subprocesses can accept the delivered handoff command
+without reconstructing private state paths. For Claude, `Stop` and
+`UserPromptSubmit` hooks inject the same
 inbox event at the next safe lifecycle point; the supervisor also prints a
 terminal alert. Claude does not currently offer an equivalent supported local
 API for waking an already idle TUI.
@@ -95,7 +98,10 @@ managed task, and retries each queued integration. It does not ask either agent
 to merge, cherry-pick, switch branches, or clean worktrees. Interactive Codex
 handoff first requests the same graceful shutdown as `Ctrl+C`, allowing the TUI
 to restore the terminal and leave its alternate screen; it falls back to
-`SIGTERM` only if Codex does not exit promptly. A graceful ordinary exit
+`SIGTERM` only if Codex does not exit promptly. After either a handoff or an
+ordinary exit, the supervisor announces finalization and gives the private
+control bridge two seconds to stop before forcing it, avoiding an unexplained
+post-TUI wait. A graceful ordinary exit
 (`/exit` or the interactive Codex TUI's exit status 130 after `Ctrl+C`) also
 drains auto-integrate tasks for that repository immediately after releasing its
 lease. The harness retains the raw 130 in task metadata while classifying it as
@@ -220,7 +226,10 @@ Publishing serializes the target ref and reserves its checkout while allowing
 other independent managed worktrees to continue. It rechecks the source and
 target commits, checkout topology, and cleanliness after validation. It updates
 only the local integration target: it does not fetch, push, deploy, or run
-Terraform on its own.
+Terraform on its own. When the publishing task later exits, a target that
+already contains its result is recognized under the target integration lock and
+completed without requesting exclusive repository activity or evicting another
+active session.
 
 A result that directly descends from the target fast-forwards it without adding
 a synthetic merge commit. If the combined result tree is already present, the

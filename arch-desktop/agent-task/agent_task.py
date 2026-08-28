@@ -63,6 +63,7 @@ MAX_CODEX_RPC_BYTES = 32 * 1024 * 1024
 DEFAULT_CHECK_TIMEOUT_SECONDS = 3600.0
 HANDOFF_EXIT_CODE = 75
 HANDOFF_CODEX_GRACE_SECONDS = 2.0
+CODEX_CONTROL_SHUTDOWN_GRACE_SECONDS = 2.0
 SHELL_SIGINT_EXIT_CODE = 128 + int(signal.SIGINT)
 NOTIFICATION_PROTOCOL = 1
 LOCK_EXEC_SUBCOMMAND = "__lock-exec"
@@ -2300,6 +2301,10 @@ def command_lock_exec(raw: Sequence[str]) -> int:
         socket_value = metadata.get("control_socket")
         if isinstance(socket_value, str):
             control_socket = Path(socket_value)
+        # The App Server executes Codex tool subprocesses, so it must inherit
+        # the durable session identity just like the foreground TUI does.
+        os.environ[AGENT_SESSION_PATH_ENV] = session_path
+        os.environ[AGENT_SESSION_ID_ENV] = session_id
         if control_socket is not None:
             try:
                 started = start_codex_app_server(command, control_socket, descriptors)
@@ -2317,8 +2322,6 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                     {"control_status": "unavailable", "control_error": str(error)},
                 )
                 print(f"agent-task: Codex notification bridge unavailable: {error}", file=sys.stderr)
-        os.environ[AGENT_SESSION_PATH_ENV] = session_path
-        os.environ[AGENT_SESSION_ID_ENV] = session_id
     try:
         agent_pid = os.fork()
     except OSError as error:
@@ -2384,6 +2387,8 @@ def command_lock_exec(raw: Sequence[str]) -> int:
         else None
     )
     codex_statusline_thread_id: str | None = None
+    control_shutdown_deadline: float | None = None
+    control_shutdown_forced = False
     notification_closed = False
     try:
         while True:
@@ -2531,10 +2536,29 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                     handoff_force_deadline = None
 
             if main_status is not None and control_pid is not None and control_status is None:
-                try:
-                    os.killpg(control_pid, signal.SIGTERM)
-                except OSError:
-                    pass
+                if control_shutdown_deadline is None:
+                    print(
+                        "agent-task: Codex exited; closing its control bridge before "
+                        "finalizing the managed task...",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    try:
+                        os.killpg(control_pid, signal.SIGTERM)
+                    except OSError:
+                        pass
+                    control_shutdown_deadline = (
+                        time.monotonic() + CODEX_CONTROL_SHUTDOWN_GRACE_SECONDS
+                    )
+                elif (
+                    not control_shutdown_forced
+                    and time.monotonic() >= control_shutdown_deadline
+                ):
+                    try:
+                        os.killpg(control_pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+                    control_shutdown_forced = True
 
             if intentional_handoff and main_status is not None:
                 descendants = direct_child_pids(os.getpid())
@@ -3412,6 +3436,20 @@ def integrate_task(store: Store, task: dict[str, Any]) -> bool:
 
     try:
         with store.lock(f"integrate:{common_dir(repository)}:{target}", blocking=False):
+            # A live publish can already have advanced the target to include
+            # this task. Completing that bookkeeping is read-only with respect
+            # to the target ref and must not evict unrelated active sessions.
+            if branch_exists(repository, target):
+                target_sha = ref(repository, f"refs/heads/{target}")
+                if is_ancestor(repository, result_commit, target_sha):
+                    task["integrated_commit"] = target_sha
+                    task["integration_strategy"] = "already-present"
+                    task.pop("integration_redundant_result", None)
+                    set_status(store, task, INTEGRATED)
+                    resolve_task_notices(store, task["task_id"])
+                    apply_memory_update(store, task)
+                    cleanup_task(store, task)
+                    return True
             with repository_activity_lock(store, repository, exclusive=True, blocking=False) as repository_available:
                 if not repository_available:
                     return defer_integration(
@@ -4089,6 +4127,8 @@ def command_start(args: argparse.Namespace, store: Store) -> int:
     print(f"task: {task['task_id']}\nworktree: {task['worktree_path']}\nbranch: {task['branch']}")
     exit_code = launch_for_task(store, task, command, integrate=bool(task.get("auto_integrate", True)))
     print(f"status: {task['status']}")
+    if task.get("status_reason"):
+        print(f"reason: {task['status_reason']}")
     if task.get("result_commit"):
         print(f"result: {task['result_commit']}")
     if task.get("integrated_commit"):

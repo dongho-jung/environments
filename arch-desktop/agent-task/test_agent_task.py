@@ -377,6 +377,45 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(resumed[:6], [*prefix, "resume"])
         self.assertIsNone(review)
 
+    def test_codex_app_server_inherits_handoff_session_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session_path = root / "session.json"
+            observed: dict[str, str | None] = {}
+
+            def start_server(*_args: object) -> None:
+                observed["id"] = os.environ.get(AGENT_TASK.AGENT_SESSION_ID_ENV)
+                observed["path"] = os.environ.get(AGENT_TASK.AGENT_SESSION_PATH_ENV)
+                return None
+
+            environment = {
+                AGENT_TASK.LOCK_FDS_ENV: "9",
+                AGENT_TASK.LOCK_SESSION_PATH_ENV: str(session_path),
+                AGENT_TASK.LOCK_SESSION_ID_ENV: "session-one",
+            }
+            metadata = {
+                "working_directory": str(root),
+                "control_socket": str(root / "control.sock"),
+            }
+            with (
+                mock.patch.dict(os.environ, environment, clear=True),
+                mock.patch.object(AGENT_TASK, "become_child_subreaper"),
+                mock.patch.object(AGENT_TASK, "transfer_checkout_session_owner"),
+                mock.patch.object(AGENT_TASK, "read_json_file_safely", return_value=metadata),
+                mock.patch.object(AGENT_TASK, "Store", return_value=mock.Mock()),
+                mock.patch.object(
+                    AGENT_TASK,
+                    "start_codex_app_server",
+                    side_effect=start_server,
+                ),
+                mock.patch.object(AGENT_TASK.os, "fork", side_effect=OSError("stop")),
+            ):
+                with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "cannot start supervised agent"):
+                    AGENT_TASK.command_lock_exec(["--", "codex"])
+
+        self.assertEqual(observed["id"], "session-one")
+        self.assertEqual(observed["path"], str(session_path))
+
     def test_codex_statusline_replaces_an_unnamed_thread_immediately(self) -> None:
         statusline = (
             "WT#17 · ai/codex/20260828-150920-7fb1e6 · "
@@ -2248,8 +2287,10 @@ class HarnessTest(unittest.TestCase):
                 ),
             )
             task = self.task_from(published)
-            self.assertEqual(published.returncode, 2, published.stderr)
+            self.assertEqual(published.returncode, 0, published.stderr)
             self.assertIn("fast-forward publish", published.stdout)
+            self.assertEqual(task["status"], AGENT_TASK.INTEGRATED)
+            self.assertEqual(task["integration_strategy"], "already-present")
             self.assertEqual((self.repository / "parallel-publish.txt").read_text(), "parallel publish\n")
 
             release.write_text("release\n")
