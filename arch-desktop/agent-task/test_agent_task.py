@@ -2450,14 +2450,14 @@ class HarnessTest(unittest.TestCase):
         with AGENT_TASK.checkout_session_lock(store, self.repository) as after_descendant:
             self.assertTrue(after_descendant)
 
-    def test_detached_onepassword_daemon_releases_the_checkout(self) -> None:
+    def test_detached_session_daemon_releases_the_checkout(self) -> None:
         store = self.store()
-        daemon_pid_path = self.repository.parent / "op-daemon-pid.txt"
+        daemon_pid_path = self.repository.parent / "detached-daemon-pid.txt"
         daemon_code = (
-            "import ctypes,os,time; from pathlib import Path; "
+            "import os,time; from pathlib import Path; "
             "child=os.fork(); "
             "os._exit(0) if child else None; "
-            "os.setsid(); ctypes.CDLL(None).prctl(15,b'op',0,0,0); "
+            "os.setsid(); "
             f"Path({str(daemon_pid_path)!r}).write_text(str(os.getpid())); "
             "time.sleep(10)"
         )

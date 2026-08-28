@@ -3100,23 +3100,16 @@ def direct_child_pids(pid: int) -> list[int]:
     return result
 
 
-def detached_onepassword_daemon_child(pid: int) -> bool:
+def detached_session_leader_child(pid: int) -> bool:
     try:
         value = Path(f"/proc/{pid}/stat").read_text()
-        opening = value.find("(")
         closing = value.rfind(")")
         fields = value[closing + 2 :].split()
         process_group = int(fields[2])
         session = int(fields[3])
     except (OSError, ValueError, IndexError):
         return False
-    return (
-        opening >= 0
-        and closing > opening
-        and value[opening + 1 : closing] == "op"
-        and process_group == pid
-        and session == pid
-    )
+    return closing >= 0 and process_group == pid and session == pid
 
 
 def command_lock_exec(raw: Sequence[str]) -> int:
@@ -3392,12 +3385,13 @@ def command_lock_exec(raw: Sequence[str]) -> int:
             ):
                 descendants = direct_child_pids(os.getpid())
                 if descendants and all(
-                    detached_onepassword_daemon_child(descendant)
+                    detached_session_leader_child(descendant)
                     for descendant in descendants
                 ):
-                    # The 1Password CLI cache daemon is designed to outlive
-                    # the command that started it. Reparent it on supervisor
-                    # exit without treating it as unfinished agent work.
+                    # A process that created its own session has explicitly
+                    # detached from the foreground lifecycle. Reparent it on
+                    # supervisor exit; same-session background work still
+                    # keeps the checkout reserved.
                     break
 
             if child_pid == -1:
