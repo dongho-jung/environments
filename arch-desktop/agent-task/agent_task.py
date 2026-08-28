@@ -80,7 +80,7 @@ CODEX_STATUS_LINE_REFRESH_SECONDS = 5.0
 CODEX_STATUS_LINE_TITLE_PREFIX = "WT#"
 CODEX_STATUS_LINE_LEGACY_TITLE_PREFIX = "WT | "
 CODEX_STATUS_LINE_TITLE_SEPARATOR = " :: "
-CODEX_STATUS_LINE_BRANCH_LIMIT = 40
+CODEX_STATUS_LINE_BRANCH_LIMIT = 48
 CODEX_STATUS_LINE_PATH_LIMIT = 48
 CODEX_STATUS_LINE_PATH_PARTS = 3
 AGENT_TASK_MODES = ("current", "worktree")
@@ -601,32 +601,53 @@ def compact_statusline_path(value: str | Path, *, limit: int = CODEX_STATUS_LINE
     return f"...{text[-(limit - 3):]}" if limit > 3 else "." * limit
 
 
-def codex_worktree_statusline(store: Store, current_task_id: str | None) -> str:
+def codex_worktree_statusline(
+    store: Store,
+    current_task_id: str | None,
+    *,
+    epoch: float | None = None,
+) -> str:
     if not current_task_id:
         return ""
+    tasks = active_worktree_tasks(store)
     current = next(
         (
             task
-            for task in active_worktree_tasks(store)
+            for task in tasks
             if task.get("task_id") == current_task_id
         ),
         None,
     )
     if current is None:
         return ""
+    attachments = sorted(
+        [task for task in tasks if task.get("attachment_parent_task_id") == current_task_id],
+        key=lambda task: (str(task.get("created_at") or ""), str(task.get("task_id") or "")),
+    )
+    scopes = [current, *attachments]
+    selected_index = (
+        int((time.time() if epoch is None else epoch) // CODEX_STATUS_LINE_REFRESH_SECONDS)
+        % len(scopes)
+    )
+    selected = scopes[selected_index]
     number = current.get("statusline_worktree_number")
     identifier = str(number) if isinstance(number, int) else str(current_task_id)[-6:]
-    branch = compact_middle(
-        str(current.get("branch") or "detached"),
-        limit=CODEX_STATUS_LINE_BRANCH_LIMIT,
-    )
-    origin = current.get("origin_working_directory")
+    branch_value = str(selected.get("branch") or "detached")
+    target = selected.get("target_branch")
+    if isinstance(target, str) and target and target != branch_value:
+        branch_value = f"{branch_value}→{target}"
+    branch = compact_middle(branch_value, limit=CODEX_STATUS_LINE_BRANCH_LIMIT)
+    origin = selected.get("origin_working_directory")
     if not isinstance(origin, str) or not origin:
-        repository = Path(str(current.get("repository") or "."))
-        origin = str(repository / str(current.get("workdir_relative") or "."))
+        repository = Path(str(selected.get("repository") or "."))
+        origin = str(repository / str(selected.get("workdir_relative") or "."))
     path = compact_statusline_path(origin)
-    fields = [f"{CODEX_STATUS_LINE_TITLE_PREFIX}{identifier}", branch, path]
-    issue = current.get("statusline_jira_issue")
+    fields = [f"{CODEX_STATUS_LINE_TITLE_PREFIX}{identifier}"]
+    if len(scopes) > 1:
+        primary_marker = "*" if selected_index == 0 else ""
+        fields.append(f"{selected_index + 1}/{len(scopes)}{primary_marker}")
+    fields.extend((branch, path))
+    issue = selected.get("statusline_jira_issue") or current.get("statusline_jira_issue")
     if isinstance(issue, str) and issue:
         fields.append(issue)
     return " · ".join(fields)
@@ -634,8 +655,9 @@ def codex_worktree_statusline(store: Store, current_task_id: str | None) -> str:
 
 def codex_statusline_thread_title(statusline: str, current_name: str | None) -> str | None:
     if not current_name:
-        # Let Codex 0.150+ create a descriptive title before decorating it.
-        return None
+        # Codex renders an unnamed thread's full UUID for the thread-title
+        # status item. Install the managed identity immediately instead.
+        return statusline
     if current_name == statusline:
         return statusline
     if current_name.startswith((CODEX_STATUS_LINE_TITLE_PREFIX, CODEX_STATUS_LINE_LEGACY_TITLE_PREFIX)):
@@ -2403,7 +2425,11 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                     and control_status is None
                     and control_socket is not None
                 ):
-                    title = codex_worktree_statusline(store, os.environ.get("AI_TASK_ID"))
+                    title = codex_worktree_statusline(
+                        store,
+                        os.environ.get("AI_TASK_ID"),
+                        epoch=time.time(),
+                    )
                     try:
                         thread_id = refresh_codex_statusline(
                             control_socket,

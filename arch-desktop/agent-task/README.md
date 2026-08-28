@@ -246,19 +246,22 @@ native status-line API. The command also recognizes Claude's current built-in
 Git worktree from the JSON payload. Managed Codex sessions enable the native
 footer with a compact managed-worktree identity, model/reasoning/fast mode, and
 active child-task progress. A typical first item is
-`WT#17 · ai/codex/20260828-150920-7fb1e6 · .../projects/environments/arch-desktop · CAPE-123`.
+`WT#17 · ai/codex/20260828-150920-7fb1e6→main · .../projects/environments/arch-desktop · CAPE-123`.
 The number is a stable, global harness worktree number; the path is the last
 three components of the logical project directory with a 48-character cap; and
-Jira appears only when known. Context remaining, hostname, and a redundant
-project name are intentionally omitted.
+the arrow names the integration target. Jira appears only when known. Context
+remaining, hostname, and a redundant project name are intentionally omitted.
 
-The App Server bridge waits for Codex 0.150's generated title and retains it
-after ` :: `, so resume and `@`-mention search still describe the task; a later
-`/rename` is preserved on the next refresh. The bridge supplies the actual task
-branch because a managed Codex chat keeps the canonical checkout as its logical
-cwd while editing the assigned worktree, so native `git-branch` and
-`current-dir` can describe the wrong checkout. Neither integration writes to
-Kitty's status line.
+The App Server bridge immediately names an unnamed thread so Codex never shows
+its internal UUID as the `thread-title` fallback. Existing generated names and
+later `/rename` values are retained after ` :: `. When a session owns attached
+secondary repositories, the managed identity rotates through their actual task
+branches and logical paths every five seconds. The compact `1/3*`, `2/3`, ...
+field identifies the carousel position, with `*` marking the primary task. The
+bridge supplies these values because a managed Codex chat keeps the canonical
+checkout as its logical cwd while editing assigned worktrees, so native
+`git-branch` and `current-dir` can describe the wrong checkout. Neither
+integration writes to Kitty's status line.
 
 A Jira-shaped key in the task's launch description is detected automatically.
 When an agent selects or creates the issue later, it records display-only local

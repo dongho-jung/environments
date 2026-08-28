@@ -377,12 +377,12 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(resumed[:6], [*prefix, "resume"])
         self.assertIsNone(review)
 
-    def test_codex_statusline_decorates_an_auto_title_after_it_exists(self) -> None:
+    def test_codex_statusline_replaces_an_unnamed_thread_immediately(self) -> None:
         statusline = (
             "WT#17 · ai/codex/20260828-150920-7fb1e6 · "
             ".../projects/environments/arch-desktop · CAPE-456"
         )
-        self.assertIsNone(AGENT_TASK.codex_statusline_thread_title(statusline, None))
+        self.assertEqual(AGENT_TASK.codex_statusline_thread_title(statusline, None), statusline)
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(
                 statusline,
@@ -465,7 +465,13 @@ class LaunchBehaviorTest(unittest.TestCase):
             ),
             "current",
         )
-        self.assertNotIn("thread/name/set", [request.get("method") for request in untitled.requests])
+        unnamed_rename = next(
+            request for request in untitled.requests if request.get("method") == "thread/name/set"
+        )
+        self.assertEqual(
+            unnamed_rename["params"],
+            {"threadId": "current", "name": statusline},
+        )
 
     def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
         class FakeSocket:
@@ -1206,6 +1212,7 @@ class WorktreeStatuslineTest(unittest.TestCase):
                 {
                     "worktree_number": 17,
                     "branch": f"ai/codex/{task_id}",
+                    "target_branch": "main",
                     "origin_working_directory": "/home/dongho/projects/environments/arch-desktop",
                 }
             )
@@ -1216,11 +1223,58 @@ class WorktreeStatuslineTest(unittest.TestCase):
             with_jira = AGENT_TASK.codex_worktree_statusline(store, task_id)
 
         expected = (
-            "WT#17 · ai/codex/20260828-150920-7fb1e6 · "
+            "WT#17 · ai/codex/20260828-150920-7fb1e6→main · "
             ".../projects/environments/arch-desktop"
         )
         self.assertEqual(without_jira, expected)
         self.assertEqual(with_jira, f"{expected} · CAPE-123")
+
+    def test_codex_statusline_rotates_attached_repository_scopes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self.make_store(Path(directory))
+            parent_id = "20260828-150920-7fb1e6"
+            parent = self.task(parent_id, "environments")
+            parent.update(
+                {
+                    "worktree_number": 17,
+                    "branch": f"ai/codex/{parent_id}",
+                    "target_branch": "main",
+                    "origin_working_directory": "/projects/environments/arch-desktop",
+                }
+            )
+            backend = self.task("20260828-151000-backend", "certmind-backend")
+            backend.update(
+                {
+                    "attachment_parent_task_id": parent_id,
+                    "branch": "ai/codex/backend-task",
+                    "target_branch": "develop",
+                    "origin_working_directory": "/projects/capelabs/certmind-backend",
+                }
+            )
+            web = self.task("20260828-151100-web0000", "certmind-web")
+            web.update(
+                {
+                    "attachment_parent_task_id": parent_id,
+                    "branch": "ai/codex/web-task",
+                    "target_branch": "main",
+                    "origin_working_directory": "/projects/capelabs/certmind-web",
+                }
+            )
+            for task in (parent, backend, web):
+                store.save(task)
+
+            lines = [
+                AGENT_TASK.codex_worktree_statusline(store, parent_id, epoch=epoch)
+                for epoch in (0, 5, 10, 15)
+            ]
+
+        self.assertIn("WT#17 · 1/3* ·", lines[0])
+        self.assertIn("environments/arch-desktop", lines[0])
+        self.assertIn("WT#17 · 2/3 · ai/codex/backend-task→develop", lines[1])
+        self.assertIn("capelabs/certmind-backend", lines[1])
+        self.assertIn("WT#17 · 3/3 · ai/codex/web-task→main", lines[2])
+        self.assertIn("capelabs/certmind-web", lines[2])
+        self.assertEqual(lines[3], lines[0])
 
     def test_codex_statusline_path_keeps_three_tail_parts_with_a_hard_limit(self) -> None:
         compact = AGENT_TASK.compact_statusline_path(
