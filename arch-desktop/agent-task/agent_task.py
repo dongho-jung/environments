@@ -371,6 +371,7 @@ class Store:
         self.contexts = self.root / "contexts"
         self.proposals = self.root / "memory-proposals"
         self.quarantine = self.root / "quarantine"
+        self.hook_runtimes = self.root / "hook-runtimes"
         for path in (
             self.root,
             self.tasks,
@@ -384,6 +385,7 @@ class Store:
             self.contexts,
             self.proposals,
             self.quarantine,
+            self.hook_runtimes,
         ):
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
             info = path.stat(follow_symlinks=False)
@@ -1542,6 +1544,26 @@ CODEX_SUBCOMMANDS = {
     "update",
 }
 CODEX_NONINTERACTIVE_GLOBAL_FLAGS = {"-h", "--help", "-V", "--version"}
+CODEX_APP_SERVER_VALUE_OPTIONS = {
+    "-a",
+    "--ask-for-approval",
+    "-c",
+    "--config",
+    "--disable",
+    "--enable",
+    "--local-provider",
+    "-m",
+    "--model",
+    "-p",
+    "--profile",
+    "-s",
+    "--sandbox",
+}
+CODEX_APP_SERVER_FLAG_OPTIONS = {
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--oss",
+    "--strict-config",
+}
 
 
 def codex_subcommand(command: Sequence[str]) -> str | None:
@@ -1598,14 +1620,45 @@ def managed_agent_working_directory(task: dict[str, Any], command: Sequence[str]
     return task_working_directory(task)
 
 
-def agent_task_hook_command(subcommand: str) -> str:
-    # Keep the launch path rather than resolving a staged symlink. Hook
-    # commands outlive this process and must survive content-version updates.
-    return shlex.join([sys.executable, str(Path(__file__).absolute()), subcommand])
+def materialize_codex_hook_runtime(
+    store: Store | None = None,
+    *,
+    agent_source: Path | None = None,
+    statusline_source: Path | None = None,
+) -> Path:
+    store = store or Store()
+    agent_source = (agent_source or Path(__file__)).resolve()
+    statusline_source = (
+        statusline_source or Path(render_worktree_statusline.__code__.co_filename)
+    ).resolve()
+    agent_payload = read_file_safely(agent_source)
+    statusline_payload = read_file_safely(statusline_source)
+    digest = hashlib.sha256(agent_payload + b"\0" + statusline_payload).hexdigest()
+    runtime = store.hook_runtimes / digest
+    runtime.mkdir(mode=0o700, exist_ok=True)
+    info = runtime.stat(follow_symlinks=False)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise AgentTaskError(f"unsafe hook runtime directory refused: {runtime}")
+    if stat.S_IMODE(info.st_mode) != 0o700:
+        runtime.chmod(0o700)
+    for destination, payload in (
+        (runtime / "agent_task.py", agent_payload),
+        (runtime / "agent_statusline.py", statusline_payload),
+    ):
+        if os.path.lexists(destination):
+            if read_file_safely(destination) != payload:
+                raise AgentTaskError(f"immutable hook runtime changed unexpectedly: {destination}")
+        else:
+            atomic_write_private(destination, payload)
+    return runtime / "agent_task.py"
 
 
-def codex_provision_hook_config() -> str:
-    command = agent_task_hook_command(PROVISION_HOOK_SUBCOMMAND)
+def agent_task_hook_command(subcommand: str, launcher: Path | None = None) -> str:
+    return shlex.join([sys.executable, str(launcher or Path(__file__).absolute()), subcommand])
+
+
+def codex_provision_hook_config(launcher: Path | None = None) -> str:
+    command = agent_task_hook_command(PROVISION_HOOK_SUBCOMMAND, launcher)
     return (
         'hooks.UserPromptSubmit=[{ hooks = [{ type = "command", '
         f"command = {json.dumps(command)}, timeout = {int(CODEX_PROVISION_HOOK_TIMEOUT_SECONDS)}, "
@@ -2013,12 +2066,24 @@ async def _start_named_codex_thread(
         thread_id = thread.get("id") if isinstance(thread, dict) else None
         if not isinstance(thread_id, str):
             raise AgentTaskError("Codex pending-title thread did not start")
-        await _codex_rpc_request(
-            websocket,
-            3,
-            "thread/name/set",
-            {"threadId": thread_id, "name": name},
-        )
+        try:
+            await _codex_rpc_request(
+                websocket,
+                3,
+                "thread/name/set",
+                {"threadId": thread_id, "name": name},
+            )
+        except BaseException:
+            try:
+                await _codex_rpc_request(
+                    websocket,
+                    4,
+                    "thread/delete",
+                    {"threadId": thread_id},
+                )
+            except BaseException:
+                pass
+            raise
         return thread_id
 
 
@@ -2036,24 +2101,122 @@ def start_named_codex_thread(
     )
 
 
+async def _delete_empty_pending_codex_thread(
+    socket_path: Path,
+    thread_id: str,
+    connector: Callable[[], Any] | None,
+) -> bool:
+    if connector is None:
+        connector = lambda: codex_unix_connection(socket_path)
+    async with connector() as websocket:
+        await _codex_rpc_request(
+            websocket,
+            1,
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "agent-task",
+                    "title": "agent-task pending thread cleanup",
+                    "version": "1",
+                }
+            },
+        )
+        await websocket.send(json.dumps({"method": "initialized", "params": {}}))
+        result = await _codex_rpc_request(
+            websocket,
+            2,
+            "thread/read",
+            {"threadId": thread_id, "includeTurns": True},
+        )
+        thread = result.get("thread") if isinstance(result, dict) else None
+        turns = thread.get("turns") if isinstance(thread, dict) else None
+        if (
+            not isinstance(thread, dict)
+            or thread.get("id") != thread_id
+            or not isinstance(turns, list)
+            or turns
+        ):
+            return False
+        await _codex_rpc_request(
+            websocket,
+            3,
+            "thread/delete",
+            {"threadId": thread_id},
+        )
+        return True
+
+
+def delete_empty_pending_codex_thread(
+    socket_path: Path,
+    thread_id: str,
+    *,
+    connector: Callable[[], Any] | None = None,
+) -> bool:
+    import asyncio
+
+    return asyncio.run(_delete_empty_pending_codex_thread(socket_path, thread_id, connector))
+
+
+def codex_app_server_inherited_options(
+    agent_command: Sequence[str],
+    executable: int,
+) -> list[str]:
+    """Keep user configuration that must also govern App Server threads."""
+    inherited: list[str] = []
+    arguments = list(agent_command[executable + 1 :])
+    long_value_options = {
+        value for value in CODEX_APP_SERVER_VALUE_OPTIONS if value.startswith("--")
+    }
+    index = 0
+    while index < len(arguments):
+        value = arguments[index]
+        if value == "--":
+            break
+        if value in CODEX_APP_SERVER_VALUE_OPTIONS:
+            if index + 1 >= len(arguments):
+                break
+            inherited.extend((value, arguments[index + 1]))
+            index += 2
+            continue
+        if any(value.startswith(f"{option}=") for option in long_value_options):
+            inherited.append(value)
+            index += 1
+            continue
+        if value in CODEX_APP_SERVER_FLAG_OPTIONS:
+            inherited.append(value)
+            index += 1
+            continue
+        if value in CODEX_GLOBAL_VALUE_OPTIONS:
+            index += 2
+            continue
+        if value.startswith("-"):
+            index += 1
+            continue
+        break
+    return inherited
+
+
 def codex_app_server_command(
     agent_command: Sequence[str],
     socket_path: Path,
     *,
     provision_hook: bool,
+    hook_launcher: Path | None = None,
 ) -> list[str]:
     executable = command_executable_index(agent_command, "codex")
     if executable is None:
         raise AgentTaskError("Codex App Server command requires a codex executable")
+    inherited_options = codex_app_server_inherited_options(agent_command, executable)
     server_options: list[str] = []
     if provision_hook:
         server_options = [
             "--dangerously-bypass-hook-trust",
             "-c",
-            codex_provision_hook_config(),
+            codex_provision_hook_config(hook_launcher),
         ]
     return [
         *agent_command[: executable + 1],
+        *inherited_options,
         *server_options,
         "app-server",
         "--listen",
@@ -2066,7 +2229,7 @@ def start_codex_app_server(
     socket_path: Path,
     inherited_descriptors: Sequence[int],
     trusted_directories: Sequence[Path],
-) -> tuple[int, list[str]] | None:
+) -> tuple[int, list[str], str | None] | None:
     agent_command, recovery_working_directory = unmark_codex_recovery_command(command)
     remote_command = codex_remote_command(agent_command, socket_path, trusted_directories)
     if remote_command is None:
@@ -2076,12 +2239,15 @@ def start_codex_app_server(
         and bool(os.environ.get("AI_TASK_ID"))
         and not os.environ.get("AI_TASK_BRANCH")
     )
+    hook_launcher = materialize_codex_hook_runtime() if provision_hook else None
     socket_path.unlink(missing_ok=True)
     server_command = codex_app_server_command(
         agent_command,
         socket_path,
         provision_hook=provision_hook,
+        hook_launcher=hook_launcher,
     )
+    pending_thread_id: str | None = None
     try:
         server_pid = os.fork()
     except OSError as error:
@@ -2121,17 +2287,17 @@ def start_codex_app_server(
                     )
             elif provision_hook and fresh_interactive_codex_command(agent_command):
                 try:
-                    thread_id = start_named_codex_thread(
+                    pending_thread_id = start_named_codex_thread(
                         socket_path,
                         Path.cwd(),
                         CODEX_PENDING_THREAD_NAME,
                     )
-                    remote_command.extend(("resume", thread_id))
+                    remote_command.extend(("resume", pending_thread_id))
                 except Exception as error:
                     # This is display-only. Fall back to Codex's ordinary
                     # fresh-thread launch if the bootstrap is unavailable.
                     print(f"agent-task: Codex pending title unavailable: {error}", file=sys.stderr)
-            return server_pid, remote_command
+            return server_pid, remote_command, pending_thread_id
         try:
             finished, status = os.waitpid(server_pid, os.WNOHANG)
         except ChildProcessError:
@@ -2545,6 +2711,11 @@ def command_provision_hook() -> int:
             "codex_task_checkout": "worktree",
             "worktree_provisioned_at": now(),
         }
+        thread_id = codex_hook_thread_id(payload)
+        if thread_id is not None:
+            metadata["codex_thread_id"] = thread_id
+            if session.get("pending_codex_thread_id") == thread_id:
+                metadata["pending_codex_thread_id"] = None
         update_session_metadata(
             session_path,
             harness_session_id,
@@ -2832,6 +3003,7 @@ def command_lock_exec(raw: Sequence[str]) -> int:
     store: Store | None = None
     control_pid: int | None = None
     control_socket: Path | None = None
+    pending_codex_thread_id: str | None = None
     working_directory = Path.cwd().resolve()
     if session_path:
         metadata_path = Path(session_path)
@@ -2879,11 +3051,22 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                     (Path.cwd(), working_directory),
                 )
                 if started is not None:
-                    control_pid, command = started
+                    control_pid, command, pending_codex_thread_id = started
+                    control_updates: dict[str, Any] = {
+                        "control_status": "ready",
+                        "control_started_at": now(),
+                    }
+                    if pending_codex_thread_id is not None:
+                        control_updates.update(
+                            {
+                                "pending_codex_thread_id": pending_codex_thread_id,
+                                "pending_codex_thread_created_at": now(),
+                            }
+                        )
                     update_session_metadata(
                         metadata_path,
                         session_id,
-                        {"control_status": "ready", "control_started_at": now()},
+                        control_updates,
                     )
             except AgentTaskError as error:
                 update_session_metadata(
@@ -2948,6 +3131,7 @@ def command_lock_exec(raw: Sequence[str]) -> int:
     notification_retry_at: float | None = None
     control_shutdown_deadline: float | None = None
     control_shutdown_forced = False
+    pending_thread_cleanup_attempted = False
     notification_closed = False
     try:
         while True:
@@ -3044,6 +3228,56 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                 ):
                     terminate_process_tree_child(agent_pid, signal.SIGTERM)
                     handoff_force_deadline = None
+
+            if (
+                main_status is not None
+                and control_pid is not None
+                and control_status is None
+                and control_socket is not None
+                and pending_codex_thread_id is not None
+                and not pending_thread_cleanup_attempted
+            ):
+                cleanup_thread_id: str | None = pending_codex_thread_id
+                if session_path:
+                    try:
+                        current = read_json_file_safely(Path(session_path))
+                        if (
+                            isinstance(current, dict)
+                            and current.get("session_id") == session_id
+                            and "pending_codex_thread_id" in current
+                        ):
+                            recorded = current.get("pending_codex_thread_id")
+                            cleanup_thread_id = recorded if isinstance(recorded, str) else None
+                    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                        pass
+                if cleanup_thread_id is not None:
+                    try:
+                        deleted = delete_empty_pending_codex_thread(
+                            control_socket,
+                            cleanup_thread_id,
+                        )
+                        if session_path:
+                            updates: dict[str, Any] = {
+                                "pending_codex_thread_cleanup": (
+                                    "deleted" if deleted else "retained"
+                                ),
+                                "pending_codex_thread_cleanup_at": now(),
+                            }
+                            if deleted:
+                                updates["pending_codex_thread_id"] = None
+                            update_session_metadata(Path(session_path), session_id, updates)
+                    except Exception as error:
+                        if session_path:
+                            with contextlib.suppress(AgentTaskError):
+                                update_session_metadata(
+                                    Path(session_path),
+                                    session_id,
+                                    {
+                                        "pending_codex_thread_cleanup": "failed",
+                                        "pending_codex_thread_cleanup_error": str(error),
+                                    },
+                                )
+                pending_thread_cleanup_attempted = True
 
             if main_status is not None and control_pid is not None and control_status is None:
                 if control_shutdown_deadline is None:

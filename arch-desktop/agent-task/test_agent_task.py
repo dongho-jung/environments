@@ -490,6 +490,11 @@ class LaunchBehaviorTest(unittest.TestCase):
                 mock.patch.object(AGENT_TASK.os, "fork", side_effect=fork),
                 mock.patch.object(
                     AGENT_TASK,
+                    "materialize_codex_hook_runtime",
+                    return_value=Path("/state/hook-runtime/agent_task.py"),
+                ),
+                mock.patch.object(
+                    AGENT_TASK,
                     "start_named_codex_thread",
                     return_value="thread-one",
                 ) as start_thread,
@@ -502,8 +507,9 @@ class LaunchBehaviorTest(unittest.TestCase):
                 )
 
         assert started is not None
-        server_pid, command = started
+        server_pid, command, pending_thread_id = started
         self.assertEqual(server_pid, 12345)
+        self.assertEqual(pending_thread_id, "thread-one")
         self.assertEqual(command[-2:], ["resume", "thread-one"])
         start_thread.assert_called_once_with(
             socket,
@@ -536,12 +542,14 @@ class LaunchBehaviorTest(unittest.TestCase):
 
     def test_codex_app_server_owns_the_first_prompt_provisioning_hook(self) -> None:
         socket = Path("/state/controls/session.sock")
-        hook = AGENT_TASK.codex_provision_hook_config()
+        hook_launcher = Path("/state/hook-runtimes/version/agent_task.py")
+        hook = AGENT_TASK.codex_provision_hook_config(hook_launcher)
 
         pending = AGENT_TASK.codex_app_server_command(
             ["codex", "--add-dir", "/state/worktree"],
             socket,
             provision_hook=True,
+            hook_launcher=hook_launcher,
         )
         ready = AGENT_TASK.codex_app_server_command(
             ["codex", "--add-dir", "/state/worktree"],
@@ -566,24 +574,68 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn("UserPromptSubmit", hook)
         self.assertNotIn("PreToolUse", hook)
 
-    def test_codex_hooks_preserve_the_stable_launcher_symlink(self) -> None:
+    def test_codex_app_server_preserves_user_configuration(self) -> None:
+        socket = Path("/state/controls/session.sock")
+
+        command = AGENT_TASK.codex_app_server_command(
+            [
+                "codex",
+                "-c",
+                'model_reasoning_effort="high"',
+                "--profile=work",
+                "--enable",
+                "multi_agent",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--add-dir",
+                "/state/worktree",
+            ],
+            socket,
+            provision_hook=False,
+        )
+
+        self.assertEqual(
+            command,
+            [
+                "codex",
+                "-c",
+                'model_reasoning_effort="high"',
+                "--profile=work",
+                "--enable",
+                "multi_agent",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "app-server",
+                "--listen",
+                f"unix://{socket}",
+            ],
+        )
+
+    def test_codex_hooks_use_an_immutable_session_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            version = root / "versions" / "version-one"
-            version.parent.mkdir()
-            version.touch()
-            launcher = root / "bin" / "agent-task"
-            launcher.parent.mkdir()
-            launcher.symlink_to(version)
-
-            with mock.patch.object(AGENT_TASK, "__file__", str(launcher)):
-                hook = AGENT_TASK.codex_provision_hook_config()
-
-        expected = shlex.join(
-            [sys.executable, str(launcher), AGENT_TASK.PROVISION_HOOK_SUBCOMMAND]
-        )
-        self.assertIn(json.dumps(expected), hook)
-        self.assertNotIn(str(version), hook)
+            state = root / "state"
+            agent_source = root / "agent_task.py"
+            statusline_source = root / "agent_statusline.py"
+            agent_source.write_text("VERSION = 1\n")
+            statusline_source.write_text("STATUS = 1\n")
+            with mock.patch.dict(os.environ, {"AGENT_TASK_STATE_DIR": str(state)}):
+                store = AGENT_TASK.Store()
+                first = AGENT_TASK.materialize_codex_hook_runtime(
+                    store,
+                    agent_source=agent_source,
+                    statusline_source=statusline_source,
+                )
+                agent_source.write_text("VERSION = 2\n")
+                second = AGENT_TASK.materialize_codex_hook_runtime(
+                    store,
+                    agent_source=agent_source,
+                    statusline_source=statusline_source,
+                )
+            self.assertNotEqual(first, second)
+            self.assertEqual(first.read_text(), "VERSION = 1\n")
+            self.assertEqual(first.with_name("agent_statusline.py").read_text(), "STATUS = 1\n")
+            self.assertEqual(second.read_text(), "VERSION = 2\n")
+            expected = shlex.join([sys.executable, str(first), AGENT_TASK.PROVISION_HOOK_SUBCOMMAND])
+            self.assertIn(json.dumps(expected), AGENT_TASK.codex_provision_hook_config(first))
 
     def test_unexpected_provision_hook_failure_blocks_the_prompt(self) -> None:
         stderr = io.StringIO()
@@ -861,6 +913,109 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(
             socket.requests[-1]["params"],
             {"threadId": "thread-one", "name": AGENT_TASK.CODEX_PENDING_THREAD_NAME},
+        )
+
+    def test_codex_pending_title_failure_deletes_the_empty_thread(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.requests: list[dict[str, object]] = []
+                self.responses: list[str] = []
+
+            async def send(self, raw: str) -> None:
+                request = json.loads(raw)
+                self.requests.append(request)
+                if "id" not in request:
+                    return
+                if request["method"] == "thread/start":
+                    response = {"result": {"thread": {"id": "thread-one"}}}
+                elif request["method"] == "thread/name/set":
+                    response = {"error": {"message": "name unavailable"}}
+                else:
+                    response = {"result": {}}
+                self.responses.append(json.dumps({"id": request["id"], **response}))
+
+            async def recv(self) -> str:
+                return self.responses.pop(0)
+
+        class FakeConnection:
+            def __init__(self, socket: FakeSocket) -> None:
+                self.socket = socket
+
+            async def __aenter__(self) -> FakeSocket:
+                return self.socket
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        socket = FakeSocket()
+        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "thread/name/set"):
+            AGENT_TASK.start_named_codex_thread(
+                Path("/control.sock"),
+                Path("/repo"),
+                AGENT_TASK.CODEX_PENDING_THREAD_NAME,
+                connector=lambda: FakeConnection(socket),
+            )
+
+        self.assertEqual(
+            [request.get("method") for request in socket.requests],
+            ["initialize", "initialized", "thread/start", "thread/name/set", "thread/delete"],
+        )
+
+    def test_codex_pending_thread_cleanup_deletes_only_a_zero_turn_thread(self) -> None:
+        class FakeSocket:
+            def __init__(self, turns: list[object]) -> None:
+                self.turns = turns
+                self.requests: list[dict[str, object]] = []
+                self.responses: list[str] = []
+
+            async def send(self, raw: str) -> None:
+                request = json.loads(raw)
+                self.requests.append(request)
+                if "id" not in request:
+                    return
+                if request["method"] == "thread/read":
+                    result = {"thread": {"id": "thread-one", "turns": self.turns}}
+                else:
+                    result = {}
+                self.responses.append(json.dumps({"id": request["id"], "result": result}))
+
+            async def recv(self) -> str:
+                return self.responses.pop(0)
+
+        class FakeConnection:
+            def __init__(self, socket: FakeSocket) -> None:
+                self.socket = socket
+
+            async def __aenter__(self) -> FakeSocket:
+                return self.socket
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        empty = FakeSocket([])
+        populated = FakeSocket([{"id": "turn-one"}])
+
+        self.assertTrue(
+            AGENT_TASK.delete_empty_pending_codex_thread(
+                Path("/control.sock"),
+                "thread-one",
+                connector=lambda: FakeConnection(empty),
+            )
+        )
+        self.assertFalse(
+            AGENT_TASK.delete_empty_pending_codex_thread(
+                Path("/control.sock"),
+                "thread-one",
+                connector=lambda: FakeConnection(populated),
+            )
+        )
+        self.assertEqual(
+            [request.get("method") for request in empty.requests],
+            ["initialize", "initialized", "thread/read", "thread/delete"],
+        )
+        self.assertEqual(
+            [request.get("method") for request in populated.requests],
+            ["initialize", "initialized", "thread/read"],
         )
 
     def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
@@ -1675,6 +1830,7 @@ class HarnessTest(unittest.TestCase):
 
     def test_inspection_prompt_provisions_the_worktree_before_the_turn(self) -> None:
         store, task, path, session_id, session_path, session = self.pending_codex_hook_context()
+        session["pending_codex_thread_id"] = "thread-one"
         payload = {
             "hook_event_name": "UserPromptSubmit",
             "session_id": "thread-one",
@@ -1726,6 +1882,8 @@ class HarnessTest(unittest.TestCase):
             update_metadata.call_args.args[2]["codex_task_checkout"],
             "worktree",
         )
+        self.assertEqual(update_metadata.call_args.args[2]["codex_thread_id"], "thread-one")
+        self.assertIsNone(update_metadata.call_args.args[2]["pending_codex_thread_id"])
         set_thread_name.assert_called_once_with(
             Path(str(session["control_socket"])),
             "thread-one",

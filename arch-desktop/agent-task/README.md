@@ -47,8 +47,10 @@ The first branch uses the semantic slug directly, such as
 `skip-read-worktree`. Only a real local branch collision adds `-2`, `-3`, and so
 on. Secondary repositories reuse the same slug and resolve collisions within
 their own repositories. If naming fails, a deterministic whole-word fallback
-still provisions the worktree. The Codex thread name shows
-`<branch> -> <target>`.
+still provisions the worktree. Before the first prompt, App Server gives the
+zero-turn thread an invisible placeholder name so the raw UUID does not flash
+as its title; the supervisor deletes that exact thread if the TUI exits before
+it receives a turn. The Codex thread name then shows `<branch> -> <target>`.
 Codex recovery asks App Server for the newest chat whose cwd exactly
 matches the preserved task's session cwd and resumes it by ID; if no matching
 chat was saved, it opens a fresh chat over the preserved files. Claude recovery
@@ -76,7 +78,11 @@ full-screen TUI. The App Server and foreground TUI inherit the same durable
 session identity, so tool subprocesses can accept the delivered handoff command
 without reconstructing private state paths. The pending-task first-prompt hook
 is installed only on this private App Server, avoiding duplicate client/server
-hook execution. For Claude, `Stop` and
+hook execution. User-selected Codex config, model, profile, feature, and
+permission options are inherited by the App Server instead of being reset at
+the remote-TUI boundary. Each hook command points at a content-addressed runtime
+snapshot, so updating the installed launcher cannot remove code still needed by
+an open session. For Claude, `Stop` and
 `UserPromptSubmit` hooks inject the same
 inbox event at the next safe lifecycle point; the supervisor also prints a
 terminal alert. Claude does not currently offer an equivalent supported local
