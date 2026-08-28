@@ -1,7 +1,9 @@
 # agent-task
 
-`agent-task` runs every ordinary repository session in a temporary branch and
-managed worktree. Stable checkout locks and separate session
+`agent-task` runs every ordinary repository session in a managed task. A clean
+read-only Codex turn can inspect the integration checkout without creating its
+reserved branch and worktree; every potentially mutating turn uses the isolated
+checkout. Stable checkout locks and separate session
 metadata live under
 `~/.local/state/agent-task`; no file inside the working tree is the source of
 lock ownership. A small supervisor holds the descriptor while the foreground
@@ -13,28 +15,44 @@ file edits and commits, while the harness owns integration and cleanup for its
 one assigned repository.
 
 ```text
-interactive Codex launch -> reserved path -> first prompt -> semantic worktree
-Claude/custom launch -------------------------------> managed worktree
-                                                          |
-                                                          `-> clean commit
-                                                              |-- publish -> target; session continues
-                                                              `-- exit -> integrate -> cleanup/recovery
+interactive Codex -> reserved path -> read-only on clean base
+                                      `-- first write -> semantic worktree
+Claude/custom ---------------------------------------> managed worktree
+                                                           |
+                                                           `-> clean commit
+                                                               |-- publish -> target; session continues
+                                                               `-- exit -> integrate -> cleanup/recovery
 ```
 
-Managed task state is keyed by repository and agent. One interrupted task
-resumes automatically; several produce a small picker. A managed Codex process
+Managed task state is keyed by repository and agent. An interrupted task with
+no repository changes is completed and cleaned automatically. One meaningful
+task resumes directly; several produce a picker led by semantic title, branch
+route, changed-file or commit count, update time, and only a short diagnostic
+ID. Pressing Enter resumes the entire list sequentially in one launcher run;
+selecting a number resumes just that item. Generic `interactive agent task`
+placeholders are neither stored for new untitled launches nor shown. A managed Codex process
 uses the stable original repository-relative path as its session cwd while
 `AI_TASK_WORKTREE` and `AI_TASK_WORKDIR` identify the isolated repository and
 starting directory it must edit. The worktree is also passed through Codex's
 `--add-dir`. Claude and custom tasks run directly in their assigned worktree.
 For a new interactive Codex task, the harness starts the TUI with an empty
 reserved path and no task branch. Its trusted `UserPromptSubmit` hook asks an
-ephemeral, read-only Luna turn for a short semantic slug, then creates the Git
-branch and worktree synchronously before the first model turn begins. Branches
-use `ai/codex/<slug>-<unique-suffix>`; secondary repositories attached later in
-the session reuse the same slug with their own suffix. If naming fails or times
-out, a deterministic whole-word fallback still provisions the worktree. This
-names Git resources only and never renames the Codex conversation.
+ephemeral, read-only Luna turn for a short semantic slug and whether the request
+can finish through inspection alone. A read-only request stays on the original
+checkout only when that checkout is clean and exactly matches the recorded
+integration base. A conservative `PreToolUse` guard permits known read-only
+shell commands; the first edit, unknown command, or potentially mutating shell
+command creates the branch and worktree, rejects that one tool call, and tells
+the agent to retry it in `AI_TASK_WORKDIR`. Mutating requests provision before
+their first model turn as before.
+
+The first branch uses the semantic slug directly, such as
+`skip-read-worktree`. Only a real local branch collision adds `-2`, `-3`, and so
+on. Secondary repositories reuse the same slug and resolve collisions within
+their own repositories. If classification or naming fails or times out, a
+deterministic whole-word fallback provisions conservatively. The Codex thread
+name shows `<branch> -> <target>`; while still deferred it shows
+`<slug> [read-only] -> <target>`.
 Codex recovery asks App Server for the newest chat whose cwd exactly
 matches the preserved task's session cwd and resumes it by ID; if no matching
 chat was saved, it opens a fresh chat over the preserved files. Claude recovery
@@ -103,7 +121,8 @@ Codex 0.150 added `@` references between Codex tasks, a shared-daemon
 features coordinate conversations; they do not acquire a checkout lease,
 create an `agent-task` worktree, validate a commit, or integrate a result.
 Codex-native child tasks within a managed chat remain useful for bounded
-parallel investigation, and their progress appears in the native footer.
+parallel investigation, but their count is not included in the configured
+footer.
 
 Top-level `o` tasks intentionally keep separate App Server sockets so an inbox
 event can steer or wake one exact harness session. Use `o --new` when parallel
@@ -114,10 +133,11 @@ when a task can mutate a repository.
 
 ## Use
 
-Both launchers use managed worktrees for ordinary repository sessions:
+Both launchers use the managed task lifecycle for ordinary repository sessions;
+Codex creates its worktree lazily for read-only requests:
 
 ```sh
-o                                   # managed worktree
+o                                   # managed; worktree on the first write
 o implement the login timeout       # managed worktree with initial prompt
 o resume                            # preserved task, or all saved Codex chats
 o resume SESSION_ID                 # saved chat in a managed worktree
@@ -139,7 +159,9 @@ Outside Git, inside an already managed task, with `o --local`/`c --local`, or
 for administrative subcommands such as `doctor`, `login`, and `mcp`, the shell
 launchers run the CLI directly. Ordinary repository sessions and mutating Codex
 subcommands use `agent-task open`, which always creates or resumes a managed
-worktree. `agent-task open --local` is the explicit native-checkout bypass.
+task. Interactive Codex may keep a clean inspection-only task deferred; other
+managed commands create the worktree immediately. `agent-task open --local` is
+the explicit native-checkout bypass.
 
 Codex `review` and Claude `ultrareview` are tied to the exact current checkout;
 they fail if it is busy instead of silently reviewing a different worktree.
@@ -233,15 +255,17 @@ The current entry stays pinned. If the remaining entries do not fit the
 terminal width, they move by one character per second in a repeating marquee.
 Claude runs the lightweight `agent_statusline.py --claude` renderer through its
 native status-line API. The command also recognizes Claude's current built-in
-Git worktree from the JSON payload. Managed Codex sessions use only native
-footer items: logical current directory, model/reasoning state, and child-task
-progress. Because these launchers already use YOLO permissions, they mark only
-the selected project paths trusted for the process and set
+Git worktree from the JSON payload. Managed Codex sessions use native footer
+items for the logical current directory, thread title, and model/reasoning
+state. The harness sets the thread title to the task-branch/base-branch route
+and deliberately omits native `task-progress`, so the low-value `Tasks #/#`
+counter is not shown. Because these launchers already use YOLO permissions,
+they mark only the selected project paths trusted for the process and set
 `tui.show_tooltips=false`; Codex therefore skips both its first-project command
-list and rotating tips. The harness starts quietly and does not rename threads
-or use a thread-title footer item, avoiding task setup output, UUID fallback
-labels, and rename notifications. Neither integration writes to Kitty's status
-line.
+list and rotating tips. The current Codex TUI owns that same bottom row while
+the composer is active and temporarily replaces configured footer items with
+its queue/context hint; it does not expose a setting that keeps the footer
+pinned while typing. Neither integration writes to Kitty's status line.
 
 A Jira-shaped key, explicit `PR #321`, or a GitHub pull-request URL in the task's
 launch description is detected automatically. When an agent learns either value

@@ -46,9 +46,10 @@ resource "host_link" "agent_task_statusline" {
 
 }
 
-# Ordinary interactive Codex and Claude sessions always use harness-managed
-# worktrees. Explicit local launches and exact-checkout review commands remain
-# direct because the operator or command has selected that checkout deliberately.
+# Ordinary interactive Codex and Claude sessions always use the harness-managed
+# lifecycle. Codex can defer its worktree for a clean read-only request. Explicit
+# local launches and exact-checkout review commands remain direct because the
+# operator or command has selected that checkout deliberately.
 resource "host_file_block" "agent_task_functions" {
   block = host_file.zshrc.blocks.functions
 
@@ -76,7 +77,7 @@ resource "host_file_block" "agent_task_functions" {
       local -a codex_tui=(
         -c "$codex_trust"
         -c 'tui.show_tooltips=false'
-        -c 'tui.status_line=["current-dir","model-with-reasoning","task-progress"]'
+        -c 'tui.status_line=["current-dir","thread-title","model-with-reasoning"]'
       )
       if [[ "$${1-}" == "--local" ]]; then
         shift
