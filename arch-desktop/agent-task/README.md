@@ -259,26 +259,32 @@ terminal width, they move by one character per second in a repeating marquee.
 Claude runs the lightweight `agent_statusline.py --claude` renderer through its
 native status-line API. The command also recognizes Claude's current built-in
 Git worktree from the JSON payload. Managed Codex sessions enable the native
-footer with the actual managed scope, model/reasoning effort, explicit fast-mode
-state, and active child-task progress. A typical line is
-`ai/codex/20260828-150920-7fb1e6→main · projects/environments/arch-desktop · PR #321 · CAPE-123 · gpt-5.6-sol ultra · Fast off`.
-There is no harness task ID or global worktree number field. The first item is
-the actual task branch and its integration target, followed by the last three
-components of the logical project directory. Branches and paths have separate
-48-character caps; a leading `...` appears only when that value must actually
-be shortened. PR and Jira context appear only when known. Context remaining,
-hostname, and a redundant project name are intentionally omitted.
+footer with a short task slug, the actual managed scope, model/reasoning state,
+and active child-task progress. A typical managed item is
+`statuslinefix · projects/environments/arch-desktop · PR #321 · CAPE-123`.
+There is no harness task ID, task branch, integration target, or global
+worktree number in the footer; those remain available in task metadata. The
+path is the last three components of the logical project directory with a
+48-character cap and receives a leading `...` only when it is actually
+shortened. PR and Jira context appear only when known. The separate Codex
+`fast-mode` item is omitted because the model item already communicates the
+selected fast mode. Context remaining, hostname, and a redundant project name
+are intentionally omitted.
 
 The App Server bridge immediately names an unnamed thread so Codex never shows
-its internal UUID as the `thread-title` fallback. An existing generated name or
-later `/rename` value is reduced to two or three lowercase ASCII alphanumeric
-words after ` :: `; when no such short label can be formed, it is omitted. When
-a session owns attached secondary repositories, the scope item rotates through
-their branch, target, path, PR, and Jira context every five seconds. The compact
+its internal UUID as the `thread-title` fallback. It reads Codex's first-message
+preview and starts one read-only, ephemeral `gpt-5.6-luna` turn in the
+background to summarize the task as 1-16 lowercase ASCII alphanumeric
+characters. The temporary `starting` label is shown until that result arrives;
+an ASCII-only local summary is used if the model call fails. The result is kept
+in the task's local display context and reused after recovery. When a session
+owns attached secondary repositories, the scope item rotates through their
+path, PR, and Jira context every five seconds while retaining the session task
+slug. The compact
 `1/3*`, `2/3`, ... field appears only for a multi-repository session and names
-the carousel position, with `*` marking the primary task. Model, effort, fast
-mode, and child-task progress remain fixed because they describe the Codex
-session rather than one repository. The bridge supplies repository values
+the carousel position, with `*` marking the primary task. Model, effort, and
+child-task progress remain fixed because they describe the Codex session rather
+than one repository. The bridge supplies repository values
 because a managed Codex chat keeps the canonical checkout as its logical cwd
 while editing assigned worktrees, so native `git-branch`, `current-dir`, and PR
 detection can describe the wrong checkout. Neither integration writes to

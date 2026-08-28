@@ -279,7 +279,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn('source       = "agent-task/agent_statusline.py"', configuration)
         self.assertEqual(
             AGENT_TASK.CODEX_STATUS_LINE_CONFIG,
-            'tui.status_line=["thread-title","model-with-reasoning","fast-mode","task-progress"]',
+            'tui.status_line=["thread-title","model-with-reasoning","task-progress"]',
         )
         self.assertIn('"thread/name/set"', SCRIPT.read_text())
         kitty_configuration = SCRIPT.parent.parent.joinpath("kitty/kitty.conf").read_text()
@@ -417,12 +417,9 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(observed["path"], str(session_path))
 
     def test_codex_statusline_replaces_an_unnamed_thread_immediately(self) -> None:
-        statusline = (
-            "ai/codex/20260828-150920-7fb1e6→main · "
-            "projects/environments/arch-desktop · CAPE-456"
-        )
+        statusline = "statuslinefix · projects/environments/arch-desktop · CAPE-456"
         self.assertIn('"model-with-reasoning"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
-        self.assertIn('"fast-mode"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
+        self.assertNotIn('"fast-mode"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
         self.assertNotIn('"pull-request-number"', AGENT_TASK.CODEX_STATUS_LINE_CONFIG)
         self.assertEqual(AGENT_TASK.codex_statusline_thread_title(statusline, None), statusline)
         self.assertEqual(
@@ -430,7 +427,7 @@ class LaunchBehaviorTest(unittest.TestCase):
                 statusline,
                 "WT | *codex/backend@21:31[CAPE-123] :: Investigate ordering",
             ),
-            f"{statusline} :: investigate ordering",
+            statusline,
         )
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(
@@ -448,14 +445,14 @@ class LaunchBehaviorTest(unittest.TestCase):
         )
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(statusline, "# investigate ordering"),
-            f"{statusline} :: investigate ordering",
+            statusline,
         )
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(
                 statusline,
                 "Implement the Very Long Statusline Behavior for Multiple Repositories",
             ),
-            f"{statusline} :: implement very long",
+            statusline,
         )
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(statusline, "상태 표시줄 정리"),
@@ -488,6 +485,7 @@ class LaunchBehaviorTest(unittest.TestCase):
                                 "status": {"type": "idle"},
                                 "recencyAt": 2,
                                 "name": self.name,
+                                "preview": "Fix the Codex status line",
                             }
                         ]
                     }
@@ -510,12 +508,14 @@ class LaunchBehaviorTest(unittest.TestCase):
             async def __aexit__(self, *_args: object) -> None:
                 return None
 
+        observed: list[tuple[str, str]] = []
         titled = FakeSocket("Investigate ordering")
         thread_id = AGENT_TASK.refresh_codex_statusline(
             Path("/control.sock"),
             Path("/repo"),
             statusline,
             connector=lambda: FakeConnection(titled),
+            thread_observer=lambda current, preview: observed.append((current, preview)),
         )
         self.assertEqual(thread_id, "current")
         renamed = next(
@@ -523,8 +523,9 @@ class LaunchBehaviorTest(unittest.TestCase):
         )
         self.assertEqual(
             renamed["params"],
-            {"threadId": "current", "name": f"{statusline} :: investigate ordering"},
+            {"threadId": "current", "name": statusline},
         )
+        self.assertEqual(observed, [("current", "Fix the Codex status line")])
 
         untitled = FakeSocket(None)
         self.assertEqual(
@@ -543,6 +544,95 @@ class LaunchBehaviorTest(unittest.TestCase):
             unnamed_rename["params"],
             {"threadId": "current", "name": statusline},
         )
+
+    def test_codex_task_slug_uses_an_ephemeral_luna_turn(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.responses: list[str] = []
+                self.requests: list[dict[str, object]] = []
+
+            async def send(self, raw: str) -> None:
+                request = json.loads(raw)
+                self.requests.append(request)
+                if "id" not in request:
+                    return
+                method = request["method"]
+                if method == "initialize":
+                    result: object = {}
+                elif method == "thread/start":
+                    result = {"thread": {"id": "slug-thread"}}
+                elif method == "turn/start":
+                    result = {"turn": {"id": "slug-turn"}}
+                else:
+                    raise AssertionError(method)
+                self.responses.append(json.dumps({"id": request["id"], "result": result}))
+                if method == "turn/start":
+                    self.responses.extend(
+                        (
+                            json.dumps(
+                                {
+                                    "method": "item/completed",
+                                    "params": {
+                                        "item": {
+                                            "id": "message",
+                                            "text": '{"slug":"statuslinefix"}',
+                                            "type": "agentMessage",
+                                        },
+                                        "threadId": "slug-thread",
+                                        "turnId": "slug-turn",
+                                    },
+                                }
+                            ),
+                            json.dumps(
+                                {
+                                    "method": "turn/completed",
+                                    "params": {
+                                        "threadId": "slug-thread",
+                                        "turn": {"id": "slug-turn", "status": "completed"},
+                                    },
+                                }
+                            ),
+                        )
+                    )
+
+            async def recv(self) -> str:
+                return self.responses.pop(0)
+
+        class FakeConnection:
+            def __init__(self, socket: FakeSocket) -> None:
+                self.socket = socket
+
+            async def __aenter__(self) -> FakeSocket:
+                return self.socket
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        socket = FakeSocket()
+        slug = AGENT_TASK.generate_codex_task_slug(
+            Path("/control.sock"),
+            "상태 표시줄을 짧게 정리해줘",
+            connector=lambda: FakeConnection(socket),
+        )
+
+        self.assertEqual(slug, "statuslinefix")
+        thread_start = next(
+            request for request in socket.requests if request.get("method") == "thread/start"
+        )
+        self.assertEqual(thread_start["params"]["model"], "gpt-5.6-luna")
+        self.assertTrue(thread_start["params"]["ephemeral"])
+        self.assertNotIn("environments", thread_start["params"])
+        self.assertNotIn("selectedCapabilityRoots", thread_start["params"])
+        turn_start = next(
+            request for request in socket.requests if request.get("method") == "turn/start"
+        )
+        self.assertEqual(turn_start["params"]["effort"], "none")
+        self.assertEqual(
+            turn_start["params"]["outputSchema"]["properties"]["slug"]["pattern"],
+            "[a-z0-9]{1,16}",
+        )
+        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid task slug"):
+            AGENT_TASK.task_slug("Status-Line")
 
     def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
         class FakeSocket:
@@ -1293,6 +1383,7 @@ class WorktreeStatuslineTest(unittest.TestCase):
             store = self.make_store(Path(directory))
             task_id = "20260826-204635-a5bc90"
             store.save(self.task(task_id, "environments"))
+            AGENT_TASK.write_task_context(store, task_id, {"task_slug": "contextfix"})
             arguments = argparse.Namespace(
                 task_id=task_id,
                 jira="cape-456",
@@ -1307,6 +1398,7 @@ class WorktreeStatuslineTest(unittest.TestCase):
             ):
                 AGENT_TASK.command_context(arguments, store)
             self.assertEqual(AGENT_TASK.read_task_context(store, task_id)["jira_issue"], "CAPE-456")
+            self.assertEqual(AGENT_TASK.read_task_context(store, task_id)["task_slug"], "contextfix")
 
             arguments.jira = None
             arguments.pr = "https://github.com/capelabs/backend/pull/321"
@@ -1382,7 +1474,7 @@ class WorktreeStatuslineTest(unittest.TestCase):
         self.assertTrue(any("·" in line for line in lines))
         self.assertTrue(all("|  |" not in line for line in lines))
 
-    def test_codex_statusline_shows_branch_path_pr_and_optional_jira(self) -> None:
+    def test_codex_statusline_shows_short_task_path_pr_and_optional_jira(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self.make_store(Path(directory))
             task_id = "20260828-150920-7fb1e6"
@@ -1401,16 +1493,19 @@ class WorktreeStatuslineTest(unittest.TestCase):
             AGENT_TASK.write_task_context(
                 store,
                 task_id,
-                {"jira_issue": "CAPE-123", "pull_request_number": 321},
+                {
+                    "jira_issue": "CAPE-123",
+                    "pull_request_number": 321,
+                    "task_slug": "statuslinefix",
+                },
             )
             with_context = AGENT_TASK.codex_worktree_statusline(store, task_id)
 
-        expected = (
-            "ai/codex/20260828-150920-7fb1e6→main · "
-            "projects/environments/arch-desktop"
+        self.assertEqual(without_jira, "starting · projects/environments/arch-desktop")
+        self.assertEqual(
+            with_context,
+            "statuslinefix · projects/environments/arch-desktop · PR #321 · CAPE-123",
         )
-        self.assertEqual(without_jira, expected)
-        self.assertEqual(with_context, f"{expected} · PR #321 · CAPE-123")
 
     def test_codex_statusline_rotates_attached_repository_scopes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1448,7 +1543,11 @@ class WorktreeStatuslineTest(unittest.TestCase):
             AGENT_TASK.write_task_context(
                 store,
                 parent_id,
-                {"jira_issue": "CAPE-123", "pull_request_number": 101},
+                {
+                    "jira_issue": "CAPE-123",
+                    "pull_request_number": 101,
+                    "task_slug": "statuslinefix",
+                },
             )
             AGENT_TASK.write_task_context(
                 store,
@@ -1466,13 +1565,13 @@ class WorktreeStatuslineTest(unittest.TestCase):
                 for epoch in (0, 5, 10, 15)
             ]
 
-        self.assertTrue(lines[0].startswith("1/3* ·"), lines[0])
+        self.assertTrue(lines[0].startswith("1/3* · statuslinefix ·"), lines[0])
         self.assertIn("environments/arch-desktop", lines[0])
         self.assertIn("PR #101 · CAPE-123", lines[0])
-        self.assertTrue(lines[1].startswith("2/3 · ai/codex/backend-task→develop"), lines[1])
+        self.assertTrue(lines[1].startswith("2/3 · statuslinefix ·"), lines[1])
         self.assertIn("capelabs/certmind-backend", lines[1])
         self.assertIn("PR #202 · CAPE-123", lines[1])
-        self.assertTrue(lines[2].startswith("3/3 · ai/codex/web-task→main"), lines[2])
+        self.assertTrue(lines[2].startswith("3/3 · statuslinefix ·"), lines[2])
         self.assertIn("capelabs/certmind-web", lines[2])
         self.assertIn("PR #303 · CAPE-123", lines[2])
         self.assertEqual(lines[3], lines[0])
