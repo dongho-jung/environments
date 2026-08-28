@@ -418,8 +418,8 @@ class LaunchBehaviorTest(unittest.TestCase):
 
     def test_codex_statusline_replaces_an_unnamed_thread_immediately(self) -> None:
         statusline = (
-            "WT#17 · ai/codex/20260828-150920-7fb1e6 · "
-            ".../projects/environments/arch-desktop · CAPE-456"
+            "#17 · ai/codex/20260828-150920-7fb1e6 · "
+            "projects/environments/arch-desktop · CAPE-456"
         )
         self.assertEqual(AGENT_TASK.codex_statusline_thread_title(statusline, None), statusline)
         self.assertEqual(
@@ -428,6 +428,17 @@ class LaunchBehaviorTest(unittest.TestCase):
                 "WT | *codex/backend@21:31[CAPE-123] :: Investigate ordering",
             ),
             f"{statusline} :: Investigate ordering",
+        )
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(
+                statusline,
+                "WT#17 · ai/codex/old-task→main · projects/environments/arch-desktop",
+            ),
+            statusline,
+        )
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(statusline, "# investigate ordering"),
+            f"{statusline} :: # investigate ordering",
         )
 
         class FakeSocket:
@@ -1317,8 +1328,8 @@ class WorktreeStatuslineTest(unittest.TestCase):
             with_jira = AGENT_TASK.codex_worktree_statusline(store, task_id)
 
         expected = (
-            "WT#17 · ai/codex/20260828-150920-7fb1e6→main · "
-            ".../projects/environments/arch-desktop"
+            "#17 · ai/codex/20260828-150920-7fb1e6→main · "
+            "projects/environments/arch-desktop"
         )
         self.assertEqual(without_jira, expected)
         self.assertEqual(with_jira, f"{expected} · CAPE-123")
@@ -1362,15 +1373,21 @@ class WorktreeStatuslineTest(unittest.TestCase):
                 for epoch in (0, 5, 10, 15)
             ]
 
-        self.assertIn("WT#17 · 1/3* ·", lines[0])
+        self.assertIn("#17 · 1/3* ·", lines[0])
         self.assertIn("environments/arch-desktop", lines[0])
-        self.assertIn("WT#17 · 2/3 · ai/codex/backend-task→develop", lines[1])
+        self.assertIn("#17 · 2/3 · ai/codex/backend-task→develop", lines[1])
         self.assertIn("capelabs/certmind-backend", lines[1])
-        self.assertIn("WT#17 · 3/3 · ai/codex/web-task→main", lines[2])
+        self.assertIn("#17 · 3/3 · ai/codex/web-task→main", lines[2])
         self.assertIn("capelabs/certmind-web", lines[2])
         self.assertEqual(lines[3], lines[0])
 
     def test_codex_statusline_path_keeps_three_tail_parts_with_a_hard_limit(self) -> None:
+        self.assertEqual(
+            AGENT_TASK.compact_statusline_path(
+                "/home/dongho/projects/environments/arch-desktop",
+            ),
+            "projects/environments/arch-desktop",
+        )
         compact = AGENT_TASK.compact_statusline_path(
             "/one/two/three/this-directory-name-is-far-too-long/another-long-directory/final",
             limit=36,
@@ -1379,6 +1396,13 @@ class WorktreeStatuslineTest(unittest.TestCase):
         self.assertEqual(len(compact), 36)
         self.assertTrue(compact.startswith("..."))
         self.assertTrue(compact.endswith("/final"))
+        compact_branch = AGENT_TASK.compact_statusline_tail(
+            "ai/codex/a-branch-name-that-is-much-too-long-for-the-footer→main",
+            limit=32,
+        )
+        self.assertEqual(len(compact_branch), 32)
+        self.assertTrue(compact_branch.startswith("..."))
+        self.assertTrue(compact_branch.endswith("→main"))
         self.assertEqual(
             AGENT_TASK.next_worktree_number(
                 [{"task_id": "old"}, {"task_id": "new", "worktree_number": 7}]

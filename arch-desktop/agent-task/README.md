@@ -259,10 +259,11 @@ native status-line API. The command also recognizes Claude's current built-in
 Git worktree from the JSON payload. Managed Codex sessions enable the native
 footer with a compact managed-worktree identity, model/reasoning/fast mode, and
 active child-task progress. A typical first item is
-`WT#17 · ai/codex/20260828-150920-7fb1e6→main · .../projects/environments/arch-desktop · CAPE-123`.
+`#17 · ai/codex/20260828-150920-7fb1e6→main · projects/environments/arch-desktop · CAPE-123`.
 The number is a stable, global harness worktree number; the path is the last
-three components of the logical project directory with a 48-character cap; and
-the arrow names the integration target. Jira appears only when known. Context
+three components of the logical project directory with a 48-character cap; a
+leading `...` appears only when that tail or the branch must actually be
+shortened. The arrow names the integration target. Jira appears only when known. Context
 remaining, hostname, and a redundant project name are intentionally omitted.
 
 The App Server bridge immediately names an unnamed thread so Codex never shows

@@ -78,8 +78,9 @@ CODEX_STATUS_LINE_CONFIG = (
     'tui.status_line=["thread-title","model-with-reasoning","task-progress"]'
 )
 CODEX_STATUS_LINE_REFRESH_SECONDS = 5.0
-CODEX_STATUS_LINE_TITLE_PREFIX = "WT#"
-CODEX_STATUS_LINE_LEGACY_TITLE_PREFIX = "WT | "
+CODEX_STATUS_LINE_TITLE_PREFIX = "#"
+CODEX_STATUS_LINE_LEGACY_TITLE_PREFIXES = ("WT#", "WT | ")
+CODEX_STATUS_LINE_TITLE_PATTERN = re.compile(r"^#(?:[1-9][0-9]*|[0-9a-f]{6}) · ")
 CODEX_STATUS_LINE_TITLE_SEPARATOR = " :: "
 CODEX_STATUS_LINE_BRANCH_LIMIT = 48
 CODEX_STATUS_LINE_PATH_LIMIT = 48
@@ -581,25 +582,20 @@ def worktree_statusline(
     )
 
 
-def compact_middle(value: str, *, limit: int) -> str:
-    text = " ".join(value.split())
+def compact_statusline_tail(value: str, *, limit: int) -> str:
+    text = value
     if len(text) <= limit:
         return text
     if limit <= 3:
         return "." * limit
-    left = (limit - 3) // 2
-    right = limit - 3 - left
-    return f"{text[:left]}...{text[-right:]}"
+    return f"...{text[-(limit - 3):]}"
 
 
 def compact_statusline_path(value: str | Path, *, limit: int = CODEX_STATUS_LINE_PATH_LIMIT) -> str:
     path = Path(value)
     parts = [part for part in path.parts if part not in (path.anchor, "/")]
     tail = "/".join(parts[-CODEX_STATUS_LINE_PATH_PARTS:]) or str(path)
-    text = f".../{tail}" if len(parts) > CODEX_STATUS_LINE_PATH_PARTS else tail
-    if len(text) <= limit:
-        return text
-    return f"...{text[-(limit - 3):]}" if limit > 3 else "." * limit
+    return compact_statusline_tail(tail, limit=limit)
 
 
 def codex_worktree_statusline(
@@ -637,7 +633,7 @@ def codex_worktree_statusline(
     target = selected.get("target_branch")
     if isinstance(target, str) and target and target != branch_value:
         branch_value = f"{branch_value}→{target}"
-    branch = compact_middle(branch_value, limit=CODEX_STATUS_LINE_BRANCH_LIMIT)
+    branch = compact_statusline_tail(branch_value, limit=CODEX_STATUS_LINE_BRANCH_LIMIT)
     origin = selected.get("origin_working_directory")
     if not isinstance(origin, str) or not origin:
         repository = Path(str(selected.get("repository") or "."))
@@ -661,7 +657,10 @@ def codex_statusline_thread_title(statusline: str, current_name: str | None) -> 
         return statusline
     if current_name == statusline:
         return statusline
-    if current_name.startswith((CODEX_STATUS_LINE_TITLE_PREFIX, CODEX_STATUS_LINE_LEGACY_TITLE_PREFIX)):
+    if (
+        CODEX_STATUS_LINE_TITLE_PATTERN.match(current_name)
+        or current_name.startswith(CODEX_STATUS_LINE_LEGACY_TITLE_PREFIXES)
+    ):
         _managed, separator, original = current_name.partition(CODEX_STATUS_LINE_TITLE_SEPARATOR)
         return f"{statusline}{separator}{original}" if separator and original else statusline
     return f"{statusline}{CODEX_STATUS_LINE_TITLE_SEPARATOR}{current_name}"
