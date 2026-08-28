@@ -6,10 +6,10 @@ before the model turn starts. Stable checkout locks and separate session
 metadata live under
 `~/.local/state/agent-task`; no file inside the working tree is the source of
 lock ownership. A small supervisor holds the descriptor while the foreground
-CLI and every descendant it leaves behind are alive; the agent itself does not
-inherit the descriptor. A dead shell launcher therefore cannot release a
-checkout while its agent is still alive, and a daemonized child cannot keep
-editing after the checkout has been handed to another session. The agent owns
+CLI is alive and while it terminates and reaps every remaining descendant; the
+agent itself does not inherit the descriptor. A dead shell launcher therefore
+cannot release a checkout while its agent is still alive, and a daemonized child
+cannot keep editing after the checkout has been handed to another session. The agent owns
 file edits and commits, while the harness owns integration and cleanup for its
 one assigned repository.
 
@@ -163,8 +163,9 @@ worktrees because they can create or apply local changes. Codex `-C`/`--cd` is
 resolved before worktree creation. Claude background, tmux, agent-view management,
 and built-in worktree modes pass directly to Claude because they own a separate
 worktree/session lifecycle; the shell wrapper does not wrap or integrate them as
-`agent-task` tasks. For ordinary sessions, the harness supervisor keeps the
-lease until adopted background descendants exit instead of abandoning them.
+`agent-task` tasks. For ordinary sessions, foreground exit causes the harness
+supervisor to terminate and reap adopted background descendants before it
+releases the checkout lease.
 
 The personal `o` and `c` launchers intentionally retain their configured
 permission-bypass modes. That is an operator policy, not a guarantee supplied by

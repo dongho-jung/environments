@@ -63,6 +63,7 @@ DEFAULT_CHECK_TIMEOUT_SECONDS = 3600.0
 HANDOFF_EXIT_CODE = 75
 HANDOFF_CODEX_GRACE_SECONDS = 2.0
 CODEX_CONTROL_SHUTDOWN_GRACE_SECONDS = 2.0
+DESCENDANT_SHUTDOWN_GRACE_SECONDS = 1.0
 SHELL_SIGINT_EXIT_CODE = 128 + int(signal.SIGINT)
 NOTIFICATION_PROTOCOL = 1
 LOCK_EXEC_SUBCOMMAND = "__lock-exec"
@@ -2781,18 +2782,6 @@ def direct_child_pids(pid: int) -> list[int]:
     return result
 
 
-def detached_session_leader_child(pid: int) -> bool:
-    try:
-        value = Path(f"/proc/{pid}/stat").read_text()
-        closing = value.rfind(")")
-        fields = value[closing + 2 :].split()
-        process_group = int(fields[2])
-        session = int(fields[3])
-    except (OSError, ValueError, IndexError):
-        return False
-    return closing >= 0 and process_group == pid and session == pid
-
-
 def command_lock_exec(raw: Sequence[str]) -> int:
     command = list(raw)
     if command and command[0] == "--":
@@ -3047,33 +3036,21 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                         pass
                     control_shutdown_forced = True
 
-            if intentional_handoff and main_status is not None:
-                descendants = direct_child_pids(os.getpid())
+            if main_status is not None:
+                descendants = [
+                    descendant
+                    for descendant in direct_child_pids(os.getpid())
+                    if descendant != control_pid or control_status is not None
+                ]
                 if descendants and descendant_deadline is None:
                     for descendant in descendants:
                         terminate_process_tree_child(descendant, signal.SIGTERM)
-                    descendant_deadline = time.monotonic() + 1.0
+                    descendant_deadline = time.monotonic() + DESCENDANT_SHUTDOWN_GRACE_SECONDS
                 elif descendants and descendant_deadline is not None and time.monotonic() >= descendant_deadline:
                     for descendant in descendants:
                         terminate_process_tree_child(descendant, signal.SIGKILL)
                 elif not descendants:
                     descendant_deadline = None
-
-            if (
-                not intentional_handoff
-                and main_status is not None
-                and (control_pid is None or control_status is not None)
-            ):
-                descendants = direct_child_pids(os.getpid())
-                if descendants and all(
-                    detached_session_leader_child(descendant)
-                    for descendant in descendants
-                ):
-                    # A process that created its own session has explicitly
-                    # detached from the foreground lifecycle. Reparent it on
-                    # supervisor exit; same-session background work still
-                    # keeps the checkout reserved.
-                    break
 
             if child_pid == -1:
                 break

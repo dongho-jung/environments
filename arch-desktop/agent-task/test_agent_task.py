@@ -2281,12 +2281,29 @@ class HarnessTest(unittest.TestCase):
         with AGENT_TASK.checkout_session_lock(store, self.repository) as after_child:
             self.assertTrue(after_child)
 
-    def test_daemonized_descendant_keeps_the_checkout_reserved_until_exit(self) -> None:
+    def test_background_descendant_is_stopped_before_checkout_release(self) -> None:
         store = self.store()
+        descendant_pid_path = self.repository.parent / "background-descendant-pid.txt"
+        descendant_code = f"""
+import os
+from pathlib import Path
+import signal
+import time
+
+child = os.fork()
+if child:
+    time.sleep(0.2)
+    os._exit(0)
+signal.signal(signal.SIGTERM, lambda *_args: None)
+Path({str(descendant_pid_path)!r}).write_text(str(os.getpid()))
+time.sleep(10)
+"""
+        descendant_pid: int | None = None
+        supervisor: subprocess.Popen[bytes] | None = None
         with AGENT_TASK.checkout_session_lock(store, self.repository) as reservation:
             self.assertTrue(reservation)
             command, environment = AGENT_TASK.guarded_agent_invocation(
-                ["sh", "-lc", "sleep 0.4 &"],
+                [sys.executable, "-c", descendant_code],
                 os.environ.copy(),
                 tuple(reservation),
             )
@@ -2296,26 +2313,51 @@ class HarnessTest(unittest.TestCase):
                 pass_fds=tuple(reservation),
             )
 
-        time.sleep(0.1)
-        self.assertIsNone(supervisor.poll())
-        with AGENT_TASK.checkout_session_lock(store, self.repository) as while_descendant_runs:
-            self.assertFalse(while_descendant_runs)
+        try:
+            for _ in range(100):
+                if descendant_pid_path.exists():
+                    break
+                time.sleep(0.01)
+            self.assertTrue(descendant_pid_path.exists())
+            descendant_pid = int(descendant_pid_path.read_text())
+            time.sleep(0.3)
+            self.assertIsNone(supervisor.poll())
+            with AGENT_TASK.checkout_session_lock(store, self.repository) as during_cleanup:
+                self.assertFalse(during_cleanup)
 
-        supervisor.wait(timeout=5)
-        with AGENT_TASK.checkout_session_lock(store, self.repository) as after_descendant:
-            self.assertTrue(after_descendant)
+            supervisor.wait(timeout=5)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(descendant_pid, 0)
+            with AGENT_TASK.checkout_session_lock(store, self.repository) as after_cleanup:
+                self.assertTrue(after_cleanup)
+        finally:
+            if descendant_pid is not None:
+                try:
+                    os.kill(descendant_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if supervisor is not None and supervisor.poll() is None:
+                supervisor.kill()
+                supervisor.wait(timeout=5)
 
-    def test_detached_session_daemon_releases_the_checkout(self) -> None:
+    def test_detached_session_daemon_is_stopped_before_checkout_release(self) -> None:
         store = self.store()
         daemon_pid_path = self.repository.parent / "detached-daemon-pid.txt"
-        daemon_code = (
-            "import os,time; from pathlib import Path; "
-            "child=os.fork(); "
-            "os._exit(0) if child else None; "
-            "os.setsid(); "
-            f"Path({str(daemon_pid_path)!r}).write_text(str(os.getpid())); "
-            "time.sleep(10)"
-        )
+        daemon_code = f"""
+import os
+from pathlib import Path
+import signal
+import time
+
+child = os.fork()
+if child:
+    time.sleep(0.2)
+    os._exit(0)
+os.setsid()
+signal.signal(signal.SIGTERM, lambda *_args: None)
+Path({str(daemon_pid_path)!r}).write_text(str(os.getpid()))
+time.sleep(10)
+"""
         daemon_pid: int | None = None
         supervisor: subprocess.Popen[bytes] | None = None
         with AGENT_TASK.checkout_session_lock(store, self.repository) as reservation:
@@ -2332,20 +2374,26 @@ class HarnessTest(unittest.TestCase):
             )
 
         try:
-            supervisor.wait(timeout=3)
             for _ in range(100):
                 if daemon_pid_path.exists():
                     break
                 time.sleep(0.01)
             self.assertTrue(daemon_pid_path.exists())
             daemon_pid = int(daemon_pid_path.read_text())
-            os.kill(daemon_pid, 0)
-            with AGENT_TASK.checkout_session_lock(store, self.repository) as after_supervisor:
-                self.assertTrue(after_supervisor)
+            time.sleep(0.3)
+            self.assertIsNone(supervisor.poll())
+            with AGENT_TASK.checkout_session_lock(store, self.repository) as during_cleanup:
+                self.assertFalse(during_cleanup)
+
+            supervisor.wait(timeout=5)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(daemon_pid, 0)
+            with AGENT_TASK.checkout_session_lock(store, self.repository) as after_cleanup:
+                self.assertTrue(after_cleanup)
         finally:
             if daemon_pid is not None:
                 try:
-                    os.kill(daemon_pid, signal.SIGTERM)
+                    os.kill(daemon_pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
             if supervisor is not None and supervisor.poll() is None:
