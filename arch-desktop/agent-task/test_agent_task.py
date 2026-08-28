@@ -277,6 +277,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(claude_settings["statusLine"]["command"], "agent_statusline.py --claude")
         self.assertEqual(claude_settings["statusLine"]["refreshInterval"], 1)
         self.assertIn('source       = "agent-task/agent_statusline.py"', configuration)
+        self.assertIn('tui.status_line=["thread-title"', SCRIPT.read_text())
         kitty_configuration = SCRIPT.parent.parent.joinpath("kitty/kitty.conf").read_text()
         self.assertNotIn("tab_bar_min_tabs 1", kitty_configuration)
         self.assertNotIn('tab_title_template " {title} "', kitty_configuration)
@@ -361,9 +362,128 @@ class LaunchBehaviorTest(unittest.TestCase):
         resumed = AGENT_TASK.codex_remote_command(["codex", "resume", "--last"], socket)
         review = AGENT_TASK.codex_remote_command(["codex", "review", "--uncommitted"], socket)
 
-        self.assertEqual(opened[:3], ["codex", "--remote", f"unix://{socket}"])
-        self.assertEqual(resumed[:4], ["codex", "--remote", f"unix://{socket}", "resume"])
+        prefix = [
+            "codex",
+            "--remote",
+            f"unix://{socket}",
+            "-c",
+            AGENT_TASK.CODEX_STATUS_LINE_CONFIG,
+        ]
+        self.assertEqual(opened[:5], prefix)
+        self.assertEqual(resumed[:6], [*prefix, "resume"])
         self.assertIsNone(review)
+
+    def test_codex_statusline_names_the_latest_loaded_tui_thread(self) -> None:
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(
+                "WT | *codex/backend@21:31[CAPE-456]",
+                "WT | *codex/backend@21:31[CAPE-123] :: Investigate ordering",
+            ),
+            "WT | *codex/backend@21:31[CAPE-456] :: Investigate ordering",
+        )
+
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.responses: list[str] = []
+                self.requests: list[dict[str, object]] = []
+
+            async def send(self, raw: str) -> None:
+                request = json.loads(raw)
+                self.requests.append(request)
+                if "id" not in request:
+                    return
+                method = request["method"]
+                params = request.get("params", {})
+                if method == "initialize":
+                    result: object = {}
+                elif method == "thread/loaded/list":
+                    result = {"data": ["older", "current"]}
+                elif method == "thread/list":
+                    result = {
+                        "data": [
+                            {
+                                "id": "older",
+                                "cwd": "/repo",
+                                "source": "vscode",
+                                "status": {"type": "idle"},
+                                "recencyAt": 1,
+                                "name": None,
+                            },
+                            {
+                                "id": "current",
+                                "cwd": "/repo",
+                                "source": "vscode",
+                                "status": {"type": "idle"},
+                                "recencyAt": 2,
+                                "name": "Investigate ordering",
+                            },
+                        ]
+                    }
+                elif method == "thread/read":
+                    thread_id = params["threadId"]
+                    result = {
+                        "thread": {
+                            "id": thread_id,
+                            "cwd": "/repo",
+                            "source": "vscode",
+                            "status": {"type": "idle"},
+                            "recencyAt": 1 if thread_id == "older" else 2,
+                            "name": None,
+                        }
+                    }
+                elif method == "thread/name/set":
+                    result = {}
+                else:
+                    raise AssertionError(method)
+                self.responses.append(json.dumps({"id": request["id"], "result": result}))
+
+            async def recv(self) -> str:
+                return self.responses.pop(0)
+
+        class FakeConnection:
+            def __init__(self, socket: FakeSocket) -> None:
+                self.socket = socket
+
+            async def __aenter__(self) -> FakeSocket:
+                return self.socket
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        socket = FakeSocket()
+        thread_id = AGENT_TASK.refresh_codex_statusline(
+            Path("/control.sock"),
+            Path("/repo"),
+            "WT | *codex/backend@21:31[CAPE-123]",
+            connector=lambda: FakeConnection(socket),
+        )
+
+        self.assertEqual(thread_id, "current")
+        renamed = next(
+            request for request in socket.requests if request.get("method") == "thread/name/set"
+        )
+        self.assertEqual(
+            renamed["params"],
+            {
+                "threadId": "current",
+                "name": "WT | *codex/backend@21:31[CAPE-123] :: Investigate ordering",
+            },
+        )
+
+        cached_socket = FakeSocket()
+        cached_thread_id = AGENT_TASK.refresh_codex_statusline(
+            Path("/control.sock"),
+            Path("/repo"),
+            "WT | *codex/backend@21:31[CAPE-123]",
+            known_thread_id="current",
+            known_title="WT | *codex/backend@21:31[CAPE-123]",
+            connector=lambda: FakeConnection(cached_socket),
+        )
+        self.assertEqual(cached_thread_id, "current")
+        self.assertEqual(
+            [request.get("method") for request in cached_socket.requests],
+            ["initialize", "initialized", "thread/loaded/list"],
+        )
 
     def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
         class FakeSocket:
@@ -1094,6 +1214,18 @@ class WorktreeStatuslineTest(unittest.TestCase):
 
         self.assertTrue(any("·" in line for line in lines))
         self.assertTrue(all("|  |" not in line for line in lines))
+
+    def test_codex_statusline_keeps_only_the_current_worktree_and_jira(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self.make_store(Path(directory))
+            current_id = "20260826-204635-a5bc90"
+            store.save(self.task(current_id, "environments"))
+            store.save(self.task("20260826-213159-dbda5e", "backend"))
+            AGENT_TASK.write_task_context(store, current_id, {"jira_issue": "CAPE-123"})
+
+            line = AGENT_TASK.codex_worktree_statusline(store, current_id)
+
+        self.assertEqual(line, "WT | *codex/environments@20:46[CAPE-123]")
 
     def test_jira_issue_is_detected_from_the_launch_description(self) -> None:
         task = {"description": "Implement CAPE-789 without changing the API"}

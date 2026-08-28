@@ -204,9 +204,13 @@ The current entry stays pinned. If the remaining entries do not fit the
 terminal width, they move by one character per second in a repeating marquee.
 Claude runs the lightweight `agent_statusline.py --claude` renderer through its
 native status-line API. The command also recognizes Claude's current built-in
-Git worktree from the JSON payload. Codex's native status line accepts only its
-built-in item identifiers, not an external renderer, so the harness leaves both
-the Codex footer and the terminal emulator untouched.
+Git worktree from the JSON payload. Managed Codex sessions enable the native
+`thread-title` status item and use their private App Server bridge to name the
+active thread from the current managed worktree and Jira context, for example
+`WT | *codex/backend@21:31[CAPE-123]`. The same label appears in Codex's resume
+picker; an existing user title is retained after ` :: `. A changed Jira context
+produces Codex's normal session-renamed notice. Neither integration writes to
+Kitty's status line.
 
 A Jira-shaped key in the task's launch description is detected automatically.
 When an agent selects or creates the issue later, it records display-only local
