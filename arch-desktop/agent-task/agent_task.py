@@ -1569,10 +1569,14 @@ def managed_agent_working_directory(task: dict[str, Any], command: Sequence[str]
     return task_working_directory(task)
 
 
+def agent_task_hook_command(subcommand: str) -> str:
+    # Keep the launch path rather than resolving a staged symlink. Hook
+    # commands outlive this process and must survive content-version updates.
+    return shlex.join([sys.executable, str(Path(__file__).absolute()), subcommand])
+
+
 def codex_provision_hook_config() -> str:
-    command = shlex.join(
-        [sys.executable, str(Path(__file__).resolve()), PROVISION_HOOK_SUBCOMMAND]
-    )
+    command = agent_task_hook_command(PROVISION_HOOK_SUBCOMMAND)
     return (
         'hooks.UserPromptSubmit=[{ hooks = [{ type = "command", '
         f"command = {json.dumps(command)}, timeout = {int(CODEX_PROVISION_HOOK_TIMEOUT_SECONDS)}, "
@@ -1581,9 +1585,7 @@ def codex_provision_hook_config() -> str:
 
 
 def codex_cow_hook_config() -> str:
-    command = shlex.join(
-        [sys.executable, str(Path(__file__).resolve()), PROVISION_HOOK_SUBCOMMAND]
-    )
+    command = agent_task_hook_command(PROVISION_HOOK_SUBCOMMAND)
     return (
         'hooks.PreToolUse=[{ matcher = "^(Bash|apply_patch)$", hooks = [{ type = "command", '
         f"command = {json.dumps(command)}, timeout = {int(CODEX_PROVISION_HOOK_TIMEOUT_SECONDS)} "

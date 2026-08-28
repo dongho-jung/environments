@@ -566,6 +566,27 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertIn("PreToolUse", cow_hook)
         self.assertIn("Bash|apply_patch", cow_hook)
 
+    def test_codex_hooks_preserve_the_stable_launcher_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            version = root / "versions" / "version-one"
+            version.parent.mkdir()
+            version.touch()
+            launcher = root / "bin" / "agent-task"
+            launcher.parent.mkdir()
+            launcher.symlink_to(version)
+
+            with mock.patch.object(AGENT_TASK, "__file__", str(launcher)):
+                hook = AGENT_TASK.codex_provision_hook_config()
+                cow_hook = AGENT_TASK.codex_cow_hook_config()
+
+        expected = shlex.join(
+            [sys.executable, str(launcher), AGENT_TASK.PROVISION_HOOK_SUBCOMMAND]
+        )
+        self.assertIn(json.dumps(expected), hook)
+        self.assertIn(json.dumps(expected), cow_hook)
+        self.assertNotIn(str(version), hook)
+
     def test_codex_trusted_projects_config_is_stable_and_quoted(self) -> None:
         self.assertEqual(
             AGENT_TASK.codex_trusted_projects_config(
