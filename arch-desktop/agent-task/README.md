@@ -1,9 +1,8 @@
 # agent-task
 
-`agent-task` runs every ordinary repository session in a managed task. A clean
-read-only Codex turn can inspect the integration checkout without creating its
-reserved branch and worktree; every potentially mutating turn uses the isolated
-checkout. Stable checkout locks and separate session
+`agent-task` runs every ordinary repository session in a managed task. Every
+interactive Codex prompt provisions its semantic branch and isolated worktree
+before the model turn starts. Stable checkout locks and separate session
 metadata live under
 `~/.local/state/agent-task`; no file inside the working tree is the source of
 lock ownership. A small supervisor holds the descriptor while the foreground
@@ -15,9 +14,8 @@ file edits and commits, while the harness owns integration and cleanup for its
 one assigned repository.
 
 ```text
-interactive Codex -> reserved path -> read-only on clean base
-                                      `-- first write -> semantic worktree
-Claude/custom ---------------------------------------> managed worktree
+interactive Codex -> reserved path -> first prompt -> semantic worktree
+Claude/custom -------------------------------------> managed worktree
                                                            |
                                                            `-> clean commit
                                                                |-- publish -> target; session continues
@@ -37,22 +35,17 @@ starting directory it must edit. The worktree is also passed through Codex's
 `--add-dir`. Claude and custom tasks run directly in their assigned worktree.
 For a new interactive Codex task, the harness starts the TUI with an empty
 reserved path and no task branch. Its trusted `UserPromptSubmit` hook asks an
-ephemeral, read-only Luna turn for a short semantic slug and whether the request
-can finish through inspection alone. A read-only request stays on the original
-checkout only when that checkout is clean and exactly matches the recorded
-integration base. A conservative `PreToolUse` guard permits known read-only
-shell commands; the first edit, unknown command, or potentially mutating shell
-command creates the branch and worktree, rejects that one tool call, and tells
-the agent to retry it in `AI_TASK_WORKDIR`. Mutating requests provision before
-their first model turn as before.
+ephemeral, read-only Luna turn only for a short semantic slug, then creates the
+branch and worktree before releasing that prompt to the model. Inspection-only
+prompts use the same isolated lifecycle; command-name allowlists and partial
+`PreToolUse` coverage are not used as a write-safety boundary.
 
 The first branch uses the semantic slug directly, such as
 `skip-read-worktree`. Only a real local branch collision adds `-2`, `-3`, and so
 on. Secondary repositories reuse the same slug and resolve collisions within
-their own repositories. If classification or naming fails or times out, a
-deterministic whole-word fallback provisions conservatively. The Codex thread
-name shows `<branch> -> <target>`; while still deferred it shows
-`<slug> [read-only] -> <target>`.
+their own repositories. If naming fails, a deterministic whole-word fallback
+still provisions the worktree. The Codex thread name shows
+`<branch> -> <target>`.
 Codex recovery asks App Server for the newest chat whose cwd exactly
 matches the preserved task's session cwd and resumes it by ID; if no matching
 chat was saved, it opens a fresh chat over the preserved files. Claude recovery
@@ -134,10 +127,10 @@ when a task can mutate a repository.
 ## Use
 
 Both launchers use the managed task lifecycle for ordinary repository sessions;
-Codex creates its worktree lazily for read-only requests:
+interactive Codex names and creates its worktree on the first prompt:
 
 ```sh
-o                                   # managed; worktree on the first write
+o                                   # managed; worktree on the first prompt
 o implement the login timeout       # managed worktree with initial prompt
 o resume                            # preserved task, or all saved Codex chats
 o resume SESSION_ID                 # saved chat in a managed worktree
@@ -157,11 +150,11 @@ c -w feature-auth                   # Claude-managed explicit worktree
 
 Outside Git, inside an already managed task, with `o --local`/`c --local`, or
 for administrative subcommands such as `doctor`, `login`, and `mcp`, the shell
-launchers run the CLI directly. Ordinary repository sessions and mutating Codex
-subcommands use `agent-task open`, which always creates or resumes a managed
-task. Interactive Codex may keep a clean inspection-only task deferred; other
-managed commands create the worktree immediately. `agent-task open --local` is
-the explicit native-checkout bypass.
+launchers run the CLI directly. Ordinary repository sessions use
+`agent-task open`, which always creates or resumes a managed task. Interactive
+Codex creates its semantic worktree on the first prompt; other managed commands
+create the worktree immediately. `agent-task open --local` is the explicit
+native-checkout bypass.
 
 Codex `review` and Claude `ultrareview` are tied to the exact current checkout;
 they fail if it is busy instead of silently reviewing a different worktree.

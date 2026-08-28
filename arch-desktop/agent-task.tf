@@ -47,7 +47,7 @@ resource "host_link" "agent_task_statusline" {
 }
 
 # Ordinary interactive Codex and Claude sessions always use the harness-managed
-# lifecycle. Codex can defer its worktree for a clean read-only request. Explicit
+# lifecycle. Codex provisions its semantic worktree on the first prompt. Explicit
 # local launches and exact-checkout review commands remain direct because the
 # operator or command has selected that checkout deliberately.
 resource "host_file_block" "agent_task_functions" {
