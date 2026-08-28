@@ -277,7 +277,11 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(claude_settings["statusLine"]["command"], "agent_statusline.py --claude")
         self.assertEqual(claude_settings["statusLine"]["refreshInterval"], 1)
         self.assertIn('source       = "agent-task/agent_statusline.py"', configuration)
-        self.assertIn('tui.status_line=["thread-title"', SCRIPT.read_text())
+        self.assertEqual(
+            AGENT_TASK.CODEX_STATUS_LINE_CONFIG,
+            'tui.status_line=["thread-title","model-with-reasoning","task-progress"]',
+        )
+        self.assertIn('"thread/name/set"', SCRIPT.read_text())
         kitty_configuration = SCRIPT.parent.parent.joinpath("kitty/kitty.conf").read_text()
         self.assertNotIn("tab_bar_min_tabs 1", kitty_configuration)
         self.assertNotIn('tab_title_template " {title} "', kitty_configuration)
@@ -373,17 +377,23 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(resumed[:6], [*prefix, "resume"])
         self.assertIsNone(review)
 
-    def test_codex_statusline_names_the_latest_loaded_tui_thread(self) -> None:
+    def test_codex_statusline_decorates_an_auto_title_after_it_exists(self) -> None:
+        statusline = (
+            "WT#17 · ai/codex/20260828-150920-7fb1e6 · "
+            ".../projects/environments/arch-desktop · CAPE-456"
+        )
+        self.assertIsNone(AGENT_TASK.codex_statusline_thread_title(statusline, None))
         self.assertEqual(
             AGENT_TASK.codex_statusline_thread_title(
-                "WT | *codex/backend@21:31[CAPE-456]",
+                statusline,
                 "WT | *codex/backend@21:31[CAPE-123] :: Investigate ordering",
             ),
-            "WT | *codex/backend@21:31[CAPE-456] :: Investigate ordering",
+            f"{statusline} :: Investigate ordering",
         )
 
         class FakeSocket:
-            def __init__(self) -> None:
+            def __init__(self, name: str | None) -> None:
+                self.name = name
                 self.responses: list[str] = []
                 self.requests: list[dict[str, object]] = []
 
@@ -393,43 +403,22 @@ class LaunchBehaviorTest(unittest.TestCase):
                 if "id" not in request:
                     return
                 method = request["method"]
-                params = request.get("params", {})
                 if method == "initialize":
                     result: object = {}
                 elif method == "thread/loaded/list":
-                    result = {"data": ["older", "current"]}
+                    result = {"data": ["current"]}
                 elif method == "thread/list":
                     result = {
                         "data": [
-                            {
-                                "id": "older",
-                                "cwd": "/repo",
-                                "source": "vscode",
-                                "status": {"type": "idle"},
-                                "recencyAt": 1,
-                                "name": None,
-                            },
                             {
                                 "id": "current",
                                 "cwd": "/repo",
                                 "source": "vscode",
                                 "status": {"type": "idle"},
                                 "recencyAt": 2,
-                                "name": "Investigate ordering",
-                            },
+                                "name": self.name,
+                            }
                         ]
-                    }
-                elif method == "thread/read":
-                    thread_id = params["threadId"]
-                    result = {
-                        "thread": {
-                            "id": thread_id,
-                            "cwd": "/repo",
-                            "source": "vscode",
-                            "status": {"type": "idle"},
-                            "recencyAt": 1 if thread_id == "older" else 2,
-                            "name": None,
-                        }
                     }
                 elif method == "thread/name/set":
                     result = {}
@@ -450,40 +439,33 @@ class LaunchBehaviorTest(unittest.TestCase):
             async def __aexit__(self, *_args: object) -> None:
                 return None
 
-        socket = FakeSocket()
+        titled = FakeSocket("Investigate ordering")
         thread_id = AGENT_TASK.refresh_codex_statusline(
             Path("/control.sock"),
             Path("/repo"),
-            "WT | *codex/backend@21:31[CAPE-123]",
-            connector=lambda: FakeConnection(socket),
+            statusline,
+            connector=lambda: FakeConnection(titled),
         )
-
         self.assertEqual(thread_id, "current")
         renamed = next(
-            request for request in socket.requests if request.get("method") == "thread/name/set"
+            request for request in titled.requests if request.get("method") == "thread/name/set"
         )
         self.assertEqual(
             renamed["params"],
-            {
-                "threadId": "current",
-                "name": "WT | *codex/backend@21:31[CAPE-123] :: Investigate ordering",
-            },
+            {"threadId": "current", "name": f"{statusline} :: Investigate ordering"},
         )
 
-        cached_socket = FakeSocket()
-        cached_thread_id = AGENT_TASK.refresh_codex_statusline(
-            Path("/control.sock"),
-            Path("/repo"),
-            "WT | *codex/backend@21:31[CAPE-123]",
-            known_thread_id="current",
-            known_title="WT | *codex/backend@21:31[CAPE-123]",
-            connector=lambda: FakeConnection(cached_socket),
-        )
-        self.assertEqual(cached_thread_id, "current")
+        untitled = FakeSocket(None)
         self.assertEqual(
-            [request.get("method") for request in cached_socket.requests],
-            ["initialize", "initialized", "thread/loaded/list"],
+            AGENT_TASK.refresh_codex_statusline(
+                Path("/control.sock"),
+                Path("/repo"),
+                statusline,
+                connector=lambda: FakeConnection(untitled),
+            ),
+            "current",
         )
+        self.assertNotIn("thread/name/set", [request.get("method") for request in untitled.requests])
 
     def test_codex_recovery_resumes_only_an_exact_worktree_thread(self) -> None:
         class FakeSocket:
@@ -1215,17 +1197,46 @@ class WorktreeStatuslineTest(unittest.TestCase):
         self.assertTrue(any("·" in line for line in lines))
         self.assertTrue(all("|  |" not in line for line in lines))
 
-    def test_codex_statusline_keeps_only_the_current_worktree_and_jira(self) -> None:
+    def test_codex_statusline_shows_number_branch_path_and_optional_jira(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self.make_store(Path(directory))
-            current_id = "20260826-204635-a5bc90"
-            store.save(self.task(current_id, "environments"))
-            store.save(self.task("20260826-213159-dbda5e", "backend"))
-            AGENT_TASK.write_task_context(store, current_id, {"jira_issue": "CAPE-123"})
+            task_id = "20260828-150920-7fb1e6"
+            task = self.task(task_id, "environments")
+            task.update(
+                {
+                    "worktree_number": 17,
+                    "branch": f"ai/codex/{task_id}",
+                    "origin_working_directory": "/home/dongho/projects/environments/arch-desktop",
+                }
+            )
+            store.save(task)
 
-            line = AGENT_TASK.codex_worktree_statusline(store, current_id)
+            without_jira = AGENT_TASK.codex_worktree_statusline(store, task_id)
+            AGENT_TASK.write_task_context(store, task_id, {"jira_issue": "CAPE-123"})
+            with_jira = AGENT_TASK.codex_worktree_statusline(store, task_id)
 
-        self.assertEqual(line, "WT | *codex/environments@20:46[CAPE-123]")
+        expected = (
+            "WT#17 · ai/codex/20260828-150920-7fb1e6 · "
+            ".../projects/environments/arch-desktop"
+        )
+        self.assertEqual(without_jira, expected)
+        self.assertEqual(with_jira, f"{expected} · CAPE-123")
+
+    def test_codex_statusline_path_keeps_three_tail_parts_with_a_hard_limit(self) -> None:
+        compact = AGENT_TASK.compact_statusline_path(
+            "/one/two/three/this-directory-name-is-far-too-long/another-long-directory/final",
+            limit=36,
+        )
+
+        self.assertEqual(len(compact), 36)
+        self.assertTrue(compact.startswith("..."))
+        self.assertTrue(compact.endswith("/final"))
+        self.assertEqual(
+            AGENT_TASK.next_worktree_number(
+                [{"task_id": "old"}, {"task_id": "new", "worktree_number": 7}]
+            ),
+            8,
+        )
 
     def test_jira_issue_is_detected_from_the_launch_description(self) -> None:
         task = {"description": "Implement CAPE-789 without changing the API"}
@@ -1385,6 +1396,7 @@ class HarnessTest(unittest.TestCase):
         task = self.task_from(result)
 
         self.assertEqual(task["status"], AGENT_TASK.INTEGRATED)
+        self.assertEqual(task["worktree_number"], 1)
         self.assertEqual(task["origin_working_directory"], str(self.repository))
         self.assertEqual((self.repository / "policy-result.txt").read_text(), "isolated\n")
 

@@ -106,6 +106,22 @@ active mechanism that asks a still-working agent to checkpoint and yield.
 Abrupt launcher death or a hard kill still leaves task records for the scheduled
 `reconcile` fallback.
 
+## Codex task coordination
+
+Codex 0.150 added `@` references between Codex tasks, a shared-daemon
+`codex agents` browser, and `codex queue` for messaging a named session. Those
+features coordinate conversations; they do not acquire a checkout lease,
+create an `agent-task` worktree, validate a commit, or integrate a result.
+Codex-native child tasks within a managed chat remain useful for bounded
+parallel investigation, and their progress appears in the native footer.
+
+Top-level `o` tasks intentionally keep separate App Server sockets so an inbox
+event can steer or wake one exact harness session. Use `o --new` when parallel
+work needs an independently integrated checkout, and use Codex task references
+for context or messages among tasks already operating inside a safe checkout
+lifecycle. The shared Codex task browser is not a replacement for the harness
+when a task can mutate a repository.
+
 ## Use
 
 Both launchers follow the remembered repository policy:
@@ -205,11 +221,20 @@ terminal width, they move by one character per second in a repeating marquee.
 Claude runs the lightweight `agent_statusline.py --claude` renderer through its
 native status-line API. The command also recognizes Claude's current built-in
 Git worktree from the JSON payload. Managed Codex sessions enable the native
-`thread-title` status item and use their private App Server bridge to name the
-active thread from the current managed worktree and Jira context, for example
-`WT | *codex/backend@21:31[CAPE-123]`. The same label appears in Codex's resume
-picker; an existing user title is retained after ` :: `. A changed Jira context
-produces Codex's normal session-renamed notice. Neither integration writes to
+footer with a compact managed-worktree identity, model/reasoning/fast mode, and
+active child-task progress. A typical first item is
+`WT#17 · ai/codex/20260828-150920-7fb1e6 · .../projects/environments/arch-desktop · CAPE-123`.
+The number is a stable, global harness worktree number; the path is the last
+three components of the logical project directory with a 48-character cap; and
+Jira appears only when known. Context remaining, hostname, and a redundant
+project name are intentionally omitted.
+
+The App Server bridge waits for Codex 0.150's generated title and retains it
+after ` :: `, so resume and `@`-mention search still describe the task; a later
+`/rename` is preserved on the next refresh. The bridge supplies the actual task
+branch because a managed Codex chat keeps the canonical checkout as its logical
+cwd while editing the assigned worktree, so native `git-branch` and
+`current-dir` can describe the wrong checkout. Neither integration writes to
 Kitty's status line.
 
 A Jira-shaped key in the task's launch description is detected automatically.

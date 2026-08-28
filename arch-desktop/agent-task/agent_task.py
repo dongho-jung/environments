@@ -27,7 +27,6 @@ try:
         claude_worktree_label,
         render as render_worktree_statusline,
         task_for_working_directory,
-        task_label as worktree_task_label,
     )
 except ModuleNotFoundError as error:
     if error.name != "agent_statusline":
@@ -37,7 +36,6 @@ except ModuleNotFoundError as error:
         claude_worktree_label,
         render as render_worktree_statusline,
         task_for_working_directory,
-        task_label as worktree_task_label,
     )
 
 
@@ -76,11 +74,15 @@ AGENT_SESSION_PATH_ENV = "AGENT_TASK_SESSION_PATH"
 AGENT_SESSION_ID_ENV = "AGENT_TASK_SESSION_ID"
 CODEX_RECOVERY_CWD_ENV = "AGENT_TASK_CODEX_RECOVERY_CWD"
 CODEX_STATUS_LINE_CONFIG = (
-    'tui.status_line=["thread-title","model-with-reasoning","context-remaining"]'
+    'tui.status_line=["thread-title","model-with-reasoning","task-progress"]'
 )
 CODEX_STATUS_LINE_REFRESH_SECONDS = 5.0
-CODEX_STATUS_LINE_TITLE_PREFIX = "WT | "
+CODEX_STATUS_LINE_TITLE_PREFIX = "WT#"
+CODEX_STATUS_LINE_LEGACY_TITLE_PREFIX = "WT | "
 CODEX_STATUS_LINE_TITLE_SEPARATOR = " :: "
+CODEX_STATUS_LINE_BRANCH_LIMIT = 40
+CODEX_STATUS_LINE_PATH_LIMIT = 48
+CODEX_STATUS_LINE_PATH_PARTS = 3
 AGENT_TASK_MODES = ("current", "worktree")
 JIRA_ISSUE_PATTERN = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]*)(?![A-Z0-9])")
 MISSING = object()
@@ -328,6 +330,13 @@ def validate_task_record(value: Any, *, expected_task_id: str | None = None) -> 
     schema = value.get("schema_version")
     if schema not in (None, 1, TASK_RECORD_SCHEMA):
         raise AgentTaskError(f"unsupported task registry schema: {schema!r}")
+    worktree_number = value.get("worktree_number")
+    if worktree_number is not None and (
+        isinstance(worktree_number, bool)
+        or not isinstance(worktree_number, int)
+        or worktree_number <= 0
+    ):
+        raise AgentTaskError(f"invalid worktree number: {worktree_number!r}")
     return value
 
 
@@ -500,9 +509,31 @@ def write_task_context(store: Store, task_id: str, context: dict[str, Any]) -> N
     atomic_write_private(store.context_path(task_id), (json.dumps(value, sort_keys=True) + "\n").encode())
 
 
+def indexed_worktree_numbers(tasks: Sequence[dict[str, Any]]) -> dict[str, int]:
+    task_ids = sorted(
+        task_id
+        for task in tasks
+        if isinstance((task_id := task.get("task_id")), str)
+    )
+    return {task_id: index for index, task_id in enumerate(task_ids, start=1)}
+
+
+def next_worktree_number(tasks: Sequence[dict[str, Any]]) -> int:
+    recorded = [
+        number
+        for task in tasks
+        if isinstance((number := task.get("worktree_number")), int)
+        and not isinstance(number, bool)
+        and number > 0
+    ]
+    return max([len(tasks), *recorded], default=0) + 1
+
+
 def active_worktree_tasks(store: Store) -> list[dict[str, Any]]:
+    tasks = store.all(warn=False)
+    legacy_numbers = indexed_worktree_numbers(tasks)
     result: list[dict[str, Any]] = []
-    for task in store.all(warn=False):
+    for task in tasks:
         if not (
             task.get("status") in (CREATED, RUNNING)
             and isinstance(task.get("worktree_path"), str)
@@ -512,6 +543,11 @@ def active_worktree_tasks(store: Store) -> list[dict[str, Any]]:
             continue
         item = dict(task)
         task_id = item.get("task_id")
+        number = item.get("worktree_number")
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+            number = legacy_numbers.get(task_id) if isinstance(task_id, str) else None
+        if isinstance(number, int):
+            item["statusline_worktree_number"] = number
         context = read_task_context(store, task_id) if isinstance(task_id, str) else {}
         issue = context.get("jira_issue") or jira_issue_from_task_text(item)
         if isinstance(issue, str):
@@ -544,6 +580,27 @@ def worktree_statusline(
     )
 
 
+def compact_middle(value: str, *, limit: int) -> str:
+    text = " ".join(value.split())
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return "." * limit
+    left = (limit - 3) // 2
+    right = limit - 3 - left
+    return f"{text[:left]}...{text[-right:]}"
+
+
+def compact_statusline_path(value: str | Path, *, limit: int = CODEX_STATUS_LINE_PATH_LIMIT) -> str:
+    path = Path(value)
+    parts = [part for part in path.parts if part not in (path.anchor, "/")]
+    tail = "/".join(parts[-CODEX_STATUS_LINE_PATH_PARTS:]) or str(path)
+    text = f".../{tail}" if len(parts) > CODEX_STATUS_LINE_PATH_PARTS else tail
+    if len(text) <= limit:
+        return text
+    return f"...{text[-(limit - 3):]}" if limit > 3 else "." * limit
+
+
 def codex_worktree_statusline(store: Store, current_task_id: str | None) -> str:
     if not current_task_id:
         return ""
@@ -557,13 +614,31 @@ def codex_worktree_statusline(store: Store, current_task_id: str | None) -> str:
     )
     if current is None:
         return ""
-    return f"{CODEX_STATUS_LINE_TITLE_PREFIX}{worktree_task_label(current, current=True)}"
+    number = current.get("statusline_worktree_number")
+    identifier = str(number) if isinstance(number, int) else str(current_task_id)[-6:]
+    branch = compact_middle(
+        str(current.get("branch") or "detached"),
+        limit=CODEX_STATUS_LINE_BRANCH_LIMIT,
+    )
+    origin = current.get("origin_working_directory")
+    if not isinstance(origin, str) or not origin:
+        repository = Path(str(current.get("repository") or "."))
+        origin = str(repository / str(current.get("workdir_relative") or "."))
+    path = compact_statusline_path(origin)
+    fields = [f"{CODEX_STATUS_LINE_TITLE_PREFIX}{identifier}", branch, path]
+    issue = current.get("statusline_jira_issue")
+    if isinstance(issue, str) and issue:
+        fields.append(issue)
+    return " · ".join(fields)
 
 
-def codex_statusline_thread_title(statusline: str, current_name: str | None) -> str:
-    if not current_name or current_name == statusline:
+def codex_statusline_thread_title(statusline: str, current_name: str | None) -> str | None:
+    if not current_name:
+        # Let Codex 0.150+ create a descriptive title before decorating it.
+        return None
+    if current_name == statusline:
         return statusline
-    if current_name.startswith(CODEX_STATUS_LINE_TITLE_PREFIX):
+    if current_name.startswith((CODEX_STATUS_LINE_TITLE_PREFIX, CODEX_STATUS_LINE_LEGACY_TITLE_PREFIX)):
         _managed, separator, original = current_name.partition(CODEX_STATUS_LINE_TITLE_SEPARATOR)
         return f"{statusline}{separator}{original}" if separator and original else statusline
     return f"{statusline}{CODEX_STATUS_LINE_TITLE_SEPARATOR}{current_name}"
@@ -1706,7 +1781,6 @@ async def _refresh_codex_statusline(
     working_directory: Path,
     title: str,
     known_thread_id: str | None,
-    known_title: str | None,
     connector: Callable[[], Any] | None,
 ) -> str | None:
     if not title:
@@ -1742,8 +1816,6 @@ async def _refresh_codex_statusline(
             for thread_id in (loaded.get("data", []) if isinstance(loaded, dict) else [])
             if isinstance(thread_id, str)
         ]
-        if known_thread_id in thread_ids and known_title == title:
-            return known_thread_id
         listed = await _codex_rpc_request(
             websocket,
             request_id,
@@ -1820,7 +1892,7 @@ async def _refresh_codex_statusline(
             return None
         _recency, thread_id, current_name = max(candidates)
         applied_title = codex_statusline_thread_title(title, current_name)
-        if current_name != applied_title:
+        if applied_title is not None and current_name != applied_title:
             await _codex_rpc_request(
                 websocket,
                 request_id,
@@ -1836,7 +1908,6 @@ def refresh_codex_statusline(
     title: str,
     *,
     known_thread_id: str | None = None,
-    known_title: str | None = None,
     connector: Callable[[], Any] | None = None,
 ) -> str | None:
     import asyncio
@@ -1847,7 +1918,6 @@ def refresh_codex_statusline(
             working_directory,
             title,
             known_thread_id,
-            known_title,
             connector,
         )
     )
@@ -2292,7 +2362,6 @@ def command_lock_exec(raw: Sequence[str]) -> int:
         else None
     )
     codex_statusline_thread_id: str | None = None
-    codex_statusline_title: str | None = None
     notification_closed = False
     try:
         while True:
@@ -2341,15 +2410,12 @@ def command_lock_exec(raw: Sequence[str]) -> int:
                             working_directory,
                             title,
                             known_thread_id=codex_statusline_thread_id,
-                            known_title=codex_statusline_title,
                         )
                         if thread_id is None:
                             codex_statusline_thread_id = None
-                            codex_statusline_title = None
                             codex_statusline_refresh_at = current_time + 0.5
                         else:
                             codex_statusline_thread_id = thread_id
-                            codex_statusline_title = title
                             codex_statusline_refresh_at = (
                                 current_time + CODEX_STATUS_LINE_REFRESH_SECONDS
                             )
@@ -3565,7 +3631,9 @@ def create_task(store: Store, args: argparse.Namespace) -> dict[str, Any]:
         "created_at": now(),
         "process": owner,
     }
-    store.save(task)
+    with store.lock("worktree-number"):
+        task["worktree_number"] = next_worktree_number(store.all(warn=False))
+        store.save(task)
     worktree.parent.mkdir(parents=True, exist_ok=True)
     try:
         git(repository, "-c", "core.hooksPath=/dev/null", "worktree", "add", "-b", branch, str(worktree), base)
