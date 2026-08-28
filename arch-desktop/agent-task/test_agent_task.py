@@ -418,8 +418,8 @@ class LaunchBehaviorTest(unittest.TestCase):
 
     def test_codex_statusline_replaces_an_unnamed_thread_immediately(self) -> None:
         statusline = (
-            "WT#17 · ai/codex/20260828-150920-7fb1e6 · "
-            ".../projects/environments/arch-desktop · CAPE-456"
+            "#17 · ai/codex/20260828-150920-7fb1e6 · "
+            "projects/environments/arch-desktop · CAPE-456"
         )
         self.assertEqual(AGENT_TASK.codex_statusline_thread_title(statusline, None), statusline)
         self.assertEqual(
@@ -427,7 +427,29 @@ class LaunchBehaviorTest(unittest.TestCase):
                 statusline,
                 "WT | *codex/backend@21:31[CAPE-123] :: Investigate ordering",
             ),
-            f"{statusline} :: Investigate ordering",
+            f"{statusline} :: investigate ordering",
+        )
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(
+                statusline,
+                "WT#17 · ai/codex/old-task→main · projects/environments/arch-desktop",
+            ),
+            statusline,
+        )
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(statusline, "# investigate ordering"),
+            f"{statusline} :: investigate ordering",
+        )
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(
+                statusline,
+                "Implement the Very Long Statusline Behavior for Multiple Repositories",
+            ),
+            f"{statusline} :: implement very long",
+        )
+        self.assertEqual(
+            AGENT_TASK.codex_statusline_thread_title(statusline, "상태 표시줄 정리"),
+            statusline,
         )
 
         class FakeSocket:
@@ -491,7 +513,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         )
         self.assertEqual(
             renamed["params"],
-            {"threadId": "current", "name": f"{statusline} :: Investigate ordering"},
+            {"threadId": "current", "name": f"{statusline} :: investigate ordering"},
         )
 
         untitled = FakeSocket(None)
@@ -734,6 +756,61 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(len(inbox["messages"]), 1)
         self.assertEqual(inbox["messages"][0]["status"], "accepted")
         kill.assert_any_call(os.getpid(), AGENT_TASK.signal.SIGUSR2)
+
+    def test_current_session_is_inferred_from_the_managed_task(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            repository = root / "repo"
+            subprocess.run(["git", "init", "-b", "main", str(repository)], check=True, capture_output=True)
+            (repository / "tracked.txt").write_text("base\n")
+            subprocess.run(["git", "-C", str(repository), "add", "tracked.txt"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repository),
+                    "-c",
+                    "user.name=Test Agent",
+                    "-c",
+                    "user.email=agent@example.com",
+                    "commit",
+                    "-m",
+                    "base",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            environment = {
+                "AGENT_TASK_STATE_DIR": str(state),
+                "AI_TASK_ID": "managed-task",
+                AGENT_TASK.AGENT_SESSION_ID_ENV: "",
+                AGENT_TASK.AGENT_SESSION_PATH_ENV: "",
+            }
+            with mock.patch.dict(os.environ, environment, clear=False):
+                store = AGENT_TASK.Store()
+                task_owner = AGENT_TASK.process_record(os.getpid(), role="agent")
+                self.assertIsNotNone(task_owner)
+                store.save({"task_id": "managed-task", "process": task_owner})
+                session_id = "legacy-app-server-session"
+                session = AGENT_TASK.checkout_session_metadata(
+                    repository,
+                    session_id,
+                    task_id="managed-task",
+                )
+                session["process"] = AGENT_TASK.process_record(os.getpid(), role="lock-supervisor")
+                session_path = store.checkout_session_path(repository)
+                AGENT_TASK.atomic_write_private(
+                    session_path,
+                    (json.dumps(session) + "\n").encode(),
+                )
+                with AGENT_TASK.checkout_lock_files(store, repository) as reservation:
+                    self.assertTrue(reservation)
+                    selected, selected_path, selected_session = AGENT_TASK.current_agent_session(store)
+
+        self.assertEqual(selected, session_id)
+        self.assertEqual(selected_path, session_path)
+        self.assertEqual(selected_session["task_id"], "managed-task")
 
     def test_claude_stop_hook_injects_and_delivers_an_inbox_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1262,8 +1339,8 @@ class WorktreeStatuslineTest(unittest.TestCase):
             with_jira = AGENT_TASK.codex_worktree_statusline(store, task_id)
 
         expected = (
-            "WT#17 · ai/codex/20260828-150920-7fb1e6→main · "
-            ".../projects/environments/arch-desktop"
+            "#17 · ai/codex/20260828-150920-7fb1e6→main · "
+            "projects/environments/arch-desktop"
         )
         self.assertEqual(without_jira, expected)
         self.assertEqual(with_jira, f"{expected} · CAPE-123")
@@ -1307,15 +1384,21 @@ class WorktreeStatuslineTest(unittest.TestCase):
                 for epoch in (0, 5, 10, 15)
             ]
 
-        self.assertIn("WT#17 · 1/3* ·", lines[0])
+        self.assertIn("#17 · 1/3* ·", lines[0])
         self.assertIn("environments/arch-desktop", lines[0])
-        self.assertIn("WT#17 · 2/3 · ai/codex/backend-task→develop", lines[1])
+        self.assertIn("#17 · 2/3 · ai/codex/backend-task→develop", lines[1])
         self.assertIn("capelabs/certmind-backend", lines[1])
-        self.assertIn("WT#17 · 3/3 · ai/codex/web-task→main", lines[2])
+        self.assertIn("#17 · 3/3 · ai/codex/web-task→main", lines[2])
         self.assertIn("capelabs/certmind-web", lines[2])
         self.assertEqual(lines[3], lines[0])
 
     def test_codex_statusline_path_keeps_three_tail_parts_with_a_hard_limit(self) -> None:
+        self.assertEqual(
+            AGENT_TASK.compact_statusline_path(
+                "/home/dongho/projects/environments/arch-desktop",
+            ),
+            "projects/environments/arch-desktop",
+        )
         compact = AGENT_TASK.compact_statusline_path(
             "/one/two/three/this-directory-name-is-far-too-long/another-long-directory/final",
             limit=36,
@@ -1324,6 +1407,13 @@ class WorktreeStatuslineTest(unittest.TestCase):
         self.assertEqual(len(compact), 36)
         self.assertTrue(compact.startswith("..."))
         self.assertTrue(compact.endswith("/final"))
+        compact_branch = AGENT_TASK.compact_statusline_tail(
+            "ai/codex/a-branch-name-that-is-much-too-long-for-the-footer→main",
+            limit=32,
+        )
+        self.assertEqual(len(compact_branch), 32)
+        self.assertTrue(compact_branch.startswith("..."))
+        self.assertTrue(compact_branch.endswith("→main"))
         self.assertEqual(
             AGENT_TASK.next_worktree_number(
                 [{"task_id": "old"}, {"task_id": "new", "worktree_number": 7}]
@@ -2303,6 +2393,68 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(holder.returncode, 0, f"stdout:\n{holder_stdout}\nstderr:\n{holder_stderr}")
         updated = json.loads((self.state / "tasks" / f"{task['task_id']}.json").read_text())
         self.assertEqual(updated["status"], AGENT_TASK.INTEGRATED)
+
+    def test_obsolete_handoff_keeps_the_receiver_open(self) -> None:
+        result = self.cli(
+            "start",
+            "prepare an already published result",
+            "--agent",
+            "custom",
+            "--no-integrate",
+            "--",
+            "sh",
+            "-lc",
+            "printf 'published\\n' > obsolete-handoff.txt && git add obsolete-handoff.txt && "
+            "git commit -m 'feat: prepare published result'",
+            check=True,
+        )
+        task = self.task_from(result)
+        store = self.store()
+        task["auto_integrate"] = True
+        store.save(task)
+        self.git("merge", "--ff-only", str(task["result_commit"]))
+
+        session_id = "active-receiver"
+        session_path = store.sessions / "active-receiver.json"
+        session = {
+            "session_id": session_id,
+            "notification_protocol": AGENT_TASK.NOTIFICATION_PROTOCOL,
+            "notification_state": "ready",
+            "process": AGENT_TASK.process_record(os.getpid(), role="lock-supervisor"),
+        }
+        AGENT_TASK.atomic_write_private(session_path, (json.dumps(session) + "\n").encode())
+        event_id = AGENT_TASK.enqueue_integration_notice(store, session, task)
+        environment = {
+            "AGENT_TASK_STATE_DIR": str(self.state),
+            AGENT_TASK.AGENT_SESSION_ID_ENV: session_id,
+            AGENT_TASK.AGENT_SESSION_PATH_ENV: str(session_path),
+        }
+        stdout = io.StringIO()
+        with (
+            mock.patch.dict(os.environ, environment, clear=False),
+            mock.patch.object(AGENT_TASK.os, "kill") as kill,
+            contextlib.redirect_stdout(stdout),
+        ):
+            with AGENT_TASK.repository_activity_lock(
+                store,
+                self.repository,
+                exclusive=False,
+                blocking=True,
+            ) as available:
+                self.assertTrue(available)
+                exit_code = AGENT_TASK.command_handoff(
+                    AGENT_TASK.argparse.Namespace(event_id=event_id),
+                    store,
+                )
+
+        updated = store.load(str(task["task_id"]))
+        inbox = AGENT_TASK.read_session_inbox(store, session_id)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(updated["status"], AGENT_TASK.INTEGRATED)
+        self.assertEqual(updated["integration_strategy"], "already-present")
+        self.assertEqual(inbox["messages"][0]["status"], "resolved")
+        self.assertIn("this session remains open", stdout.getvalue())
+        kill.assert_not_called()
 
     def test_diverged_task_uses_a_meaningful_merge_message(self) -> None:
         result = self.cli(

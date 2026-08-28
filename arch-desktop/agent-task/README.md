@@ -101,7 +101,11 @@ to restore the terminal and leave its alternate screen; it falls back to
 `SIGTERM` only if Codex does not exit promptly. After either a handoff or an
 ordinary exit, the supervisor announces finalization and gives the private
 control bridge two seconds to stop before forcing it, avoiding an unexplained
-post-TUI wait. A graceful ordinary exit
+post-TUI wait. Before closing the receiver, `handoff` rechecks whether the
+queued result is already on its target. A stale notice is resolved in place and
+the current session stays open. Tool subprocesses from a legacy App Server that
+predates inherited session variables recover the one live session from their
+managed task identity. A graceful ordinary exit
 (`/exit` or the interactive Codex TUI's exit status 130 after `Ctrl+C`) also
 drains auto-integrate tasks for that repository immediately after releasing its
 lease. The harness retains the raw 130 in task metadata while classifying it as
@@ -255,17 +259,20 @@ native status-line API. The command also recognizes Claude's current built-in
 Git worktree from the JSON payload. Managed Codex sessions enable the native
 footer with a compact managed-worktree identity, model/reasoning/fast mode, and
 active child-task progress. A typical first item is
-`WT#17 · ai/codex/20260828-150920-7fb1e6→main · .../projects/environments/arch-desktop · CAPE-123`.
+`#17 · ai/codex/20260828-150920-7fb1e6→main · projects/environments/arch-desktop · CAPE-123`.
 The number is a stable, global harness worktree number; the path is the last
-three components of the logical project directory with a 48-character cap; and
-the arrow names the integration target. Jira appears only when known. Context
+three components of the logical project directory with a 48-character cap; a
+leading `...` appears only when that tail or the branch must actually be
+shortened. The arrow names the integration target. Jira appears only when known. Context
 remaining, hostname, and a redundant project name are intentionally omitted.
 
 The App Server bridge immediately names an unnamed thread so Codex never shows
-its internal UUID as the `thread-title` fallback. Existing generated names and
-later `/rename` values are retained after ` :: `. When a session owns attached
-secondary repositories, the managed identity rotates through their actual task
-branches and logical paths every five seconds. The compact `1/3*`, `2/3`, ...
+its internal UUID as the `thread-title` fallback. An existing generated name or
+later `/rename` value is reduced to two or three lowercase ASCII alphanumeric
+words after ` :: `; when no such short label can be formed, it is omitted. When
+a session owns attached secondary repositories, the managed identity rotates
+through their actual task branches and logical paths every five seconds. The
+compact `1/3*`, `2/3`, ...
 field identifies the carousel position, with `*` marking the primary task. The
 bridge supplies these values because a managed Codex chat keeps the canonical
 checkout as its logical cwd while editing assigned worktrees, so native

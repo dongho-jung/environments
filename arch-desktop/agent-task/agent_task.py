@@ -78,8 +78,9 @@ CODEX_STATUS_LINE_CONFIG = (
     'tui.status_line=["thread-title","model-with-reasoning","task-progress"]'
 )
 CODEX_STATUS_LINE_REFRESH_SECONDS = 5.0
-CODEX_STATUS_LINE_TITLE_PREFIX = "WT#"
-CODEX_STATUS_LINE_LEGACY_TITLE_PREFIX = "WT | "
+CODEX_STATUS_LINE_TITLE_PREFIX = "#"
+CODEX_STATUS_LINE_LEGACY_TITLE_PREFIXES = ("WT#", "WT | ")
+CODEX_STATUS_LINE_TITLE_PATTERN = re.compile(r"^#(?:[1-9][0-9]*|[0-9a-f]{6}) · ")
 CODEX_STATUS_LINE_TITLE_SEPARATOR = " :: "
 CODEX_STATUS_LINE_BRANCH_LIMIT = 48
 CODEX_STATUS_LINE_PATH_LIMIT = 48
@@ -581,25 +582,20 @@ def worktree_statusline(
     )
 
 
-def compact_middle(value: str, *, limit: int) -> str:
-    text = " ".join(value.split())
+def compact_statusline_tail(value: str, *, limit: int) -> str:
+    text = value
     if len(text) <= limit:
         return text
     if limit <= 3:
         return "." * limit
-    left = (limit - 3) // 2
-    right = limit - 3 - left
-    return f"{text[:left]}...{text[-right:]}"
+    return f"...{text[-(limit - 3):]}"
 
 
 def compact_statusline_path(value: str | Path, *, limit: int = CODEX_STATUS_LINE_PATH_LIMIT) -> str:
     path = Path(value)
     parts = [part for part in path.parts if part not in (path.anchor, "/")]
     tail = "/".join(parts[-CODEX_STATUS_LINE_PATH_PARTS:]) or str(path)
-    text = f".../{tail}" if len(parts) > CODEX_STATUS_LINE_PATH_PARTS else tail
-    if len(text) <= limit:
-        return text
-    return f"...{text[-(limit - 3):]}" if limit > 3 else "." * limit
+    return compact_statusline_tail(tail, limit=limit)
 
 
 def codex_worktree_statusline(
@@ -637,7 +633,7 @@ def codex_worktree_statusline(
     target = selected.get("target_branch")
     if isinstance(target, str) and target and target != branch_value:
         branch_value = f"{branch_value}→{target}"
-    branch = compact_middle(branch_value, limit=CODEX_STATUS_LINE_BRANCH_LIMIT)
+    branch = compact_statusline_tail(branch_value, limit=CODEX_STATUS_LINE_BRANCH_LIMIT)
     origin = selected.get("origin_working_directory")
     if not isinstance(origin, str) or not origin:
         repository = Path(str(selected.get("repository") or "."))
@@ -659,12 +655,27 @@ def codex_statusline_thread_title(statusline: str, current_name: str | None) -> 
         # Codex renders an unnamed thread's full UUID for the thread-title
         # status item. Install the managed identity immediately instead.
         return statusline
-    if current_name == statusline:
-        return statusline
-    if current_name.startswith((CODEX_STATUS_LINE_TITLE_PREFIX, CODEX_STATUS_LINE_LEGACY_TITLE_PREFIX)):
+    managed = bool(
+        CODEX_STATUS_LINE_TITLE_PATTERN.match(current_name)
+        or current_name.startswith(CODEX_STATUS_LINE_LEGACY_TITLE_PREFIXES)
+    )
+    if managed:
         _managed, separator, original = current_name.partition(CODEX_STATUS_LINE_TITLE_SEPARATOR)
-        return f"{statusline}{separator}{original}" if separator and original else statusline
-    return f"{statusline}{CODEX_STATUS_LINE_TITLE_SEPARATOR}{current_name}"
+        if not separator or not original:
+            return statusline
+        current_name = original
+    words = [
+        word
+        for word in re.findall(r"[a-z0-9]+", current_name.lower())
+        if word not in {"a", "an", "and", "for", "in", "of", "on", "the", "to", "with"}
+    ]
+    if len(words) < 2:
+        return statusline
+    words = [word[:12] for word in words[:3]]
+    if len(" ".join(words)) > 32:
+        words = words[:2]
+    label = " ".join(words)
+    return f"{statusline}{CODEX_STATUS_LINE_TITLE_SEPARATOR}{label}"
 
 
 def terminal_columns(default: int = 100) -> int:
@@ -4891,13 +4902,55 @@ def command_reconcile(args: argparse.Namespace, store: Store) -> int:
     return 2 if failed else 0
 
 
+def infer_agent_session_from_task(store: Store, task_id: str) -> tuple[str, Path]:
+    """Recover session identity for tools launched by a legacy Codex App Server."""
+    validate_identifier(task_id, "task id")
+    task = store.load(task_id)
+    task_owner = task.get("process")
+    matches: list[tuple[str, Path]] = []
+    for candidate in store.sessions.glob("*.json"):
+        try:
+            value = read_json_file_safely(candidate)
+            checkout_value = value.get("checkout") if isinstance(value, dict) else None
+            session_id = value.get("session_id") if isinstance(value, dict) else None
+            owner = value.get("process") if isinstance(value, dict) else None
+            checkout = Path(checkout_value) if isinstance(checkout_value, str) else None
+            if (
+                not isinstance(value, dict)
+                or value.get("task_id") != task_id
+                or not isinstance(session_id, str)
+                or checkout is None
+                or not isinstance(owner, dict)
+                or owner.get("role") != "lock-supervisor"
+                or not isinstance(task_owner, dict)
+                or owner.get("pid") != task_owner.get("pid")
+                or owner.get("start") != task_owner.get("start")
+                or not valid_checkout_session(value, checkout)
+                or store.checkout_session_path(checkout) != candidate.resolve()
+                or not lock_file_is_busy(store.checkout_lock_path(checkout))
+            ):
+                continue
+        except (AgentTaskError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+        matches.append((session_id, candidate.resolve()))
+    if len(matches) != 1:
+        raise AgentTaskError(f"cannot find one active session record for managed task {task_id}")
+    return matches[0]
+
+
 def current_agent_session(store: Store, session_id: str | None = None) -> tuple[str, Path, dict[str, Any]]:
     selected = session_id or os.environ.get(AGENT_SESSION_ID_ENV)
+    inferred_path: Path | None = None
     if not selected:
-        raise AgentTaskError("this command must run inside a managed agent session, or use --session")
+        task_id = os.environ.get("AI_TASK_ID")
+        if not task_id:
+            raise AgentTaskError("this command must run inside a managed agent session, or use --session")
+        selected, inferred_path = infer_agent_session_from_task(store, task_id)
     validate_identifier(selected, "session id")
     configured_path = os.environ.get(AGENT_SESSION_PATH_ENV) if session_id is None else None
-    if configured_path:
+    if inferred_path is not None:
+        path = inferred_path
+    elif configured_path:
         path = Path(configured_path).resolve()
     else:
         matches: list[Path] = []
@@ -5066,6 +5119,39 @@ def command_inbox(args: argparse.Namespace, store: Store) -> int:
     return 0
 
 
+def resolve_obsolete_handoff(store: Store, task_id: str) -> bool:
+    """Finish an already-satisfied integration notice without closing its receiver."""
+    validate_identifier(task_id, "task id in inbox event")
+    try:
+        with store.lock(f"task:{task_id}", blocking=False):
+            try:
+                task = store.load(task_id)
+            except AgentTaskError:
+                return False
+            if task.get("status") == INTEGRATED:
+                resolve_task_notices(store, task_id)
+                return True
+            if task.get("status") != READY:
+                return False
+            repository_value = task.get("repository")
+            target = task.get("target_branch")
+            result_commit = task.get("result_commit")
+            if not all(
+                isinstance(value, str) and value
+                for value in (repository_value, target, result_commit)
+            ):
+                return False
+            repository = Path(repository_value)
+            if not branch_exists(repository, target):
+                return False
+            target_sha = ref(repository, f"refs/heads/{target}")
+            if not is_ancestor(repository, result_commit, target_sha):
+                return False
+            return integrate_task(store, task) and task.get("status") == INTEGRATED
+    except LockBusy:
+        return False
+
+
 def command_handoff(args: argparse.Namespace, store: Store) -> int:
     session_id, _path, session = current_agent_session(store)
     if session.get("notification_protocol") != NOTIFICATION_PROTOCOL:
@@ -5077,6 +5163,13 @@ def command_handoff(args: argparse.Namespace, store: Store) -> int:
         raise AgentTaskError(f"inbox event is not pending: {event_id}")
     if message.get("type") != "integration_ready" or not isinstance(message.get("task_id"), str):
         raise AgentTaskError(f"inbox event cannot trigger a repository handoff: {event_id}")
+    task_id = message["task_id"]
+    if resolve_obsolete_handoff(store, task_id):
+        print(
+            f"handoff no longer required: {event_id}\n"
+            f"task {task_id} is already present on its target; this session remains open."
+        )
+        return 0
     owner = session.get("process")
     if (
         not isinstance(owner, dict)
