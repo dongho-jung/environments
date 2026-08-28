@@ -80,7 +80,9 @@ CODEX_STATUS_LINE_CONFIG = (
     'tui.status_line=["current-dir","thread-title","model-with-reasoning"]'
 )
 CODEX_PENDING_THREAD_NAME = "\u200b"
-CODEX_BYPASS_HOOK_TRUST_FLAG = "--dangerously-bypass-hook-trust"
+CODEX_SESSION_HOOK_SOURCE = "/<session-flags>/config.toml"
+CODEX_HOOK_HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+CODEX_REASONING_EFFORT_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 CODEX_TASK_SLUG_MODEL = "gpt-5.6-luna"
 CODEX_TASK_SLUG_LIMIT = 48
 CODEX_TASK_SLUG_PREVIEW_LIMIT = 4000
@@ -1586,6 +1588,44 @@ def codex_subcommand(command: Sequence[str]) -> str | None:
     return None
 
 
+def codex_global_arguments_end(command: Sequence[str]) -> int:
+    executable = command_executable_index(command, "codex")
+    if executable is None:
+        raise AgentTaskError("Codex command lost its executable")
+    index = executable + 1
+    while index < len(command):
+        value = command[index]
+        if value == "--":
+            return index
+        if value in CODEX_GLOBAL_VALUE_OPTIONS:
+            if index + 1 >= len(command):
+                raise AgentTaskError(f"Codex option {value} lost its value")
+            index += 2
+            continue
+        if value.startswith("-"):
+            index += 1
+            continue
+        return index
+    return index
+
+
+def codex_with_reasoning_effort(
+    command: Sequence[str],
+    effort: str | None,
+) -> list[str]:
+    result = list(command)
+    if effort is None:
+        return result
+    if not CODEX_REASONING_EFFORT_PATTERN.fullmatch(effort):
+        raise AgentTaskError(f"Codex App Server returned an invalid reasoning effort: {effort!r}")
+    insertion = codex_global_arguments_end(result)
+    result[insertion:insertion] = [
+        "-c",
+        f"model_reasoning_effort={json.dumps(effort)}",
+    ]
+    return result
+
+
 def fresh_interactive_codex_command(command: Sequence[str]) -> bool:
     executable = command_executable_index(command, "codex")
     if executable is None or codex_subcommand(command) is not None:
@@ -1664,6 +1704,18 @@ def codex_provision_hook_config(launcher: Path | None = None) -> str:
         'hooks.UserPromptSubmit=[{ hooks = [{ type = "command", '
         f"command = {json.dumps(command)}, timeout = {int(CODEX_PROVISION_HOOK_TIMEOUT_SECONDS)}, "
         'statusMessage = "Selecting managed checkout" }] }]'
+    )
+
+
+def codex_hook_trust_config(hook_key: str, trusted_hash: str) -> str:
+    if not hook_key.startswith(f"{CODEX_SESSION_HOOK_SOURCE}:"):
+        raise AgentTaskError(f"refusing unexpected Codex session hook key: {hook_key!r}")
+    if not CODEX_HOOK_HASH_PATTERN.fullmatch(trusted_hash):
+        raise AgentTaskError(f"refusing invalid Codex hook hash: {trusted_hash!r}")
+    return (
+        "hooks.state={"
+        f"{json.dumps(hook_key)}={{trusted_hash={json.dumps(trusted_hash)}}}"
+        "}"
     )
 
 
@@ -2040,7 +2092,7 @@ async def _start_named_codex_thread(
     working_directory: Path,
     name: str,
     connector: Callable[[], Any] | None,
-) -> str:
+) -> tuple[str, str | None]:
     if connector is None:
         connector = lambda: codex_unix_connection(socket_path)
     async with connector() as websocket:
@@ -2067,6 +2119,9 @@ async def _start_named_codex_thread(
         thread_id = thread.get("id") if isinstance(thread, dict) else None
         if not isinstance(thread_id, str):
             raise AgentTaskError("Codex pending-title thread did not start")
+        reasoning_effort = started.get("reasoningEffort") if isinstance(started, dict) else None
+        if reasoning_effort is not None and not isinstance(reasoning_effort, str):
+            raise AgentTaskError("Codex pending-title thread returned an invalid reasoning effort")
         try:
             await _codex_rpc_request(
                 websocket,
@@ -2085,7 +2140,7 @@ async def _start_named_codex_thread(
             except BaseException:
                 pass
             raise
-        return thread_id
+        return thread_id, reasoning_effort
 
 
 def start_named_codex_thread(
@@ -2094,11 +2149,142 @@ def start_named_codex_thread(
     name: str,
     *,
     connector: Callable[[], Any] | None = None,
-) -> str:
+) -> tuple[str, str | None]:
     import asyncio
 
     return asyncio.run(
         _start_named_codex_thread(socket_path, working_directory, name, connector)
+    )
+
+
+async def _codex_provision_hook_trust(
+    socket_path: Path,
+    working_directories: Sequence[Path],
+    hook_launcher: Path,
+    connector: Callable[[], Any] | None,
+) -> tuple[str, str]:
+    if connector is None:
+        connector = lambda: codex_unix_connection(socket_path)
+    directories = sorted({str(path.resolve()) for path in working_directories})
+    expected_command = agent_task_hook_command(PROVISION_HOOK_SUBCOMMAND, hook_launcher)
+    async with connector() as websocket:
+        await _codex_rpc_request(
+            websocket,
+            1,
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "agent-task",
+                    "title": "agent-task hook trust bootstrap",
+                    "version": "1",
+                }
+            },
+        )
+        await websocket.send(json.dumps({"method": "initialized", "params": {}}))
+        result = await _codex_rpc_request(
+            websocket,
+            2,
+            "hooks/list",
+            {"cwds": directories},
+        )
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, list):
+        raise AgentTaskError("Codex App Server did not list provisioning hooks")
+    matches: set[tuple[str, str]] = set()
+    for directory_hooks in data:
+        hooks = directory_hooks.get("hooks") if isinstance(directory_hooks, dict) else None
+        if not isinstance(hooks, list):
+            continue
+        for hook in hooks:
+            if not isinstance(hook, dict):
+                continue
+            if (
+                hook.get("source") != "sessionFlags"
+                or hook.get("sourcePath") != CODEX_SESSION_HOOK_SOURCE
+                or hook.get("eventName") != "userPromptSubmit"
+                or hook.get("handlerType") != "command"
+                or hook.get("command") != expected_command
+                or hook.get("enabled") is not True
+            ):
+                continue
+            key = hook.get("key")
+            current_hash = hook.get("currentHash")
+            if (
+                isinstance(key, str)
+                and isinstance(current_hash, str)
+                and key.startswith(f"{CODEX_SESSION_HOOK_SOURCE}:")
+                and CODEX_HOOK_HASH_PATTERN.fullmatch(current_hash)
+            ):
+                matches.add((key, current_hash))
+    if len(matches) != 1:
+        raise AgentTaskError(
+            "Codex App Server did not expose exactly one harness provisioning hook"
+        )
+    return matches.pop()
+
+
+def codex_provision_hook_trust(
+    socket_path: Path,
+    working_directories: Sequence[Path],
+    hook_launcher: Path,
+    *,
+    connector: Callable[[], Any] | None = None,
+) -> tuple[str, str]:
+    import asyncio
+
+    return asyncio.run(
+        _codex_provision_hook_trust(
+            socket_path,
+            working_directories,
+            hook_launcher,
+            connector,
+        )
+    )
+
+
+async def _resume_codex_thread_reasoning_effort(
+    socket_path: Path,
+    thread_id: str,
+    connector: Callable[[], Any] | None,
+) -> str | None:
+    if connector is None:
+        connector = lambda: codex_unix_connection(socket_path)
+    async with connector() as websocket:
+        await _codex_rpc_request(
+            websocket,
+            1,
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "agent-task",
+                    "title": "agent-task resume settings bootstrap",
+                    "version": "1",
+                }
+            },
+        )
+        await websocket.send(json.dumps({"method": "initialized", "params": {}}))
+        result = await _codex_rpc_request(
+            websocket,
+            2,
+            "thread/resume",
+            {"threadId": thread_id, "excludeTurns": True},
+        )
+    effort = result.get("reasoningEffort") if isinstance(result, dict) else None
+    if effort is not None and not isinstance(effort, str):
+        raise AgentTaskError("Codex resumed thread returned an invalid reasoning effort")
+    return effort
+
+
+def resume_codex_thread_reasoning_effort(
+    socket_path: Path,
+    thread_id: str,
+    *,
+    connector: Callable[[], Any] | None = None,
+) -> str | None:
+    import asyncio
+
+    return asyncio.run(
+        _resume_codex_thread_reasoning_effort(socket_path, thread_id, connector)
     )
 
 
@@ -2203,6 +2389,7 @@ def codex_app_server_command(
     *,
     provision_hook: bool,
     hook_launcher: Path | None = None,
+    hook_trust: tuple[str, str] | None = None,
 ) -> list[str]:
     executable = command_executable_index(agent_command, "codex")
     if executable is None:
@@ -2211,10 +2398,13 @@ def codex_app_server_command(
     server_options: list[str] = []
     if provision_hook:
         server_options = [
-            CODEX_BYPASS_HOOK_TRUST_FLAG,
             "-c",
             codex_provision_hook_config(hook_launcher),
         ]
+        if hook_trust is not None:
+            server_options.extend(("-c", codex_hook_trust_config(*hook_trust)))
+    elif hook_trust is not None:
+        raise AgentTaskError("Codex hook trust override requires a provisioning hook")
     return [
         *agent_command[: executable + 1],
         *inherited_options,
@@ -2223,6 +2413,83 @@ def codex_app_server_command(
         "--listen",
         f"unix://{socket_path}",
     ]
+
+
+def spawn_codex_app_server(
+    server_command: Sequence[str],
+    inherited_descriptors: Sequence[int],
+) -> int:
+    try:
+        server_pid = os.fork()
+    except OSError as error:
+        raise AgentTaskError(f"cannot start Codex App Server: {error}") from error
+    if server_pid != 0:
+        return server_pid
+    for descriptor in inherited_descriptors:
+        os.close(descriptor)
+    try:
+        os.setsid()
+        devnull = os.open(os.devnull, os.O_RDWR)
+        for descriptor in (0, 1, 2):
+            os.dup2(devnull, descriptor)
+        if devnull > 2:
+            os.close(devnull)
+        os.execvpe(server_command[0], list(server_command), os.environ)
+    except OSError:
+        os._exit(127)
+    raise AssertionError("unreachable")
+
+
+def wait_for_codex_app_server(server_pid: int, socket_path: Path) -> None:
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if socket_path.exists():
+            return
+        try:
+            finished, status = os.waitpid(server_pid, os.WNOHANG)
+        except ChildProcessError:
+            finished, status = server_pid, 0
+        if finished:
+            detail = os.waitstatus_to_exitcode(status)
+            raise AgentTaskError(
+                f"Codex App Server exited before opening its control socket ({detail})"
+            )
+        time.sleep(0.02)
+    raise AgentTaskError("Codex App Server did not open its control socket")
+
+
+def stop_codex_app_server(server_pid: int, socket_path: Path) -> None:
+    try:
+        finished, _status = os.waitpid(server_pid, os.WNOHANG)
+    except ChildProcessError:
+        socket_path.unlink(missing_ok=True)
+        return
+    if finished:
+        socket_path.unlink(missing_ok=True)
+        return
+    try:
+        os.killpg(server_pid, signal.SIGTERM)
+    except OSError:
+        pass
+    deadline = time.monotonic() + CODEX_CONTROL_SHUTDOWN_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            finished, _status = os.waitpid(server_pid, os.WNOHANG)
+        except ChildProcessError:
+            finished = server_pid
+        if finished:
+            socket_path.unlink(missing_ok=True)
+            return
+        time.sleep(0.02)
+    try:
+        os.killpg(server_pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        os.waitpid(server_pid, 0)
+    except ChildProcessError:
+        pass
+    socket_path.unlink(missing_ok=True)
 
 
 def start_codex_app_server(
@@ -2240,83 +2507,68 @@ def start_codex_app_server(
         and bool(os.environ.get("AI_TASK_ID"))
         and not os.environ.get("AI_TASK_BRANCH")
     )
-    if provision_hook:
-        executable = command_executable_index(remote_command, "codex")
-        if executable is None:
-            raise AgentTaskError("Codex remote TUI command lost its executable")
-        remote_command.insert(executable + 1, CODEX_BYPASS_HOOK_TRUST_FLAG)
     hook_launcher = materialize_codex_hook_runtime() if provision_hook else None
-    socket_path.unlink(missing_ok=True)
+    hook_trust: tuple[str, str] | None = None
+    if hook_launcher is not None:
+        socket_path.unlink(missing_ok=True)
+        probe_command = codex_app_server_command(
+            agent_command,
+            socket_path,
+            provision_hook=True,
+            hook_launcher=hook_launcher,
+        )
+        probe_pid = spawn_codex_app_server(probe_command, inherited_descriptors)
+        try:
+            wait_for_codex_app_server(probe_pid, socket_path)
+            hook_trust = codex_provision_hook_trust(
+                socket_path,
+                trusted_directories,
+                hook_launcher,
+            )
+        finally:
+            stop_codex_app_server(probe_pid, socket_path)
     server_command = codex_app_server_command(
         agent_command,
         socket_path,
         provision_hook=provision_hook,
         hook_launcher=hook_launcher,
+        hook_trust=hook_trust,
     )
     pending_thread_id: str | None = None
+    socket_path.unlink(missing_ok=True)
+    server_pid = spawn_codex_app_server(server_command, inherited_descriptors)
     try:
-        server_pid = os.fork()
-    except OSError as error:
-        raise AgentTaskError(f"cannot start Codex App Server: {error}") from error
-    if server_pid == 0:
-        for descriptor in inherited_descriptors:
-            os.close(descriptor)
-        try:
-            os.setsid()
-            devnull = os.open(os.devnull, os.O_RDWR)
-            for descriptor in (0, 1, 2):
-                os.dup2(devnull, descriptor)
-            if devnull > 2:
-                os.close(devnull)
-            os.execvpe(server_command[0], server_command, os.environ)
-        except OSError:
-            os._exit(127)
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        if socket_path.exists():
-            if recovery_working_directory is not None:
-                try:
-                    thread_id = latest_codex_thread_id(socket_path, recovery_working_directory)
-                except BaseException:
-                    try:
-                        os.killpg(server_pid, signal.SIGTERM)
-                    except OSError:
-                        pass
-                    raise
-                remote_command = resolve_codex_recovery_command(remote_command, thread_id)
-                if thread_id is None:
-                    task_title = os.environ.get("AI_TASK_TITLE") or "preserved task"
-                    print(
-                        f"agent-task: no saved Codex chat matched {task_title!r}; "
-                        "starting a new chat with its preserved checkout",
-                        file=sys.stderr,
-                    )
-            elif provision_hook and fresh_interactive_codex_command(agent_command):
-                try:
-                    pending_thread_id = start_named_codex_thread(
-                        socket_path,
-                        Path.cwd(),
-                        CODEX_PENDING_THREAD_NAME,
-                    )
-                    remote_command.extend(("resume", pending_thread_id))
-                except Exception as error:
-                    # This is display-only. Fall back to Codex's ordinary
-                    # fresh-thread launch if the bootstrap is unavailable.
-                    print(f"agent-task: Codex pending title unavailable: {error}", file=sys.stderr)
-            return server_pid, remote_command, pending_thread_id
-        try:
-            finished, status = os.waitpid(server_pid, os.WNOHANG)
-        except ChildProcessError:
-            finished, status = server_pid, 0
-        if finished:
-            detail = os.waitstatus_to_exitcode(status)
-            raise AgentTaskError(f"Codex App Server exited before opening its control socket ({detail})")
-        time.sleep(0.02)
-    try:
-        os.killpg(server_pid, signal.SIGTERM)
-    except OSError:
-        pass
-    raise AgentTaskError("Codex App Server did not open its control socket")
+        wait_for_codex_app_server(server_pid, socket_path)
+        if recovery_working_directory is not None:
+            thread_id = latest_codex_thread_id(socket_path, recovery_working_directory)
+            remote_command = resolve_codex_recovery_command(remote_command, thread_id)
+            if thread_id is None:
+                task_title = os.environ.get("AI_TASK_TITLE") or "preserved task"
+                print(
+                    f"agent-task: no saved Codex chat matched {task_title!r}; "
+                    "starting a new chat with its preserved checkout",
+                    file=sys.stderr,
+                )
+            else:
+                effort = resume_codex_thread_reasoning_effort(socket_path, thread_id)
+                remote_command = codex_with_reasoning_effort(remote_command, effort)
+        elif provision_hook and fresh_interactive_codex_command(agent_command):
+            try:
+                pending_thread_id, effort = start_named_codex_thread(
+                    socket_path,
+                    Path.cwd(),
+                    CODEX_PENDING_THREAD_NAME,
+                )
+                remote_command = codex_with_reasoning_effort(remote_command, effort)
+                remote_command.extend(("resume", pending_thread_id))
+            except Exception as error:
+                # This is display-only. Fall back to Codex's ordinary
+                # fresh-thread launch if the bootstrap is unavailable.
+                print(f"agent-task: Codex pending title unavailable: {error}", file=sys.stderr)
+        return server_pid, remote_command, pending_thread_id
+    except BaseException:
+        stop_codex_app_server(server_pid, socket_path)
+        raise
 
 
 async def _codex_rpc_request(

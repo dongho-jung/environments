@@ -80,11 +80,15 @@ without reconstructing private state paths. The pending-task first-prompt hook
 is installed only on this private App Server, avoiding duplicate client/server
 hook execution. User-selected Codex config, model, profile, feature, and
 permission options are inherited by the App Server instead of being reset at
-the remote-TUI boundary. Both processes trust the harness-installed provisioning
-hook, so a changed runtime snapshot cannot divert the foreground TUI into hook
-review and make its displayed session settings fall back to defaults. Each hook
-command points at a content-addressed runtime snapshot, so updating the installed
-launcher cannot remove code still needed by an open session. For Claude, `Stop` and
+the remote-TUI boundary. For a pre-created or recovered thread, the App Server's
+resolved reasoning effort is also passed explicitly to the remote TUI; this
+preserves any user-selected value instead of displaying and applying `default`.
+Before creating the pending thread, a short-lived App Server reports the exact
+harness hook hash. Only that hash is reflected into the final App Server's
+session-local trust state, avoiding both a hook-review screen and a persistent
+global trust change. Each hook command points at a content-addressed runtime
+snapshot, so updating the installed launcher cannot remove code still needed by
+an open session. For Claude, `Stop` and
 `UserPromptSubmit` hooks inject the same
 inbox event at the next safe lifecycle point; the supervisor also prints a
 terminal alert. Claude does not currently offer an equivalent supported local

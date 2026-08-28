@@ -481,13 +481,8 @@ class LaunchBehaviorTest(unittest.TestCase):
             environment["AI_TASK_ID"] = "task-one"
             environment.pop("AI_TASK_BRANCH", None)
 
-            def fork() -> int:
-                socket.touch()
-                return 12345
-
             with (
                 mock.patch.dict(os.environ, environment, clear=True),
-                mock.patch.object(AGENT_TASK.os, "fork", side_effect=fork),
                 mock.patch.object(
                     AGENT_TASK,
                     "materialize_codex_hook_runtime",
@@ -495,8 +490,23 @@ class LaunchBehaviorTest(unittest.TestCase):
                 ),
                 mock.patch.object(
                     AGENT_TASK,
+                    "spawn_codex_app_server",
+                    side_effect=(11111, 12345),
+                ) as spawn_server,
+                mock.patch.object(AGENT_TASK, "wait_for_codex_app_server"),
+                mock.patch.object(AGENT_TASK, "stop_codex_app_server") as stop_server,
+                mock.patch.object(
+                    AGENT_TASK,
+                    "codex_provision_hook_trust",
+                    return_value=(
+                        "/<session-flags>/config.toml:user_prompt_submit:0:0",
+                        "sha256:" + "a" * 64,
+                    ),
+                ),
+                mock.patch.object(
+                    AGENT_TASK,
                     "start_named_codex_thread",
-                    return_value="thread-one",
+                    return_value=("thread-one", "high"),
                 ) as start_thread,
             ):
                 started = AGENT_TASK.start_codex_app_server(
@@ -511,8 +521,18 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(server_pid, 12345)
         self.assertEqual(pending_thread_id, "thread-one")
         self.assertEqual(command[-2:], ["resume", "thread-one"])
-        self.assertEqual(command[1], AGENT_TASK.CODEX_BYPASS_HOOK_TRUST_FLAG)
-        self.assertEqual(command.count(AGENT_TASK.CODEX_BYPASS_HOOK_TRUST_FLAG), 1)
+        self.assertIn('model_reasoning_effort="high"', command)
+        self.assertNotIn("--dangerously-bypass-hook-trust", command)
+        self.assertEqual(spawn_server.call_count, 2)
+        final_server_command = spawn_server.call_args_list[-1].args[0]
+        self.assertIn(
+            AGENT_TASK.codex_hook_trust_config(
+                "/<session-flags>/config.toml:user_prompt_submit:0:0",
+                "sha256:" + "a" * 64,
+            ),
+            final_server_command,
+        )
+        stop_server.assert_called_once_with(11111, socket)
         start_thread.assert_called_once_with(
             socket,
             Path.cwd(),
@@ -553,6 +573,16 @@ class LaunchBehaviorTest(unittest.TestCase):
             provision_hook=True,
             hook_launcher=hook_launcher,
         )
+        trusted = AGENT_TASK.codex_app_server_command(
+            ["codex", "--add-dir", "/state/worktree"],
+            socket,
+            provision_hook=True,
+            hook_launcher=hook_launcher,
+            hook_trust=(
+                "/<session-flags>/config.toml:user_prompt_submit:0:0",
+                "sha256:" + "b" * 64,
+            ),
+        )
         ready = AGENT_TASK.codex_app_server_command(
             ["codex", "--add-dir", "/state/worktree"],
             socket,
@@ -563,13 +593,19 @@ class LaunchBehaviorTest(unittest.TestCase):
             pending,
             [
                 "codex",
-                "--dangerously-bypass-hook-trust",
                 "-c",
                 hook,
                 "app-server",
                 "--listen",
                 f"unix://{socket}",
             ],
+        )
+        self.assertIn(
+            AGENT_TASK.codex_hook_trust_config(
+                "/<session-flags>/config.toml:user_prompt_submit:0:0",
+                "sha256:" + "b" * 64,
+            ),
+            trusted,
         )
         self.assertEqual(ready, ["codex", "app-server", "--listen", f"unix://{socket}"])
         self.assertIn(AGENT_TASK.PROVISION_HOOK_SUBCOMMAND, hook)
@@ -610,6 +646,45 @@ class LaunchBehaviorTest(unittest.TestCase):
                 f"unix://{socket}",
             ],
         )
+
+    def test_codex_remote_uses_the_app_server_reasoning_effort(self) -> None:
+        command = [
+            "codex",
+            "--remote",
+            "unix:///state/control.sock",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "resume",
+            "thread-one",
+        ]
+
+        updated = AGENT_TASK.codex_with_reasoning_effort(command, "low")
+
+        self.assertEqual(
+            updated[-5:],
+            [
+                "--dangerously-bypass-approvals-and-sandbox",
+                "-c",
+                'model_reasoning_effort="low"',
+                "resume",
+                "thread-one",
+            ],
+        )
+        self.assertNotIn('model_reasoning_effort="low"', command)
+        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid reasoning effort"):
+            AGENT_TASK.codex_with_reasoning_effort(command, "not valid")
+
+    def test_codex_hook_trust_config_is_session_scoped(self) -> None:
+        key = "/<session-flags>/config.toml:user_prompt_submit:0:0"
+        trusted_hash = "sha256:" + "c" * 64
+
+        self.assertEqual(
+            AGENT_TASK.codex_hook_trust_config(key, trusted_hash),
+            f'hooks.state={{"{key}"={{trusted_hash="{trusted_hash}"}}}}',
+        )
+        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "unexpected Codex session hook"):
+            AGENT_TASK.codex_hook_trust_config("/home/user/config.toml:hook", trusted_hash)
+        with self.assertRaisesRegex(AGENT_TASK.AgentTaskError, "invalid Codex hook hash"):
+            AGENT_TASK.codex_hook_trust_config(key, "sha256:not-a-hash")
 
     def test_codex_hooks_use_an_immutable_session_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -882,7 +957,10 @@ class LaunchBehaviorTest(unittest.TestCase):
                     return
                 result: object = {}
                 if request["method"] == "thread/start":
-                    result = {"thread": {"id": "thread-one"}}
+                    result = {
+                        "thread": {"id": "thread-one"},
+                        "reasoningEffort": "xhigh",
+                    }
                 self.responses.append(json.dumps({"id": request["id"], "result": result}))
 
             async def recv(self) -> str:
@@ -899,7 +977,7 @@ class LaunchBehaviorTest(unittest.TestCase):
                 return None
 
         socket = FakeSocket()
-        thread_id = AGENT_TASK.start_named_codex_thread(
+        thread_id, effort = AGENT_TASK.start_named_codex_thread(
             Path("/control.sock"),
             Path("/repo"),
             AGENT_TASK.CODEX_PENDING_THREAD_NAME,
@@ -907,6 +985,7 @@ class LaunchBehaviorTest(unittest.TestCase):
         )
 
         self.assertEqual(thread_id, "thread-one")
+        self.assertEqual(effort, "xhigh")
         self.assertEqual(
             [request.get("method") for request in socket.requests],
             ["initialize", "initialized", "thread/start", "thread/name/set"],
@@ -915,6 +994,117 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(
             socket.requests[-1]["params"],
             {"threadId": "thread-one", "name": AGENT_TASK.CODEX_PENDING_THREAD_NAME},
+        )
+
+    def test_codex_provision_hook_trust_uses_only_the_exact_session_hook(self) -> None:
+        launcher = Path("/state/hook-runtimes/version/agent_task.py")
+        command = AGENT_TASK.agent_task_hook_command(
+            AGENT_TASK.PROVISION_HOOK_SUBCOMMAND,
+            launcher,
+        )
+        key = "/<session-flags>/config.toml:user_prompt_submit:0:0"
+        current_hash = "sha256:" + "d" * 64
+
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.requests: list[dict[str, object]] = []
+                self.responses: list[str] = []
+
+            async def send(self, raw: str) -> None:
+                request = json.loads(raw)
+                self.requests.append(request)
+                if "id" not in request:
+                    return
+                result: object = {}
+                if request["method"] == "hooks/list":
+                    exact = {
+                        "key": key,
+                        "eventName": "userPromptSubmit",
+                        "handlerType": "command",
+                        "command": command,
+                        "source": "sessionFlags",
+                        "sourcePath": AGENT_TASK.CODEX_SESSION_HOOK_SOURCE,
+                        "enabled": True,
+                        "currentHash": current_hash,
+                    }
+                    result = {
+                        "data": [
+                            {"hooks": [exact, {**exact, "command": "/bin/other"}]},
+                            {"hooks": [exact]},
+                        ]
+                    }
+                self.responses.append(json.dumps({"id": request["id"], "result": result}))
+
+            async def recv(self) -> str:
+                return self.responses.pop(0)
+
+        class FakeConnection:
+            def __init__(self, socket: FakeSocket) -> None:
+                self.socket = socket
+
+            async def __aenter__(self) -> FakeSocket:
+                return self.socket
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        socket = FakeSocket()
+        trust = AGENT_TASK.codex_provision_hook_trust(
+            Path("/control.sock"),
+            [Path("/repo"), Path("/repo")],
+            launcher,
+            connector=lambda: FakeConnection(socket),
+        )
+
+        self.assertEqual(trust, (key, current_hash))
+        self.assertEqual(
+            [request.get("method") for request in socket.requests],
+            ["initialize", "initialized", "hooks/list"],
+        )
+        self.assertEqual(socket.requests[-1]["params"], {"cwds": ["/repo"]})
+
+    def test_codex_resume_settings_report_the_saved_effort(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.requests: list[dict[str, object]] = []
+                self.responses: list[str] = []
+
+            async def send(self, raw: str) -> None:
+                request = json.loads(raw)
+                self.requests.append(request)
+                if "id" not in request:
+                    return
+                result = (
+                    {"reasoningEffort": "xhigh"}
+                    if request["method"] == "thread/resume"
+                    else {}
+                )
+                self.responses.append(json.dumps({"id": request["id"], "result": result}))
+
+            async def recv(self) -> str:
+                return self.responses.pop(0)
+
+        class FakeConnection:
+            def __init__(self, socket: FakeSocket) -> None:
+                self.socket = socket
+
+            async def __aenter__(self) -> FakeSocket:
+                return self.socket
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        socket = FakeSocket()
+        effort = AGENT_TASK.resume_codex_thread_reasoning_effort(
+            Path("/control.sock"),
+            "thread-one",
+            connector=lambda: FakeConnection(socket),
+        )
+
+        self.assertEqual(effort, "xhigh")
+        self.assertEqual(
+            socket.requests[-1]["params"],
+            {"threadId": "thread-one", "excludeTurns": True},
         )
 
     def test_codex_pending_title_failure_deletes_the_empty_thread(self) -> None:
