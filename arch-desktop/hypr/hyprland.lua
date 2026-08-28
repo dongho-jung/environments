@@ -533,12 +533,14 @@ bind("XF86AudioPlay",  hl.dsp.exec_cmd("playerctl play-pause"), "미디어 · �
 bind("XF86AudioPrev",  hl.dsp.exec_cmd("playerctl previous"),   "미디어 · 이전 트랙", { locked = true })
 
 -- Physical keypad keycodes keep these controls stable regardless of Num Lock:
--- KP4/KP5/KP6 are previous/play-pause/next, and KP8/KP2 adjust the volume.
+-- KP4/KP5/KP6 are previous/play-pause/next, KP8/KP2 adjust the volume,
+-- and KP0 (KP_Insert with Num Lock off) toggles mute.
 bind("code:83", hl.dsp.exec_cmd("playerctl previous"),                                      "미디어 · 숫자패드 4로 이전 트랙", { locked = true })
 bind("code:84", hl.dsp.exec_cmd("playerctl play-pause"),                                    "미디어 · 숫자패드 5로 재생/일시정지", { locked = true })
 bind("code:85", hl.dsp.exec_cmd("playerctl next"),                                          "미디어 · 숫자패드 6으로 다음 트랙", { locked = true })
 bind("code:80", hl.dsp.exec_cmd("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"),           "미디어 · 숫자패드 8로 음량 높이기", { locked = true, repeating = true })
 bind("code:88", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),                "미디어 · 숫자패드 2로 음량 낮추기", { locked = true, repeating = true })
+bind("code:90", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),               "미디어 · 숫자패드 0으로 음소거 전환", { locked = true })
 
 -- Screenshots: hyprshot captures (region/window/full output) and pipes the raw
 -- image to satty for annotation. Escape copies the current result (including any

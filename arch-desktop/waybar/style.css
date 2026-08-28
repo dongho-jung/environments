@@ -52,6 +52,12 @@ window#waybar {
     color: #89b4fa;
 }
 
+#pulseaudio.muted {
+    color: #1e1e2e;
+    background: #f38ba8;
+    font-weight: bold;
+}
+
 #bluetooth.disabled,
 #bluetooth.off,
 #bluetooth.no-controller {
