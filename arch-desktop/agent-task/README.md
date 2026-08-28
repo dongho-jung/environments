@@ -16,10 +16,9 @@ harness owns integration and cleanup for its one assigned repository.
 
 ```text
 settings.agent_task_mode=current  -> reserved current checkout
-settings.agent_task_mode=worktree -> managed worktree -> clean commit -> integrate
-                                                      |-- success -> cleanup
-                                                      |-- active lease -> inbox + handoff
-                                                      `-- conflict/check failure -> recovery
+settings.agent_task_mode=worktree -> managed worktree -> clean commit
+                                                      |-- publish -> target; session continues
+                                                      `-- exit -> integrate -> cleanup/recovery
 ```
 
 Managed task state is keyed by repository and agent. One interrupted task
@@ -191,6 +190,8 @@ agent-task list
 agent-task status TASK_ID
 agent-task inbox
 agent-task handoff EVENT_ID
+agent-task publish
+agent-task publish ATTACHMENT_TASK_ID
 agent-task integrate TASK_ID
 agent-task recover TASK_ID
 agent-task recover TASK_ID --new-session
@@ -204,6 +205,28 @@ timeout (override with `--check-timeout SECONDS`), and must leave both candidate
 HEAD and all tracked or non-ignored untracked files unchanged. Changed Terraform
 files also run `terraform fmt -check` from the candidate root when Terraform is
 installed. v1 does not guess application-specific build or test commands.
+
+## Active checkpoint publishing
+
+`agent-task publish` validates and publishes the current task's clean committed
+`HEAD` to its integration target without ending the managed session or removing
+its worktree. The agent runs it after completing and validating requested work,
+so the canonical checkout is immediately available for an operator's Terraform,
+deployment, or manual shell verification. Later commits remain on the same task
+branch and can be published again. Pass an attached task ID to publish a
+secondary repository owned by the current session.
+
+Publishing serializes the target ref and reserves its checkout while allowing
+other independent managed worktrees to continue. It rechecks the source and
+target commits, checkout topology, and cleanliness after validation. It updates
+only the local integration target: it does not fetch, push, deploy, or run
+Terraform on its own.
+
+A result that directly descends from the target fast-forwards it without adding
+a synthetic merge commit. If the combined result tree is already present, the
+target does not move. Only genuinely divergent histories create a merge commit;
+its title comes from the task's primary commit, and its body records the task ID,
+task-to-target path, and included commit hashes and subjects.
 
 ## Agent status display
 
@@ -304,9 +327,12 @@ session exits.
   integration, and cleanup lifecycle. It does not restrict filesystem paths,
   network access, remote status inspection, other repositories, or otherwise
   authorized operational tools.
-- Coding remains parallel. Integration takes an exclusive repository activity
-  lease and queues while any harness agent is active, then reserves every known
-  checkout for the ref update and working-tree synchronization.
+- Coding remains parallel. Final integration takes an exclusive repository
+  activity lease and queues while any harness agent is active, then reserves
+  every known checkout for the ref update and working-tree synchronization.
+  Active checkpoint publishing instead holds the per-target integration lock
+  and reserves only the target checkout, so unrelated managed worktrees keep
+  running.
 - The target ref advances only after a clean merge candidate and configured
   checks succeed. Checks cannot rewrite the candidate and time out instead of
   holding an integration forever. Automatic harness integration itself does not
@@ -333,9 +359,10 @@ session exits.
 - Uncommitted tracked or untracked work keeps its worktree. After a successful
   clean commit, ignored build artifacts are recorded in task state and removed
   with the disposable worktree.
-- Managed worktree creation disables repository hooks, integration commits use
-  the configured Git signing policy, and their generated message follows the
-  repository's conventional commit format.
+- Managed worktree creation disables repository hooks. Direct descendants
+  fast-forward without an integration commit, equivalent trees do not advance
+  the target, and genuine divergent merges use the configured Git signing
+  policy with a conventional title and a body listing the task and commits.
 - Per-task locks keep foreground commands and the hourly reconciler from
   changing the same registry entry concurrently.
 - Reconciliation marks dead `CREATED`/`RUNNING` processes for recovery, resets
