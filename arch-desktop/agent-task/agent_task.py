@@ -1773,6 +1773,29 @@ def codex_trusted_projects_config(directories: Sequence[Path]) -> str:
     return f"projects={{{entries}}}"
 
 
+def strip_managed_codex_tui_configs(command: Sequence[str], executable: int) -> list[str]:
+    """Drop stale launcher copies so the harness's TUI settings win."""
+    managed_keys = {"tui.show_tooltips", "tui.status_line"}
+    result = list(command[: executable + 1])
+    arguments = list(command[executable + 1 :])
+    index = 0
+    while index < len(arguments):
+        value = arguments[index]
+        if value in ("-c", "--config") and index + 1 < len(arguments):
+            config = arguments[index + 1]
+            if config.partition("=")[0].strip() in managed_keys:
+                index += 2
+                continue
+        if value.startswith("--config="):
+            config = value.removeprefix("--config=")
+            if config.partition("=")[0].strip() in managed_keys:
+                index += 1
+                continue
+        result.append(value)
+        index += 1
+    return result
+
+
 def codex_remote_command(
     command: Sequence[str],
     socket_path: Path,
@@ -1786,7 +1809,7 @@ def codex_remote_command(
         for value in command[executable + 1 :]
     ):
         return None
-    result = list(command)
+    result = strip_managed_codex_tui_configs(command, executable)
     trust_config = codex_trusted_projects_config(trusted_directories or (Path.cwd(),))
     result[executable + 1 : executable + 1] = [
         "--remote",

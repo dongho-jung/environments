@@ -455,6 +455,29 @@ class LaunchBehaviorTest(unittest.TestCase):
         self.assertEqual(resumed[:10], [*prefix, "resume"])
         self.assertIsNone(review)
 
+    def test_managed_codex_replaces_stale_launcher_footer_configs(self) -> None:
+        stale_status = 'tui.status_line=["current-dir","task-progress"]'
+        command = AGENT_TASK.codex_remote_command(
+            [
+                "codex",
+                "-c",
+                stale_status,
+                "--config=tui.show_tooltips=true",
+                "-c",
+                'model="gpt-5.6"',
+                "inspect this",
+            ],
+            Path("/state/controls/session.sock"),
+            [Path("/repo")],
+        )
+
+        assert command is not None
+        self.assertNotIn(stale_status, command)
+        self.assertNotIn("--config=tui.show_tooltips=true", command)
+        self.assertEqual(command.count(AGENT_TASK.CODEX_STATUS_LINE_CONFIG), 1)
+        self.assertEqual(command.count(AGENT_TASK.CODEX_SHOW_TOOLTIPS_CONFIG), 1)
+        self.assertIn('model="gpt-5.6"', command)
+
     def test_codex_app_server_owns_the_first_prompt_provisioning_hook(self) -> None:
         socket = Path("/state/controls/session.sock")
         hook = AGENT_TASK.codex_provision_hook_config()
