@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-task __inbox-hook",
+            "command": "myriad __inbox-hook",
             "timeout": 10
           }
         ]
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-task __inbox-hook",
+            "command": "myriad __inbox-hook",
             "timeout": 10
           }
         ]
@@ -29,7 +29,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "agent_statusline.py --claude",
+    "command": "myriad statusline --claude",
     "padding": 0,
     "refreshInterval": 1
   },

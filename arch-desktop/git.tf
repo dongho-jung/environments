@@ -48,7 +48,19 @@ resource "host_git_repo" "terraform_provider_host" {
   ]
 }
 
-# Repository memory is machine-local. Stable harness locks live outside
+resource "host_git_repo" "myriad" {
+  url  = "git@github.com:dongho-jung/myriad.git"
+  path = "${host_dir.projects.path}/myriad"
+
+  delete_on_destroy = false
+
+  depends_on = [
+    host_package_pacman.git,
+    host_ssh_config_host.github,
+  ]
+}
+
+# Repository memory is machine-local. Stable Myriad locks live outside
 # worktrees and need no repository-local ignore entry.
 resource "host_file" "global_gitignore" {
   path = "~/.config/git/ignore"
