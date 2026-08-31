@@ -41,6 +41,9 @@ local menu        = "hyprlauncher"
 local scratchpadName      = "magic"
 local scratchpadWorkspace = "special:" .. scratchpadName
 local scratchpadTerminal  = "kitty --class scratchpad-terminal --config \"$HOME/.config/kitty/scratchpad.conf\""
+local chromiumOverlayTag       = "super-grave-chromium"
+local chromiumOverlayWorkspace = "special:super-grave-chromium"
+local chromiumOverlayCommand   = "chromium --new-window 'chrome://newtab/'"
 local opacityControl      = "bash \"$HOME/.config/hypr/adjust-window-opacity.sh\""
 local potentialLock       = "\"$HOME/.config/hypr/potential-lock\""
 local potentialLockSubmap = "potential-lock"
@@ -498,18 +501,124 @@ local function moveActiveWindowToScratchpad()
     end
 end
 
-local function toggleScratchpad()
-    local ws = hl.get_workspace(scratchpadWorkspace)
-    local startTerminal = not ws or ws.is_empty
+local function findChromiumOverlay()
+    return hl.get_windows({ tag = chromiumOverlayTag })[1]
+end
 
-    hl.dispatch(hl.dsp.workspace.toggle_special(scratchpadName))
-
-    if startTerminal then
-        hl.exec_cmd(scratchpadTerminal)
+local function setChromiumOverlayOpacity(w)
+    for _, prop in ipairs({ "opacity", "opacity_inactive", "opacity_fullscreen" }) do
+        hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "0.60", window = w }))
+    end
+    for _, prop in ipairs({ "opacity_override", "opacity_inactive_override", "opacity_fullscreen_override" }) do
+        hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "true", window = w }))
     end
 end
 
-bind(mainMod .. " + grave",         toggleScratchpad,             "워크스페이스 · scratchpad 열기/닫기")
+local function showChromiumOverlay(w)
+    local monitor = hl.get_active_monitor()
+    local workspace = monitor and hl.get_active_workspace(monitor)
+    if not monitor or not workspace then return end
+
+    -- A pinned window cannot move between workspaces. Reattach it to the
+    -- currently active workspace first, then restore the sticky state.
+    if w.pinned then
+        hl.dispatch(hl.dsp.window.pin({ action = "unset", window = w }))
+    end
+    hl.dispatch(hl.dsp.window.move({ workspace = workspace, follow = false, window = w }))
+    hl.dispatch(hl.dsp.window.float({ action = "set", window = w }))
+
+    -- Give Chromium its fullscreen UI without putting the compositor window
+    -- into fullscreen. That keeps the window eligible for pinning while its
+    -- floating geometry fills the active monitor.
+    hl.dispatch(hl.dsp.window.fullscreen_state({
+        internal = 0,
+        client   = 2,
+        action   = "set",
+        window   = w,
+    }))
+
+    local width = math.floor(monitor.width / monitor.scale + 0.5)
+    local height = math.floor(monitor.height / monitor.scale + 0.5)
+    hl.dispatch(hl.dsp.window.resize({ x = width, y = height, window = w }))
+    hl.dispatch(hl.dsp.window.move({ x = monitor.x, y = monitor.y, window = w }))
+    setChromiumOverlayOpacity(w)
+    hl.dispatch(hl.dsp.window.pin({ action = "set", window = w }))
+    hl.dispatch(hl.dsp.focus({ window = w }))
+    hl.dispatch(hl.dsp.window.bring_to_top())
+end
+
+local function hideChromiumOverlay(w)
+    if w.pinned then
+        hl.dispatch(hl.dsp.window.pin({ action = "unset", window = w }))
+    end
+    hl.dispatch(hl.dsp.window.move({
+        workspace = chromiumOverlayWorkspace,
+        follow    = false,
+        window    = w,
+    }))
+end
+
+local chromiumOverlayLaunchTimer
+local chromiumOverlayShouldShow = false
+
+local function launchChromiumOverlay()
+    local existingChromiumWindows = {}
+    for _, w in ipairs(hl.get_windows({ class = "chromium" })) do
+        existingChromiumWindows[tostring(w.stable_id)] = true
+    end
+
+    local attempts = 0
+    chromiumOverlayLaunchTimer = hl.timer(function()
+        attempts = attempts + 1
+
+        for _, w in ipairs(hl.get_windows({ class = "chromium" })) do
+            if not existingChromiumWindows[tostring(w.stable_id)] then
+                chromiumOverlayLaunchTimer:set_enabled(false)
+                chromiumOverlayLaunchTimer = nil
+                hl.dispatch(hl.dsp.window.tag({ tag = "+" .. chromiumOverlayTag, window = w }))
+
+                if chromiumOverlayShouldShow then
+                    showChromiumOverlay(w)
+                else
+                    hideChromiumOverlay(w)
+                end
+                return
+            end
+        end
+
+        if attempts >= 100 then
+            chromiumOverlayLaunchTimer:set_enabled(false)
+            chromiumOverlayLaunchTimer = nil
+            chromiumOverlayShouldShow = false
+        end
+    end, { timeout = 50, type = "repeat" })
+
+    hl.exec_cmd(chromiumOverlayCommand)
+end
+
+local function toggleChromiumOverlay()
+    local w = findChromiumOverlay()
+    if w then
+        local shown = w.visible and w.workspace and w.workspace.name ~= chromiumOverlayWorkspace
+        chromiumOverlayShouldShow = not shown
+        if shown then
+            hideChromiumOverlay(w)
+        else
+            showChromiumOverlay(w)
+        end
+        return
+    end
+
+    if chromiumOverlayLaunchTimer then
+        chromiumOverlayShouldShow = not chromiumOverlayShouldShow
+        return
+    end
+
+    chromiumOverlayShouldShow = true
+    launchChromiumOverlay()
+end
+
+bind(mainMod .. " + grave",         toggleChromiumOverlay,        "앱 · 반투명 Chromium 열기/숨기기")
 bind(mainMod .. " + SHIFT + grave", moveActiveWindowToScratchpad, "워크스페이스 · 창을 scratchpad로 보내기")
 
 -- Scroll through existing workspaces with mainMod + scroll
