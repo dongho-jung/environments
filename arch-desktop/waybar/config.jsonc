@@ -7,7 +7,7 @@
 
     "modules-left": ["hyprland/workspaces", "hyprland/window"],
     "modules-center": ["clock"],
-    "modules-right": ["custom/recording", "custom/vpn", "cpu", "temperature", "memory", "disk", "network", "bluetooth", "pulseaudio", "tray", "custom/potential-lock"],
+    "modules-right": ["custom/recording", "custom/vpn", "cpu", "custom/temperature", "memory", "disk", "network", "bluetooth", "pulseaudio", "tray", "custom/session-guard"],
 
     "hyprland/workspaces": {
         "format": "{id}",
@@ -55,14 +55,14 @@
         "format": "CPU {usage}%"
     },
 
-    "temperature": {
+    // The private guard owns the active-session payload; otherwise this reports
+    // the CPU package temperature from a stable hwmon device path.
+    "custom/temperature": {
         "interval": 2,
-        // Stable device path (hwmonN numbering is not stable across reboots).
-        "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon",
-        "input-filename": "temp1_input",
-        "critical-threshold": 85,
-        "format": "TEMP {temperatureC}°C",
-        "format-critical": "TEMP {temperatureC}°C!"
+        "signal": 9,
+        "exec": "$HOME/.local/libexec/sunglass temperature --hwmon-path-abs /sys/devices/platform/coretemp.0/hwmon --input-filename temp1_input --critical-threshold 85",
+        "return-type": "json",
+        "format": "{}"
     },
 
     "memory": {
@@ -113,12 +113,10 @@
         "on-click-right": "pavucontrol --tab=3"
     },
 
-    // Deliberately reveals only whether the input shield is active. The host's
-    // policy and verifier remain in private, machine-local state.
-    "custom/potential-lock": {
+    "custom/session-guard": {
         "interval": 2,
         "signal": 9,
-        "exec": "$HOME/.config/hypr/potential-lock status",
+        "exec": "$HOME/.local/libexec/sunglass status",
         "return-type": "json",
         "format": "{}",
         "hide-empty-text": true

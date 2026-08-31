@@ -28,14 +28,14 @@ window#waybar {
 #window,
 #clock,
 #cpu,
-#temperature,
+#custom-temperature,
 #memory,
 #disk,
 #network,
 #bluetooth,
 #pulseaudio,
 #tray,
-#custom-potential-lock {
+#custom-session-guard {
     padding: 0 8px;
 }
 
@@ -43,7 +43,7 @@ window#waybar {
     font-weight: bold;
 }
 
-#temperature.critical {
+#custom-temperature.critical {
     color: #f38ba8;
     background: rgba(243, 139, 168, 0.15);
 }
@@ -65,7 +65,7 @@ window#waybar {
     color: #6c7086;
 }
 
-#custom-potential-lock.active {
+#custom-session-guard.active {
     padding: 0 7px;
 }
 

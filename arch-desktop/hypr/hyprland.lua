@@ -45,8 +45,8 @@ local chromiumOverlayTag       = "super-grave-chromium"
 local chromiumOverlayWorkspace = "special:super-grave-chromium"
 local chromiumOverlayCommand   = "chromium --new-window 'chrome://newtab/'"
 local opacityControl      = "bash \"$HOME/.config/hypr/adjust-window-opacity.sh\""
-local potentialLock       = "\"$HOME/.config/hypr/potential-lock\""
-local potentialLockSubmap = "potential-lock"
+local sessionGuard       = "\"$HOME/.local/libexec/sunglass\""
+local sessionGuardSubmap = "session-guard"
 
 
 -------------------
@@ -675,9 +675,9 @@ captureBind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config
 captureBind("CTRL + Print",                hl.dsp.exec_cmd("hyprshot -m window -m active --raw | " .. satty), "캡처 · 현재 창 즉시 스크린샷 후 주석")
 captureBind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\" toggle-window"), "녹화 · 현재 창 시작/중지")
 
--- Universal capture shortcuts must not bypass the input shield's submap.
+-- Universal capture shortcuts must not bypass the private session guard.
 local function updateCaptureBinds(submap)
-    local enabled = submap ~= potentialLockSubmap
+    local enabled = submap ~= sessionGuardSubmap
     for _, capture in ipairs(captureBinds) do
         capture:set_enabled(enabled)
     end
@@ -793,21 +793,20 @@ hl.window_rule({
     float = true,
 })
 
-local suspendAfterLock = "sh -c '" .. potentialLock .. " lock; sleep 1; systemctl suspend'"
+local suspendAfterLock = "sh -c '" .. sessionGuard .. " lock; sleep 1; systemctl suspend'"
 
--- While the transparent input shield owns focus, this submap disables ordinary
--- compositor shortcuts. Unmatched keys remain non-consuming so the shield can
--- evaluate them, while the explicit hard-lock shortcuts stay available.
-hl.define_submap(potentialLockSubmap, function()
-    hl.bind("SUPER + CTRL + L", hl.dsp.exec_cmd(potentialLock .. " lock"))
+-- The private guard owns all input decisions; the compositor only isolates its
+-- session and preserves explicit hard-lock shortcuts.
+hl.define_submap(sessionGuardSubmap, function()
+    hl.bind("SUPER + CTRL + L", hl.dsp.exec_cmd(sessionGuard .. " lock"))
     hl.bind("SUPER + SHIFT + L", hl.dsp.exec_cmd(suspendAfterLock))
     hl.bind("SUPER + L", function() end)
     hl.bind("catchall", function() end, { ignore_mods = true, non_consuming = true })
 end)
 
 bind("SUPER + L", function()
-    hl.dispatch(hl.dsp.submap(potentialLockSubmap))
-    hl.exec_cmd(potentialLock .. " activate")
-end, "세션 · Potential Lock")
-bind("SUPER + CTRL + L", hl.dsp.exec_cmd(potentialLock .. " lock"), "세션 · 화면 잠그기")
+    hl.dispatch(hl.dsp.submap(sessionGuardSubmap))
+    hl.exec_cmd(sessionGuard .. " activate")
+end, "세션 · 보호 모드")
+bind("SUPER + CTRL + L", hl.dsp.exec_cmd(sessionGuard .. " lock"), "세션 · 화면 잠그기")
 bind("SUPER + SHIFT + L", hl.dsp.exec_cmd(suspendAfterLock), "세션 · 잠근 뒤 절전")

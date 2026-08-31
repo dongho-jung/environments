@@ -33,13 +33,14 @@ resource "host_link" "hypr_config" {
   stage_source = true
 
   depends_on = [
-    # Potential Lock uses gtk-layer-shell from Waybar and python-gobject from
-    # Blueman. Both are direct Pacman dependencies of these managed packages.
+    # The private session guard uses GTK layer-shell and Python GObject, which
+    # are direct runtime dependencies of these managed desktop packages.
     host_package_aur.waybar,
     host_package_pacman.blueman,
     host_package_pacman.jq,
     host_package_pacman.hyprland,
     host_package_pacman.pipewire_pulse,
+    host_link.sunglass,
     host_systemd_service.bluetooth,
   ]
 }
