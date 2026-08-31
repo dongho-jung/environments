@@ -42,6 +42,8 @@ local scratchpadName      = "magic"
 local scratchpadWorkspace = "special:" .. scratchpadName
 local scratchpadTerminal  = "kitty --class scratchpad-terminal --config \"$HOME/.config/kitty/scratchpad.conf\""
 local opacityControl      = "bash \"$HOME/.config/hypr/adjust-window-opacity.sh\""
+local sessionGuard       = "\"$HOME/.local/libexec/sunglass\""
+local sessionGuardSubmap = "session-guard"
 
 
 -------------------
@@ -552,8 +554,9 @@ bind("code:90", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),  
 local satty = "satty -f - --copy-command wl-copy --actions-on-escape=save-to-clipboard,exit --early-exit"
 -- Keep capture shortcuts available inside temporary input modes such as
 -- wl-wysiwyc's keyboard-navigation submap.
+local captureBinds = {}
 local function captureBind(keys, dispatcher, description)
-    bind(keys, dispatcher, description, { submap_universal = true })
+    captureBinds[#captureBinds + 1] = bind(keys, dispatcher, description, { submap_universal = true })
 end
 captureBind("Print",                       hl.dsp.exec_cmd("hyprshot -m region --freeze --raw | " .. satty), "캡처 · 선택 영역 스크린샷 후 주석")
 captureBind(mainMod .. " + Print",         hl.dsp.exec_cmd("hyprshot -m window --raw | " .. satty),          "캡처 · 선택한 창 스크린샷 후 주석")
@@ -562,6 +565,16 @@ captureBind("ALT + Print",                 hl.dsp.exec_cmd("wayscrollshot"),    
 captureBind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\""),   "녹화 · 선택 영역 시작/중지")
 captureBind("CTRL + Print",                hl.dsp.exec_cmd("hyprshot -m window -m active --raw | " .. satty), "캡처 · 현재 창 즉시 스크린샷 후 주석")
 captureBind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\" toggle-window"), "녹화 · 현재 창 시작/중지")
+
+-- Universal capture shortcuts must not bypass the private session guard.
+local function updateCaptureBinds(submap)
+    local enabled = submap ~= sessionGuardSubmap
+    for _, capture in ipairs(captureBinds) do
+        capture:set_enabled(enabled)
+    end
+end
+updateCaptureBinds(hl.get_current_submap())
+hl.on("keybinds.submap", updateCaptureBinds)
 
 -- Keyboard-driven clicking: the Hangul key opens wl-wysiwyc, which labels the
 -- focused window's clickable elements; typing a label puts the pointer on it,
@@ -671,5 +684,20 @@ hl.window_rule({
     float = true,
 })
 
-bind("SUPER + L", hl.dsp.exec_cmd("hyprlock"), "세션 · 화면 잠그기")
-bind("SUPER + SHIFT + L", hl.dsp.exec_cmd("sh -c 'pidof hyprlock || hyprlock & sleep 1; systemctl suspend'"), "세션 · 잠근 뒤 절전")
+local suspendAfterLock = "sh -c '" .. sessionGuard .. " lock; sleep 1; systemctl suspend'"
+
+-- The private guard owns all input decisions; the compositor only isolates its
+-- session and preserves explicit hard-lock shortcuts.
+hl.define_submap(sessionGuardSubmap, function()
+    hl.bind("SUPER + CTRL + L", hl.dsp.exec_cmd(sessionGuard .. " lock"))
+    hl.bind("SUPER + SHIFT + L", hl.dsp.exec_cmd(suspendAfterLock))
+    hl.bind("SUPER + L", function() end)
+    hl.bind("catchall", function() end, { ignore_mods = true, non_consuming = true })
+end)
+
+bind("SUPER + L", function()
+    hl.dispatch(hl.dsp.submap(sessionGuardSubmap))
+    hl.exec_cmd(sessionGuard .. " activate")
+end, "세션 · 보호 모드")
+bind("SUPER + CTRL + L", hl.dsp.exec_cmd(sessionGuard .. " lock"), "세션 · 화면 잠그기")
+bind("SUPER + SHIFT + L", hl.dsp.exec_cmd(suspendAfterLock), "세션 · 잠근 뒤 절전")
