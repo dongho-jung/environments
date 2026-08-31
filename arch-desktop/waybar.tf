@@ -16,6 +16,7 @@ resource "host_link" "waybar_config" {
   stage_source = true
 
   depends_on = [
+    host_link.hypr_config,
     host_systemd_service.bluetooth,
     host_package_aur.waybar,
     host_package_pacman.blueman,

@@ -7,7 +7,7 @@
 
     "modules-left": ["hyprland/workspaces", "hyprland/window"],
     "modules-center": ["clock"],
-    "modules-right": ["custom/recording", "custom/vpn", "cpu", "temperature", "memory", "disk", "network", "bluetooth", "pulseaudio", "tray"],
+    "modules-right": ["custom/recording", "custom/vpn", "cpu", "temperature", "memory", "disk", "network", "bluetooth", "pulseaudio", "tray", "custom/potential-lock"],
 
     "hyprland/workspaces": {
         "format": "{id}",
@@ -111,6 +111,17 @@
         "max-length": 36,
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
         "on-click-right": "pavucontrol --tab=3"
+    },
+
+    // Deliberately reveals only whether the input shield is active. The host's
+    // policy and verifier remain in private, machine-local state.
+    "custom/potential-lock": {
+        "interval": 2,
+        "signal": 9,
+        "exec": "$HOME/.config/hypr/potential-lock status",
+        "return-type": "json",
+        "format": "{}",
+        "hide-empty-text": true
     },
 
     "tray": {

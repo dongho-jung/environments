@@ -1,0 +1,763 @@
+#!/usr/bin/env python3
+"""A fail-closed, input-capturing pre-lock mode for the Hyprland session."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import dataclasses
+import enum
+import fcntl
+import getpass
+import hashlib
+import hmac
+import json
+import math
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from typing import Any
+
+
+APP_NAME = "potential-lock"
+POLICY_VERSION = 1
+WAYBAR_SIGNAL = 9
+KDF_N = 1 << 14
+KDF_R = 8
+KDF_P = 1
+KDF_LENGTH = 32
+KDF_MAX_MEMORY = 64 * 1024 * 1024
+
+
+class Decision(enum.Enum):
+    WAIT = "wait"
+    UNLOCK = "unlock"
+    LOCK = "lock"
+
+
+def _decode_bytes(value: str) -> bytes:
+    return base64.b64decode(value.encode("ascii"), validate=True)
+
+
+def _encode_bytes(value: bytes) -> str:
+    return base64.b64encode(value).decode("ascii")
+
+
+def _derive(candidate: str, salt: bytes) -> bytes:
+    return hashlib.scrypt(
+        candidate.encode("utf-8"),
+        salt=salt,
+        n=KDF_N,
+        r=KDF_R,
+        p=KDF_P,
+        maxmem=KDF_MAX_MEMORY,
+        dklen=KDF_LENGTH,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class Policy:
+    salt: bytes
+    prefix_digests: tuple[bytes, ...]
+    invalid_key_limit: int
+    corner_contacts: int
+    corner_radius: float
+    motion_commit: float
+    reverse_distance: float
+
+    @classmethod
+    def create(
+        cls,
+        pin: str,
+        *,
+        invalid_key_limit: int,
+        corner_contacts: int,
+        corner_radius: float,
+        motion_commit: float,
+        reverse_distance: float,
+    ) -> "Policy":
+        if not 2 <= len(pin) <= 32 or not pin.isprintable():
+            raise ValueError("PIN must contain 2 to 32 printable characters")
+        if not 1 <= invalid_key_limit <= len(pin):
+            raise ValueError("invalid key limit must be between 1 and the PIN length")
+        if not 2 <= corner_contacts <= 16:
+            raise ValueError("corner contacts must be between 2 and 16")
+        if not 4 <= corner_radius <= 256:
+            raise ValueError("corner radius must be between 4 and 256")
+        if not 8 <= motion_commit <= 4096:
+            raise ValueError("motion commit distance must be between 8 and 4096")
+        if not 8 <= reverse_distance <= 4096:
+            raise ValueError("reverse distance must be between 8 and 4096")
+
+        salt = os.urandom(16)
+        prefixes = tuple(_derive(pin[:length], salt) for length in range(1, len(pin) + 1))
+        return cls(
+            salt=salt,
+            prefix_digests=prefixes,
+            invalid_key_limit=invalid_key_limit,
+            corner_contacts=corner_contacts,
+            corner_radius=float(corner_radius),
+            motion_commit=float(motion_commit),
+            reverse_distance=float(reverse_distance),
+        )
+
+    @classmethod
+    def from_json(cls, payload: dict[str, Any]) -> "Policy":
+        if payload.get("version") != POLICY_VERSION:
+            raise ValueError("unsupported policy version")
+
+        verifier = payload["verifier"]
+        rules = payload["rules"]
+        if verifier.get("algorithm") != "scrypt-prefix-v1":
+            raise ValueError("unsupported verifier algorithm")
+        policy = cls(
+            salt=_decode_bytes(verifier["salt"]),
+            prefix_digests=tuple(_decode_bytes(item) for item in verifier["prefixes"]),
+            invalid_key_limit=int(rules["invalid_key_limit"]),
+            corner_contacts=int(rules["corner_contacts"]),
+            corner_radius=float(rules["corner_radius"]),
+            motion_commit=float(rules["motion_commit"]),
+            reverse_distance=float(rules["reverse_distance"]),
+        )
+        if not policy.prefix_digests:
+            raise ValueError("policy has no verifier")
+        if len(policy.salt) < 16 or any(len(item) != KDF_LENGTH for item in policy.prefix_digests):
+            raise ValueError("policy verifier is malformed")
+        if not 1 <= policy.invalid_key_limit <= len(policy.prefix_digests):
+            raise ValueError("policy key limit is malformed")
+        if not 2 <= policy.corner_contacts <= 16:
+            raise ValueError("policy corner count is malformed")
+        if not 4 <= policy.corner_radius <= 256:
+            raise ValueError("policy corner radius is malformed")
+        if not 8 <= policy.motion_commit <= 4096:
+            raise ValueError("policy motion threshold is malformed")
+        if not 8 <= policy.reverse_distance <= 4096:
+            raise ValueError("policy reverse threshold is malformed")
+        return policy
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "version": POLICY_VERSION,
+            "verifier": {
+                "algorithm": "scrypt-prefix-v1",
+                "salt": _encode_bytes(self.salt),
+                "prefixes": [_encode_bytes(item) for item in self.prefix_digests],
+            },
+            "rules": {
+                "invalid_key_limit": self.invalid_key_limit,
+                "corner_contacts": self.corner_contacts,
+                "corner_radius": self.corner_radius,
+                "motion_commit": self.motion_commit,
+                "reverse_distance": self.reverse_distance,
+            },
+        }
+
+    def matches_prefix(self, candidate: str, event_count: int) -> bool:
+        if not 1 <= event_count <= len(self.prefix_digests):
+            return False
+        actual = _derive(candidate, self.salt)
+        return hmac.compare_digest(actual, self.prefix_digests[event_count - 1])
+
+
+class InputState:
+    """Pure input state machine; the Wayland adapter only translates events."""
+
+    def __init__(self, policy: Policy) -> None:
+        self.policy = policy
+        self.key_tokens: list[str] = []
+        self.corner_ids: set[str] = set()
+        self.inside_corner: str | None = None
+        self.motion_surface: str | None = None
+        self.motion_origin: tuple[float, float] | None = None
+        self.motion_furthest = 0.0
+
+    def key_pressed(self, token: str) -> Decision:
+        self.key_tokens.append(token)
+        candidate = "".join(self.key_tokens)
+        event_count = len(self.key_tokens)
+
+        if self.policy.matches_prefix(candidate, event_count):
+            if event_count == len(self.policy.prefix_digests):
+                return Decision.UNLOCK
+            return Decision.WAIT
+
+        if event_count >= self.policy.invalid_key_limit:
+            return Decision.LOCK
+        return Decision.WAIT
+
+    def pointer_motion(
+        self,
+        surface: str,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+    ) -> Decision:
+        if width <= 0 or height <= 0:
+            return Decision.WAIT
+
+        if surface != self.motion_surface:
+            self._reset_motion(surface, x, y)
+            self.inside_corner = None
+
+        corner = self._corner_at(surface, x, y, width, height)
+        entered_corner = corner is not None and corner != self.inside_corner
+        self.inside_corner = corner
+
+        if entered_corner and corner not in self.corner_ids:
+            self.corner_ids.add(corner)
+            self._reset_motion(surface, x, y)
+            if len(self.corner_ids) >= self.policy.corner_contacts:
+                return Decision.UNLOCK
+            return Decision.WAIT
+
+        assert self.motion_origin is not None
+        distance = math.hypot(x - self.motion_origin[0], y - self.motion_origin[1])
+        if distance > self.motion_furthest:
+            self.motion_furthest = distance
+            return Decision.WAIT
+
+        if (
+            self.motion_furthest >= self.policy.motion_commit
+            and self.motion_furthest - distance >= self.policy.reverse_distance
+        ):
+            return Decision.LOCK
+        return Decision.WAIT
+
+    def _reset_motion(self, surface: str, x: float, y: float) -> None:
+        self.motion_surface = surface
+        self.motion_origin = (x, y)
+        self.motion_furthest = 0.0
+
+    def _corner_at(
+        self,
+        surface: str,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+    ) -> str | None:
+        radius = self.policy.corner_radius
+        horizontal = "left" if x <= radius else "right" if x >= width - radius else None
+        vertical = "top" if y <= radius else "bottom" if y >= height - radius else None
+        if horizontal is None or vertical is None:
+            return None
+        return f"{surface}:{vertical}-{horizontal}"
+
+
+def _runtime_root() -> Path:
+    configured = os.environ.get("XDG_RUNTIME_DIR")
+    path = Path(configured) if configured else Path("/run/user") / str(os.getuid())
+    if not path.is_dir():
+        raise RuntimeError("XDG runtime directory is unavailable")
+    return path / APP_NAME
+
+
+def _state_root() -> Path:
+    configured = os.environ.get("XDG_STATE_HOME")
+    base = Path(configured) if configured else Path.home() / ".local" / "state"
+    return base / APP_NAME
+
+
+def _ensure_private_directory(path: Path) -> None:
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stat = path.lstat()
+    if not path.is_dir() or path.is_symlink() or stat.st_uid != os.getuid():
+        raise RuntimeError(f"unsafe state directory: {path}")
+    os.chmod(path, 0o700)
+
+
+def _atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
+    _ensure_private_directory(path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _load_policy() -> Policy:
+    path = _state_root() / "policy.json"
+    stat = path.stat()
+    if stat.st_uid != os.getuid() or stat.st_mode & 0o077:
+        raise RuntimeError(f"unsafe policy permissions: {path}")
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return Policy.from_json(payload)
+
+
+def _process_start_time(pid: int) -> str | None:
+    try:
+        stat = (Path("/proc") / str(pid) / "stat").read_text(encoding="utf-8")
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        return None
+    close_paren = stat.rfind(")")
+    fields = stat[close_paren + 2 :].split()
+    return fields[19] if close_paren >= 0 and len(fields) > 19 else None
+
+
+def _active_process() -> int | None:
+    try:
+        runtime = _runtime_root()
+    except RuntimeError:
+        return None
+    state_path = runtime / "active.json"
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        pid = int(payload["pid"])
+        expected = str(payload["start_time"])
+    except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if _process_start_time(pid) == expected:
+        return pid
+    try:
+        state_path.unlink()
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def _refresh_waybar() -> None:
+    try:
+        subprocess.run(
+            ["pkill", "--signal", f"RTMIN+{WAYBAR_SIGNAL}", "--exact", "waybar"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        pass
+
+
+def _set_default_submap() -> None:
+    try:
+        subprocess.run(
+            ["hyprctl", "eval", 'hl.dispatch(hl.dsp.submap("reset"))'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        pass
+
+
+def _locker_running() -> bool:
+    try:
+        return subprocess.run(
+            ["pidof", "hyprlock"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+    except OSError:
+        return False
+
+
+def _spawn_locker() -> subprocess.Popen[bytes] | None:
+    if _locker_running():
+        return None
+    return subprocess.Popen(
+        ["hyprlock"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def _notify_failure(message: str) -> None:
+    try:
+        subprocess.run(
+            ["notify-send", "-u", "critical", "Potential Lock", message],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        pass
+
+
+class Overlay:
+    MODIFIER_KEYS = {
+        "Alt_L",
+        "Alt_R",
+        "Caps_Lock",
+        "Control_L",
+        "Control_R",
+        "Hyper_L",
+        "Hyper_R",
+        "ISO_Level3_Shift",
+        "Meta_L",
+        "Meta_R",
+        "Num_Lock",
+        "Shift_L",
+        "Shift_R",
+        "Super_L",
+        "Super_R",
+    }
+
+    def __init__(self, policy: Policy, lock_descriptor: int) -> None:
+        import gi
+
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("GtkLayerShell", "0.1")
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import Gdk, GLib, GLibUnix, Gtk, GtkLayerShell
+
+        self.Gdk = Gdk
+        self.GLib = GLib
+        self.GLibUnix = GLibUnix
+        self.Gtk = Gtk
+        self.GtkLayerShell = GtkLayerShell
+        self.policy = policy
+        self.state = InputState(policy)
+        self.lock_descriptor = lock_descriptor
+        self.windows: list[Any] = []
+        self.finishing = False
+        self.pending_locker: subprocess.Popen[bytes] | None = None
+        self.runtime = _runtime_root()
+        self.active_path = self.runtime / "active.json"
+
+    def run(self) -> int:
+        if not self.GtkLayerShell.is_supported():
+            raise RuntimeError("the compositor does not support layer-shell")
+
+        self._install_transparent_style()
+        display = self.Gdk.Display.get_default()
+        if display is None or display.get_n_monitors() == 0:
+            raise RuntimeError("no Wayland output is available")
+
+        for index in range(display.get_n_monitors()):
+            self.windows.append(self._create_window(display.get_monitor(index), str(index)))
+        for window in self.windows:
+            window.show_all()
+        display.flush()
+
+        _atomic_json_write(
+            self.active_path,
+            {"pid": os.getpid(), "start_time": _process_start_time(os.getpid())},
+        )
+        _refresh_waybar()
+
+        self.GLibUnix.signal_add(self.GLib.PRIORITY_DEFAULT, signal.SIGUSR1, self._on_lock_signal)
+        self.GLibUnix.signal_add(self.GLib.PRIORITY_DEFAULT, signal.SIGTERM, self._on_exit_signal)
+        self.GLibUnix.signal_add(self.GLib.PRIORITY_DEFAULT, signal.SIGINT, self._on_exit_signal)
+
+        try:
+            self.Gtk.main()
+        finally:
+            self._clear_active_state()
+        return 0
+
+    def _install_transparent_style(self) -> None:
+        provider = self.Gtk.CssProvider()
+        provider.load_from_data(b"window.potential-lock { background-color: rgba(0, 0, 0, 0); }")
+        screen = self.Gdk.Screen.get_default()
+        if screen is not None:
+            self.Gtk.StyleContext.add_provider_for_screen(
+                screen,
+                provider,
+                self.Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            )
+
+    def _create_window(self, monitor: Any, surface: str) -> Any:
+        window = self.Gtk.Window(type=self.Gtk.WindowType.TOPLEVEL)
+        window.set_name("potential-lock")
+        window.get_style_context().add_class("potential-lock")
+        window.set_title("Potential Lock")
+        window.set_decorated(False)
+        window.set_app_paintable(True)
+        window.set_accept_focus(True)
+        window.set_focus_on_map(True)
+
+        visual = window.get_screen().get_rgba_visual()
+        if visual is not None:
+            window.set_visual(visual)
+
+        self.GtkLayerShell.init_for_window(window)
+        self.GtkLayerShell.set_namespace(window, APP_NAME)
+        self.GtkLayerShell.set_monitor(window, monitor)
+        self.GtkLayerShell.set_layer(window, self.GtkLayerShell.Layer.OVERLAY)
+        self.GtkLayerShell.set_exclusive_zone(window, -1)
+        self.GtkLayerShell.set_keyboard_mode(window, self.GtkLayerShell.KeyboardMode.EXCLUSIVE)
+        for edge in (
+            self.GtkLayerShell.Edge.TOP,
+            self.GtkLayerShell.Edge.RIGHT,
+            self.GtkLayerShell.Edge.BOTTOM,
+            self.GtkLayerShell.Edge.LEFT,
+        ):
+            self.GtkLayerShell.set_anchor(window, edge, True)
+
+        window.add_events(
+            self.Gdk.EventMask.POINTER_MOTION_MASK
+            | self.Gdk.EventMask.BUTTON_PRESS_MASK
+            | self.Gdk.EventMask.SCROLL_MASK
+            | self.Gdk.EventMask.SMOOTH_SCROLL_MASK
+            | self.Gdk.EventMask.TOUCH_MASK
+        )
+        window.connect("key-press-event", self._on_key_press)
+        window.connect("motion-notify-event", self._on_motion, surface)
+        window.connect("button-press-event", self._on_button_press)
+        window.connect("scroll-event", self._on_scroll)
+        window.connect("touch-event", self._on_touch)
+        window.connect("delete-event", lambda *_args: True)
+        return window
+
+    def _on_key_press(self, _window: Any, event: Any) -> bool:
+        if self.finishing:
+            return True
+        name = self.Gdk.keyval_name(event.keyval) or ""
+        if name in self.MODIFIER_KEYS:
+            return True
+        codepoint = self.Gdk.keyval_to_unicode(event.keyval)
+        token = chr(codepoint) if codepoint and chr(codepoint).isprintable() else f"\0{event.hardware_keycode}"
+        self._apply(self.state.key_pressed(token))
+        return True
+
+    def _on_motion(self, window: Any, event: Any, surface: str) -> bool:
+        if self.finishing:
+            return True
+        decision = self.state.pointer_motion(
+            surface,
+            float(event.x),
+            float(event.y),
+            float(window.get_allocated_width()),
+            float(window.get_allocated_height()),
+        )
+        self._apply(decision)
+        return True
+
+    def _on_button_press(self, *_args: Any) -> bool:
+        self._apply(Decision.LOCK)
+        return True
+
+    def _on_scroll(self, _window: Any, event: Any) -> bool:
+        if event.direction == self.Gdk.ScrollDirection.SMOOTH:
+            available, delta_x, delta_y = event.get_scroll_deltas()
+            if available and delta_x == 0 and delta_y == 0:
+                return True
+        self._apply(Decision.LOCK)
+        return True
+
+    def _on_touch(self, *_args: Any) -> bool:
+        self._apply(Decision.LOCK)
+        return True
+
+    def _apply(self, decision: Decision) -> None:
+        if decision is Decision.UNLOCK:
+            self._finish(lock=False)
+        elif decision is Decision.LOCK:
+            self._begin_lock()
+
+    def _begin_lock(self) -> None:
+        if self.finishing:
+            return
+        self.finishing = True
+        _set_default_submap()
+        try:
+            self.pending_locker = _spawn_locker()
+        except OSError as error:
+            self.finishing = False
+            _notify_failure(f"화면 잠금 실행 실패: {error}")
+            return
+
+        if self.pending_locker is None:
+            self._finish(lock=True)
+            return
+        self.GLib.timeout_add(150, self._confirm_locker)
+
+    def _confirm_locker(self) -> bool:
+        if self.pending_locker is not None and self.pending_locker.poll() is not None and not _locker_running():
+            self.pending_locker = None
+            self.finishing = False
+            _notify_failure("화면 잠금 프로세스가 시작되지 않았습니다.")
+            return False
+        self._finish(lock=True)
+        return False
+
+    def _finish(self, *, lock: bool) -> None:
+        if not lock:
+            self.finishing = True
+            _set_default_submap()
+        for window in self.windows:
+            window.hide()
+            window.destroy()
+        display = self.Gdk.Display.get_default()
+        if display is not None:
+            display.flush()
+        self._clear_active_state()
+        self.Gtk.main_quit()
+
+    def _clear_active_state(self) -> None:
+        try:
+            self.active_path.unlink()
+        except FileNotFoundError:
+            pass
+        _refresh_waybar()
+
+    def _on_lock_signal(self) -> bool:
+        self._begin_lock()
+        return True
+
+    def _on_exit_signal(self) -> bool:
+        self._finish(lock=False)
+        return True
+
+
+def _acquire_instance_lock() -> int | None:
+    runtime = _runtime_root()
+    _ensure_private_directory(runtime)
+    descriptor = os.open(runtime / "instance.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(descriptor)
+        return None
+    return descriptor
+
+
+def command_activate(_args: argparse.Namespace) -> int:
+    try:
+        descriptor = _acquire_instance_lock()
+    except (OSError, RuntimeError) as error:
+        _set_default_submap()
+        _notify_failure(str(error))
+        try:
+            _spawn_locker()
+        except OSError:
+            pass
+        return 1
+    if descriptor is None:
+        return 0
+
+    try:
+        policy = _load_policy()
+        return Overlay(policy, descriptor).run()
+    except Exception as error:  # Fail closed when the input shield cannot start.
+        _set_default_submap()
+        _notify_failure(str(error))
+        try:
+            _spawn_locker()
+        except OSError:
+            pass
+        return 1
+    finally:
+        os.close(descriptor)
+
+
+def command_lock(_args: argparse.Namespace) -> int:
+    _set_default_submap()
+    pid = _active_process()
+    if pid is not None:
+        try:
+            os.kill(pid, signal.SIGUSR1)
+        except ProcessLookupError:
+            pid = None
+        else:
+            for _ in range(24):
+                if _locker_running():
+                    return 0
+                time.sleep(0.05)
+    try:
+        spawned = _spawn_locker()
+    except OSError as error:
+        _notify_failure(f"화면 잠금 실행 실패: {error}")
+        return 1
+    if pid is not None and spawned is not None:
+        time.sleep(0.15)
+        if spawned.poll() is None:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+    return 0
+
+
+def command_status(_args: argparse.Namespace) -> int:
+    if _active_process() is None:
+        print(json.dumps({"text": "", "class": "inactive"}, ensure_ascii=False))
+    else:
+        print(
+            json.dumps(
+                {"text": "😎", "class": "active", "tooltip": "Potential Lock"},
+                ensure_ascii=False,
+            )
+        )
+    return 0
+
+
+def _read_new_pin() -> str:
+    if sys.stdin.isatty():
+        first = getpass.getpass("New Potential Lock PIN: ")
+        second = getpass.getpass("Repeat PIN: ")
+    else:
+        first = sys.stdin.readline().rstrip("\n")
+        second = sys.stdin.readline().rstrip("\n")
+    if not hmac.compare_digest(first, second):
+        raise ValueError("PIN entries do not match")
+    return first
+
+
+def command_configure(args: argparse.Namespace) -> int:
+    try:
+        pin = _read_new_pin()
+        policy = Policy.create(
+            pin,
+            invalid_key_limit=args.invalid_key_limit,
+            corner_contacts=args.corner_contacts,
+            corner_radius=args.corner_radius,
+            motion_commit=args.motion_commit,
+            reverse_distance=args.reverse_distance,
+        )
+        _atomic_json_write(_state_root() / "policy.json", policy.to_json())
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"potential-lock: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=APP_NAME)
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    activate = commands.add_parser("activate")
+    activate.set_defaults(handler=command_activate)
+
+    lock = commands.add_parser("lock")
+    lock.set_defaults(handler=command_lock)
+
+    status = commands.add_parser("status")
+    status.set_defaults(handler=command_status)
+
+    configure = commands.add_parser("configure")
+    configure.add_argument("--invalid-key-limit", type=int, required=True)
+    configure.add_argument("--corner-contacts", type=int, required=True)
+    configure.add_argument("--corner-radius", type=float, required=True)
+    configure.add_argument("--motion-commit", type=float, required=True)
+    configure.add_argument("--reverse-distance", type=float, required=True)
+    configure.set_defaults(handler=command_configure)
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    return int(args.handler(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

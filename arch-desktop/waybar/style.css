@@ -34,7 +34,8 @@ window#waybar {
 #network,
 #bluetooth,
 #pulseaudio,
-#tray {
+#tray,
+#custom-potential-lock {
     padding: 0 8px;
 }
 
@@ -62,6 +63,10 @@ window#waybar {
 #bluetooth.off,
 #bluetooth.no-controller {
     color: #6c7086;
+}
+
+#custom-potential-lock.active {
+    padding: 0 7px;
 }
 
 /* Recording pill: hidden by hide-empty-text unless our recorder is active. */

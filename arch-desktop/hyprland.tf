@@ -20,6 +20,17 @@ resource "host_package_pacman" "hyprlock" {
   name = "hyprlock"
 }
 
+# The Potential Lock input shield is a transparent GTK3 layer-shell surface.
+# Declare both runtime APIs directly instead of relying on Waybar's transitive
+# package graph.
+resource "host_package_pacman" "gtk_layer_shell" {
+  name = "gtk-layer-shell"
+}
+
+resource "host_package_pacman" "python_gobject" {
+  name = "python-gobject"
+}
+
 # Backlight control behind the XF86MonBrightness binds in hyprland.lua. This
 # desktop has no backlight device, so the binds are inert here; the package is
 # installed anyway to keep the shared hypr config portable to laptops.
@@ -34,8 +45,10 @@ resource "host_link" "hypr_config" {
 
   depends_on = [
     host_package_pacman.jq,
+    host_package_pacman.gtk_layer_shell,
     host_package_pacman.hyprland,
     host_package_pacman.pipewire_pulse,
+    host_package_pacman.python_gobject,
     host_systemd_service.bluetooth,
   ]
 }
