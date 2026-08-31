@@ -17,6 +17,32 @@
 - After verifying a stable fact that will matter again, record it in that repository's `.ai-memory` before exiting: shared topology and collision boundaries, authoritative deploy/test commands, lock or lease protocol, version/health verification, safe concurrency, and cleanup/recovery constraints. Do not store current lock holders, active task status, one-off deployment state, or other transient coordination data.
 - Repository memory is learned context, not a mutex. Concurrent external mutations still require a real atomic lock/lease, version precondition, isolated namespace, or an authoritative service that rejects conflicts. Never claim that `.ai-memory` itself prevents a race.
 
+## Proportional validation and automation side effects
+
+- Match validation effort to the behavior and risk changed. Documentation-only,
+  comment-only, formatting-only, and inert metadata changes normally need only
+  relevant static checks such as formatting, link or schema validation, and
+  `git diff --check`. Do not run application test suites, compile artifacts,
+  build or publish images, or deploy merely to complete a routine.
+- Treat pushes, pull-request creation or updates, merges, tag or ref creation,
+  workflow dispatches or reruns, AI reviews, artifact or registry publication,
+  and deployments as external mutations with possible cost and downstream side
+  effects. Perform them only when the requested outcome or an authoritative
+  repository workflow requires them; a local edit or commit does not by itself
+  authorize them.
+- Before a remote Git operation that can trigger automation, inspect the current
+  workflow and rules for event, branch, path, and required-check behavior.
+  Identify the jobs and external effects that will run, and prevent irrelevant
+  automation before the mutation instead of triggering it and cancelling later.
+- Use repository-supported path filters, job conditions, or skip controls only
+  after confirming their exact semantics and required-check interaction. Never
+  add a skip marker blindly. If low-risk changes repeatedly trigger expensive or
+  stateful automation, propose or, when authorized, fix the owning workflow in a
+  separate scoped change.
+- Repository instructions or an explicit user request can require broader
+  validation. Otherwise choose the smallest sufficient check, state what was
+  validated, and explain briefly why heavier checks were unnecessary.
+
 ## Repository checkout policy and managed worktrees
 
 - In a Git repository, every ordinary `c` launch, including the first, uses a Myriad-managed worktree created from the integration target. There is no repository mode setting and no contention-based native-checkout fallback. An ordinary launch resumes preserved work when no Claude task is live; otherwise it creates a fresh worktree automatically.
