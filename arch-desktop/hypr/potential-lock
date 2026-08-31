@@ -176,7 +176,10 @@ class InputState:
         self.motion_furthest = 0.0
 
     def key_pressed(self, token: str) -> Decision:
-        self.key_tokens.append(token)
+        if self.key_tokens and self.policy.matches_prefix(token, 1):
+            self.key_tokens = [token]
+        else:
+            self.key_tokens.append(token)
         candidate = "".join(self.key_tokens)
         event_count = len(self.key_tokens)
 
@@ -213,6 +216,9 @@ class InputState:
             self._reset_motion(surface, x, y)
             if len(self.corner_ids) >= self.policy.corner_contacts:
                 return Decision.UNLOCK
+            return Decision.WAIT
+
+        if self.corner_ids:
             return Decision.WAIT
 
         assert self.motion_origin is not None

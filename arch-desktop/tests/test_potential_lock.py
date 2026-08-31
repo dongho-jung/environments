@@ -53,6 +53,15 @@ class PotentialLockTest(unittest.TestCase):
         self.assertEqual(state.key_pressed("y"), MODULE.Decision.WAIT)
         self.assertEqual(state.key_pressed("z"), MODULE.Decision.LOCK)
 
+    def test_pin_first_key_restarts_input_after_a_typo(self) -> None:
+        state = MODULE.InputState(self.policy())
+
+        self.assertEqual(state.key_pressed("x"), MODULE.Decision.WAIT)
+        self.assertEqual(state.key_pressed("8"), MODULE.Decision.WAIT)
+        self.assertEqual(state.key_pressed("6"), MODULE.Decision.WAIT)
+        self.assertEqual(state.key_pressed("4"), MODULE.Decision.WAIT)
+        self.assertEqual(state.key_pressed("2"), MODULE.Decision.UNLOCK)
+
     def test_only_distinct_corner_contacts_accumulate(self) -> None:
         state = MODULE.InputState(self.policy())
 
@@ -69,6 +78,14 @@ class PotentialLockTest(unittest.TestCase):
         self.assertEqual(state.pointer_motion("a", 500, 300, 1000, 700), MODULE.Decision.WAIT)
         self.assertEqual(state.pointer_motion("a", 470, 302, 1000, 700), MODULE.Decision.WAIT)
         self.assertEqual(state.pointer_motion("a", 435, 300, 1000, 700), MODULE.Decision.LOCK)
+
+    def test_corner_route_ignores_reversal_until_another_corner(self) -> None:
+        state = MODULE.InputState(self.policy(corner_contacts=2))
+
+        self.assertEqual(state.pointer_motion("a", 1, 1, 1000, 700), MODULE.Decision.WAIT)
+        self.assertEqual(state.pointer_motion("a", 600, 300, 1000, 700), MODULE.Decision.WAIT)
+        self.assertEqual(state.pointer_motion("a", 300, 300, 1000, 700), MODULE.Decision.WAIT)
+        self.assertEqual(state.pointer_motion("a", 999, 1, 1000, 700), MODULE.Decision.UNLOCK)
 
 
 if __name__ == "__main__":
