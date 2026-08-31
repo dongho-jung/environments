@@ -24,11 +24,13 @@ resource "host_package_pacman" "hyprlock" {
 # Declare both runtime APIs directly instead of relying on Waybar's transitive
 # package graph.
 resource "host_package_pacman" "gtk_layer_shell" {
-  name = "gtk-layer-shell"
+  name           = "gtk-layer-shell"
+  install_reason = "dependency"
 }
 
 resource "host_package_pacman" "python_gobject" {
-  name = "python-gobject"
+  name           = "python-gobject"
+  install_reason = "dependency"
 }
 
 # Backlight control behind the XF86MonBrightness binds in hyprland.lua. This
