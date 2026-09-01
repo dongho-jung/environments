@@ -626,12 +626,12 @@ bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "워크스
 bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스페이스 · 이전으로 이동")
 
 -- Reuse the middle button as a context-sensitive left-button gesture. Floating
--- windows move exactly like SUPER+LMB; tiled windows receive Shift+LMB instead.
--- Keep the action chosen on press until release, since Shift+click can focus or
--- open another window before the physical middle button is released.
+-- windows move exactly like SUPER+LMB; tiled windows receive Ctrl+LMB instead.
+-- Keep the action chosen on press until release so a client-side Ctrl+click
+-- response cannot make the release take the other branch.
 local dragFloatingWindow = hl.dsp.window.drag()
-local shiftLeftClick = hl.dsp.send_shortcut({
-    mods = "SHIFT",
+local ctrlLeftClick = hl.dsp.send_shortcut({
+    mods = "CTRL",
     key  = "mouse:272",
 })
 local middleClickAction
@@ -645,11 +645,11 @@ local function handleMiddleClick()
     local w = hl.get_active_window()
     if not w then return end
 
-    middleClickAction = w.floating and dragFloatingWindow or shiftLeftClick
+    middleClickAction = w.floating and dragFloatingWindow or ctrlLeftClick
     hl.dispatch(middleClickAction)
 end
 
-bind("mouse:274", handleMiddleClick, "마우스 · 플로팅 창 이동/타일 창 Shift+클릭")
+bind("mouse:274", handleMiddleClick, "마우스 · 플로팅 창 이동/타일 창 Ctrl+클릭")
 
 -- Move/resize windows with mainMod + LMB/RMB and dragging
 bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   "마우스 · 창 이동", { mouse = true })
