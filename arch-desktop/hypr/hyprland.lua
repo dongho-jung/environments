@@ -44,8 +44,8 @@ local scratchpadTerminal  = "kitty --class scratchpad-terminal --config \"$HOME/
 local chromiumOverlayTag       = "super-grave-chromium"
 local chromiumOverlayWorkspace = "special:super-grave-chromium"
 local chromiumOverlayCommand   = "chromium --new-window 'chrome://newtab/'"
-local chromiumOverlayWidth     = 779
-local chromiumOverlayHeight    = 351
+local chromiumOverlayFallbackWidth  = 779
+local chromiumOverlayFallbackHeight = 351
 local opacityControl      = "bash \"$HOME/.config/hypr/adjust-window-opacity.sh\""
 local sessionGuard       = "\"$HOME/.local/libexec/sunglass\""
 local sessionGuardSubmap = "session-guard"
@@ -517,7 +517,6 @@ local chromiumOverlayLaunchRule = hl.window_rule({
     enabled          = false,
     match            = { class = "chromium" },
     float            = true,
-    size             = { chromiumOverlayWidth, chromiumOverlayHeight },
     center           = true,
     workspace        = chromiumOverlayWorkspace .. " silent",
     no_initial_focus = true,
@@ -532,7 +531,7 @@ local function setChromiumOverlayOpacity(w)
     end
 end
 
-local function configureChromiumOverlay(w)
+local function configureChromiumOverlay(w, width, height)
     -- The launch rule handles this before map in the normal case. Keep the
     -- dispatcher as a fallback for Chromium builds that change their initial
     -- class after window rules have run.
@@ -549,8 +548,8 @@ local function configureChromiumOverlay(w)
         window   = w,
     }))
     hl.dispatch(hl.dsp.window.resize({
-        x      = chromiumOverlayWidth,
-        y      = chromiumOverlayHeight,
+        x      = width,
+        y      = height,
         window = w,
     }))
     setChromiumOverlayOpacity(w)
@@ -609,6 +608,14 @@ local function finishChromiumOverlayLaunch()
 end
 
 local function launchChromiumOverlay()
+    local sourceWindow = hl.get_active_window()
+    local launchWidth = chromiumOverlayFallbackWidth
+    local launchHeight = chromiumOverlayFallbackHeight
+    if sourceWindow and sourceWindow.class == "kitty" then
+        launchWidth = sourceWindow.size.x
+        launchHeight = sourceWindow.size.y
+    end
+
     local existingChromiumWindows = {}
     for _, w in ipairs(hl.get_windows({ class = "chromium" })) do
         existingChromiumWindows[tostring(w.stable_id)] = true
@@ -623,7 +630,7 @@ local function launchChromiumOverlay()
             if not existingChromiumWindows[tostring(w.stable_id)] then
                 finishChromiumOverlayLaunch()
                 hl.dispatch(hl.dsp.window.tag({ tag = "+" .. chromiumOverlayTag, window = w }))
-                configureChromiumOverlay(w)
+                configureChromiumOverlay(w, launchWidth, launchHeight)
 
                 if chromiumOverlayShouldShow then
                     showChromiumOverlay(w)
