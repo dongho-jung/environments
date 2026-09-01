@@ -625,6 +625,74 @@ bind(mainMod .. " + SHIFT + grave", moveActiveWindowToScratchpad, "워크스페�
 bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "워크스페이스 · 다음으로 이동")
 bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스페이스 · 이전으로 이동")
 
+-- Reuse the middle button as a context-sensitive gesture. Floating windows
+-- move exactly like SUPER+LMB. On tiled windows, a short press remains
+-- Ctrl+LMB, while a downward, vertically dominant drag of at least 80 logical
+-- pixels sends Ctrl+W to the window where the gesture started.
+local middleSwipeDistance = 80
+local dragFloatingWindow = hl.dsp.window.drag()
+local floatingMiddleDragActive = false
+local tiledMiddleGesture
+
+local function sendSyntheticTap(mods, key, window)
+    for _, state in ipairs({ "down", "up" }) do
+        hl.dispatch(hl.dsp.send_key_state({
+            mods   = mods,
+            key    = key,
+            state  = state,
+            window = window,
+        }))
+    end
+end
+
+-- The floating dispatcher asks Hyprland to call this bind again on release so
+-- it can end the compositor-owned window drag. Tiled releases are handled by
+-- the separate release bind below.
+local function handleMiddlePressOrFloatingRelease()
+    if floatingMiddleDragActive then
+        hl.dispatch(dragFloatingWindow)
+        floatingMiddleDragActive = false
+        return
+    end
+
+    local w = hl.get_active_window()
+    if not w then return end
+
+    if w.floating then
+        floatingMiddleDragActive = true
+        hl.dispatch(dragFloatingWindow)
+        return
+    end
+
+    local cursor = hl.get_cursor_pos()
+    if not cursor then return end
+    tiledMiddleGesture = {
+        window = w,
+        x      = cursor.x,
+        y      = cursor.y,
+    }
+end
+
+local function finishTiledMiddleGesture()
+    local gesture = tiledMiddleGesture
+    tiledMiddleGesture = nil
+    if not gesture then return end
+
+    local cursor = hl.get_cursor_pos()
+    if not cursor then return end
+
+    local dx = cursor.x - gesture.x
+    local dy = cursor.y - gesture.y
+    if dy >= middleSwipeDistance and dy >= math.abs(dx) then
+        sendSyntheticTap("CTRL", "W", gesture.window)
+    else
+        sendSyntheticTap("CTRL", "mouse:272")
+    end
+end
+
+bind("mouse:274", handleMiddlePressOrFloatingRelease, "마우스 · 플로팅 창 이동/타일 창 Ctrl+클릭·아래로 닫기")
+hl.bind("mouse:274", finishTiledMiddleGesture, { release = true })
+
 -- Move/resize windows with mainMod + LMB/RMB and dragging
 bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   "마우스 · 창 이동", { mouse = true })
 bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), "마우스 · 창 크기 조절", { mouse = true })
