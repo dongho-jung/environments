@@ -685,18 +685,33 @@ bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "워크스
 bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스페이스 · 이전으로 이동")
 
 -- Reuse the middle button as a context-sensitive gesture. Floating windows
--- move exactly like SUPER+LMB. On tiled windows, directional drags of at least
+-- resize like SUPER+RMB when the gesture starts near an edge, and move like
+-- SUPER+LMB everywhere else. On tiled windows, directional drags of at least
 -- 80 logical pixels navigate tabs (left/right), restore a closed tab (up), or
 -- close the current tab (down). One short click remains Ctrl+LMB; two short
 -- clicks on the same tiled window toggle fake fullscreen like SUPER+F.
+local floatingMiddleResizeMargin = 20
 local middleSwipeDistance = 80
 local middleClickMoveTolerance = 8
 local middleDoubleClickTimeout = 400
 local dragFloatingWindow = hl.dsp.window.drag()
-local floatingMiddleDragActive = false
+local resizeFloatingWindow = hl.dsp.window.resize()
+local floatingMiddleDragAction
 local tiledMiddleGesture
 local pendingTiledMiddleClick
 local pendingTiledMiddleClickTimer
+
+local function isCursorNearWindowEdge(w, cursor)
+    if not cursor or not w.at or not w.size then return false end
+
+    local x = cursor.x - w.at.x
+    local y = cursor.y - w.at.y
+    if x < 0 or y < 0 or x > w.size.x or y > w.size.y then
+        return false
+    end
+
+    return math.min(x, y, w.size.x - x, w.size.y - y) <= floatingMiddleResizeMargin
+end
 
 local function sendSyntheticTap(mods, key, window)
     for _, state in ipairs({ "down", "up" }) do
@@ -744,9 +759,9 @@ end
 -- it can end the compositor-owned window drag. Tiled releases are handled by
 -- the separate release bind below.
 local function handleMiddlePressOrFloatingRelease()
-    if floatingMiddleDragActive then
-        hl.dispatch(dragFloatingWindow)
-        floatingMiddleDragActive = false
+    if floatingMiddleDragAction then
+        hl.dispatch(floatingMiddleDragAction)
+        floatingMiddleDragAction = nil
         return
     end
 
@@ -754,8 +769,10 @@ local function handleMiddlePressOrFloatingRelease()
     if not w then return end
 
     if w.floating then
-        floatingMiddleDragActive = true
-        hl.dispatch(dragFloatingWindow)
+        local cursor = hl.get_cursor_pos()
+        floatingMiddleDragAction = isCursorNearWindowEdge(w, cursor)
+            and resizeFloatingWindow or dragFloatingWindow
+        hl.dispatch(floatingMiddleDragAction)
         return
     end
 
@@ -797,7 +814,7 @@ local function finishTiledMiddleGesture()
     end
 end
 
-bind("mouse:274", handleMiddlePressOrFloatingRelease, "마우스 · 플로팅 창 이동/타일 창 Ctrl+클릭·탭 제스처·더블클릭 전체화면")
+bind("mouse:274", handleMiddlePressOrFloatingRelease, "마우스 · 플로팅 창 이동·가장자리 크기 조절/타일 창 Ctrl+클릭·탭 제스처·더블클릭 전체화면")
 hl.bind("mouse:274", finishTiledMiddleGesture, { release = true })
 
 -- Move/resize windows with mainMod + LMB/RMB and dragging
