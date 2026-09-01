@@ -44,6 +44,8 @@ local scratchpadTerminal  = "kitty --class scratchpad-terminal --config \"$HOME/
 local chromiumOverlayTag       = "super-grave-chromium"
 local chromiumOverlayWorkspace = "special:super-grave-chromium"
 local chromiumOverlayCommand   = "chromium --new-window 'chrome://newtab/'"
+local chromiumOverlayFallbackWidth  = 779
+local chromiumOverlayFallbackHeight = 351
 local opacityControl      = "bash \"$HOME/.config/hypr/adjust-window-opacity.sh\""
 local sessionGuard       = "\"$HOME/.local/libexec/sunglass\""
 local sessionGuardSubmap = "session-guard"
@@ -505,6 +507,21 @@ local function findChromiumOverlay()
     return hl.get_windows({ tag = chromiumOverlayTag })[1]
 end
 
+-- Enable this rule only while launching the overlay. Chromium may hand a new
+-- window to an already-running browser process, so exec PID rules are not
+-- reliable here. A short-lived class rule keeps the new window out of the
+-- tiling layout from its first map instead of floating it after the layout has
+-- already been recalculated.
+local chromiumOverlayLaunchRule = hl.window_rule({
+    name             = "chromium-overlay-launch",
+    enabled          = false,
+    match            = { class = "chromium" },
+    float            = true,
+    center           = true,
+    workspace        = chromiumOverlayWorkspace .. " silent",
+    no_initial_focus = true,
+})
+
 local function setChromiumOverlayOpacity(w)
     for _, prop in ipairs({ "opacity", "opacity_inactive", "opacity_fullscreen" }) do
         hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "0.60", window = w }))
@@ -512,6 +529,30 @@ local function setChromiumOverlayOpacity(w)
     for _, prop in ipairs({ "opacity_override", "opacity_inactive_override", "opacity_fullscreen_override" }) do
         hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "true", window = w }))
     end
+end
+
+local function configureChromiumOverlay(w, width, height)
+    -- The launch rule handles this before map in the normal case. Keep the
+    -- dispatcher as a fallback for Chromium builds that change their initial
+    -- class after window rules have run.
+    if not w.floating then
+        hl.dispatch(hl.dsp.window.float({ action = "set", window = w }))
+    end
+
+    -- Give Chromium its fullscreen UI without putting the compositor window
+    -- into fullscreen. The compositor can therefore keep it floating/pinned.
+    hl.dispatch(hl.dsp.window.fullscreen_state({
+        internal = 0,
+        client   = 2,
+        action   = "set",
+        window   = w,
+    }))
+    hl.dispatch(hl.dsp.window.resize({
+        x      = width,
+        y      = height,
+        window = w,
+    }))
+    setChromiumOverlayOpacity(w)
 end
 
 local function showChromiumOverlay(w)
@@ -524,23 +565,17 @@ local function showChromiumOverlay(w)
     if w.pinned then
         hl.dispatch(hl.dsp.window.pin({ action = "unset", window = w }))
     end
+    if not w.floating then
+        hl.dispatch(hl.dsp.window.float({ action = "set", window = w }))
+    end
     hl.dispatch(hl.dsp.window.move({ workspace = workspace, follow = false, window = w }))
-    hl.dispatch(hl.dsp.window.float({ action = "set", window = w }))
-
-    -- Give Chromium its fullscreen UI without putting the compositor window
-    -- into fullscreen. That keeps the window eligible for pinning while its
-    -- floating geometry fills the active monitor.
     hl.dispatch(hl.dsp.window.fullscreen_state({
         internal = 0,
         client   = 2,
         action   = "set",
         window   = w,
     }))
-
-    local width = math.floor(monitor.width / monitor.scale + 0.5)
-    local height = math.floor(monitor.height / monitor.scale + 0.5)
-    hl.dispatch(hl.dsp.window.resize({ x = width, y = height, window = w }))
-    hl.dispatch(hl.dsp.window.move({ x = monitor.x, y = monitor.y, window = w }))
+    hl.dispatch(hl.dsp.window.center({ window = w }))
     setChromiumOverlayOpacity(w)
     hl.dispatch(hl.dsp.window.pin({ action = "set", window = w }))
     hl.dispatch(hl.dsp.focus({ window = w }))
@@ -550,6 +585,9 @@ end
 local function hideChromiumOverlay(w)
     if w.pinned then
         hl.dispatch(hl.dsp.window.pin({ action = "unset", window = w }))
+    end
+    if not w.floating then
+        hl.dispatch(hl.dsp.window.float({ action = "set", window = w }))
     end
     hl.dispatch(hl.dsp.window.move({
         workspace = chromiumOverlayWorkspace,
@@ -561,21 +599,38 @@ end
 local chromiumOverlayLaunchTimer
 local chromiumOverlayShouldShow = false
 
+local function finishChromiumOverlayLaunch()
+    chromiumOverlayLaunchRule:set_enabled(false)
+    if chromiumOverlayLaunchTimer then
+        chromiumOverlayLaunchTimer:set_enabled(false)
+        chromiumOverlayLaunchTimer = nil
+    end
+end
+
 local function launchChromiumOverlay()
+    local sourceWindow = hl.get_active_window()
+    local launchWidth = chromiumOverlayFallbackWidth
+    local launchHeight = chromiumOverlayFallbackHeight
+    if sourceWindow and sourceWindow.class == "kitty" then
+        launchWidth = sourceWindow.size.x
+        launchHeight = sourceWindow.size.y
+    end
+
     local existingChromiumWindows = {}
     for _, w in ipairs(hl.get_windows({ class = "chromium" })) do
         existingChromiumWindows[tostring(w.stable_id)] = true
     end
 
+    chromiumOverlayLaunchRule:set_enabled(true)
     local attempts = 0
     chromiumOverlayLaunchTimer = hl.timer(function()
         attempts = attempts + 1
 
         for _, w in ipairs(hl.get_windows({ class = "chromium" })) do
             if not existingChromiumWindows[tostring(w.stable_id)] then
-                chromiumOverlayLaunchTimer:set_enabled(false)
-                chromiumOverlayLaunchTimer = nil
+                finishChromiumOverlayLaunch()
                 hl.dispatch(hl.dsp.window.tag({ tag = "+" .. chromiumOverlayTag, window = w }))
+                configureChromiumOverlay(w, launchWidth, launchHeight)
 
                 if chromiumOverlayShouldShow then
                     showChromiumOverlay(w)
@@ -587,8 +642,7 @@ local function launchChromiumOverlay()
         end
 
         if attempts >= 100 then
-            chromiumOverlayLaunchTimer:set_enabled(false)
-            chromiumOverlayLaunchTimer = nil
+            finishChromiumOverlayLaunch()
             chromiumOverlayShouldShow = false
         end
     end, { timeout = 50, type = "repeat" })
