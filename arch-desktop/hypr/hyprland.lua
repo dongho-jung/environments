@@ -685,10 +685,10 @@ bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "워크스
 bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스페이스 · 이전으로 이동")
 
 -- Reuse the middle button as a context-sensitive gesture. Floating windows
--- move exactly like SUPER+LMB. On tiled windows, a downward, vertically
--- dominant drag of at least 80 logical pixels sends Ctrl+W to the window where
--- the gesture started. One short click remains Ctrl+LMB; two short clicks on
--- the same tiled window toggle fake fullscreen like SUPER+F.
+-- move exactly like SUPER+LMB. On tiled windows, directional drags of at least
+-- 80 logical pixels navigate tabs (left/right), restore a closed tab (up), or
+-- close the current tab (down). One short click remains Ctrl+LMB; two short
+-- clicks on the same tiled window toggle fake fullscreen like SUPER+F.
 local middleSwipeDistance = 80
 local middleClickMoveTolerance = 8
 local middleDoubleClickTimeout = 400
@@ -778,16 +778,26 @@ local function finishTiledMiddleGesture()
 
     local dx = cursor.x - gesture.x
     local dy = cursor.y - gesture.y
-    if dy >= middleSwipeDistance and dy >= math.abs(dx) then
-        sendSyntheticTap("CTRL", "W", gesture.window)
-    elseif math.abs(dx) <= middleClickMoveTolerance and math.abs(dy) <= middleClickMoveTolerance then
+    local absDx = math.abs(dx)
+    local absDy = math.abs(dy)
+    if absDx <= middleClickMoveTolerance and absDy <= middleClickMoveTolerance then
         handleTiledMiddleClick(gesture)
-    else
+    elseif math.max(absDx, absDy) < middleSwipeDistance then
         sendSyntheticTap("CTRL", "mouse:272", gesture.window)
+    elseif absDx > absDy then
+        if dx < 0 then
+            sendSyntheticTap("CTRL + SHIFT", "Tab", gesture.window)
+        else
+            sendSyntheticTap("CTRL", "Tab", gesture.window)
+        end
+    elseif dy < 0 then
+        sendSyntheticTap("CTRL + SHIFT", "T", gesture.window)
+    else
+        sendSyntheticTap("CTRL", "W", gesture.window)
     end
 end
 
-bind("mouse:274", handleMiddlePressOrFloatingRelease, "마우스 · 플로팅 창 이동/타일 창 Ctrl+클릭·더블클릭 전체화면·아래로 닫기")
+bind("mouse:274", handleMiddlePressOrFloatingRelease, "마우스 · 플로팅 창 이동/타일 창 Ctrl+클릭·탭 제스처·더블클릭 전체화면")
 hl.bind("mouse:274", finishTiledMiddleGesture, { release = true })
 
 -- Move/resize windows with mainMod + LMB/RMB and dragging
