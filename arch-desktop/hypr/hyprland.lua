@@ -684,19 +684,19 @@ bind(mainMod .. " + SHIFT + grave", moveActiveWindowToScratchpad, "워크스페�
 bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "워크스페이스 · 다음으로 이동")
 bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스페이스 · 이전으로 이동")
 
--- Reuse the middle button as a context-sensitive gesture. Floating windows
--- resize like SUPER+RMB when the gesture starts near an edge, and move like
--- SUPER+LMB everywhere else. On tiled windows, directional drags of at least
--- 80 logical pixels navigate tabs (left/right), restore a closed tab (up), or
--- close the current tab (down). One short click remains Ctrl+LMB; two short
--- clicks on the same tiled window toggle fake fullscreen like SUPER+F.
-local floatingMiddleResizeMargin = 20
+-- Reuse the middle button as a context-sensitive gesture. Every window resizes
+-- like SUPER+RMB when the gesture starts near an edge. Floating windows move
+-- like SUPER+LMB everywhere else. In the interior of tiled windows, directional
+-- drags of at least 80 logical pixels navigate tabs (left/right), restore a
+-- closed tab (up), or close the current tab (down). One short click remains
+-- Ctrl+LMB; two short clicks on the same tiled window toggle fake fullscreen.
+local middleResizeMargin = 20
 local middleSwipeDistance = 80
 local middleClickMoveTolerance = 8
 local middleDoubleClickTimeout = 400
 local dragFloatingWindow = hl.dsp.window.drag()
-local resizeFloatingWindow = hl.dsp.window.resize()
-local floatingMiddleDragAction
+local resizeWindow = hl.dsp.window.resize()
+local middleWindowDragAction
 local tiledMiddleGesture
 local pendingTiledMiddleClick
 local pendingTiledMiddleClickTimer
@@ -710,7 +710,7 @@ local function isCursorNearWindowEdge(w, cursor)
         return false
     end
 
-    return math.min(x, y, w.size.x - x, w.size.y - y) <= floatingMiddleResizeMargin
+    return math.min(x, y, w.size.x - x, w.size.y - y) <= middleResizeMargin
 end
 
 local function sendSyntheticTap(mods, key, window)
@@ -755,28 +755,32 @@ local function handleTiledMiddleClick(gesture)
     })
 end
 
--- The floating dispatcher asks Hyprland to call this bind again on release so
--- it can end the compositor-owned window drag. Tiled releases are handled by
--- the separate release bind below.
-local function handleMiddlePressOrFloatingRelease()
-    if floatingMiddleDragAction then
-        hl.dispatch(floatingMiddleDragAction)
-        floatingMiddleDragAction = nil
+-- A move or resize dispatcher asks Hyprland to call this bind again on release
+-- so it can end the compositor-owned window drag. Tiled interior releases are
+-- handled by the separate release bind below.
+local function handleMiddlePressOrWindowDragRelease()
+    if middleWindowDragAction then
+        hl.dispatch(middleWindowDragAction)
+        middleWindowDragAction = nil
         return
     end
 
     local w = hl.get_active_window()
     if not w then return end
 
-    if w.floating then
-        local cursor = hl.get_cursor_pos()
-        floatingMiddleDragAction = isCursorNearWindowEdge(w, cursor)
-            and resizeFloatingWindow or dragFloatingWindow
-        hl.dispatch(floatingMiddleDragAction)
+    local cursor = hl.get_cursor_pos()
+    if isCursorNearWindowEdge(w, cursor) then
+        middleWindowDragAction = resizeWindow
+        hl.dispatch(middleWindowDragAction)
         return
     end
 
-    local cursor = hl.get_cursor_pos()
+    if w.floating then
+        middleWindowDragAction = dragFloatingWindow
+        hl.dispatch(middleWindowDragAction)
+        return
+    end
+
     if not cursor then return end
     tiledMiddleGesture = {
         window = w,
@@ -814,7 +818,7 @@ local function finishTiledMiddleGesture()
     end
 end
 
-bind("mouse:274", handleMiddlePressOrFloatingRelease, "마우스 · 플로팅 창 이동·가장자리 크기 조절/타일 창 Ctrl+클릭·탭 제스처·더블클릭 전체화면")
+bind("mouse:274", handleMiddlePressOrWindowDragRelease, "마우스 · 창 가장자리 크기 조절·플로팅 이동/타일 내부 Ctrl+클릭·탭 제스처·더블클릭 전체화면")
 hl.bind("mouse:274", finishTiledMiddleGesture, { release = true })
 
 -- Move/resize windows with mainMod + LMB/RMB and dragging
