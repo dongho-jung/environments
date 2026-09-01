@@ -374,12 +374,17 @@ bind(mainMod .. " + H", hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/show-keybinds
 -- while keeping the window's real tiled geometry (internal = 0), then toggle back
 -- off. Hyprland 0.55 removed the old `fakefullscreen` dispatcher; this drives its
 -- replacement, `fullscreenstate`, via hl.dsp.window.fullscreen_state.
-bind(mainMod .. " + F", function()
-    local w = hl.get_active_window()
+local function toggleFakeFullscreen(w)
+    w = w or hl.get_active_window()
     if not w then return end
     local client = (w.fullscreen_client == 2) and 0 or 2
-    hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 0, client = client }))
-end, "창 · 앱 UI만 전체화면 전환")
+    hl.dispatch(hl.dsp.window.fullscreen_state({
+        internal = 0,
+        client   = client,
+        window   = w,
+    }))
+end
+bind(mainMod .. " + F", toggleFakeFullscreen, "창 · 앱 UI만 전체화면 전환")
 -- Real fullscreen (SUPER+SHIFT+F): actually fill the monitor (internal = 2) and
 -- tell the app too (client = 2), then toggle back off. Same fullscreenstate
 -- mechanism as the fake bind above, but it changes the window geometry as well.
@@ -680,13 +685,18 @@ bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "워크스
 bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스페이스 · 이전으로 이동")
 
 -- Reuse the middle button as a context-sensitive gesture. Floating windows
--- move exactly like SUPER+LMB. On tiled windows, a short press remains
--- Ctrl+LMB, while a downward, vertically dominant drag of at least 80 logical
--- pixels sends Ctrl+W to the window where the gesture started.
+-- move exactly like SUPER+LMB. On tiled windows, a downward, vertically
+-- dominant drag of at least 80 logical pixels sends Ctrl+W to the window where
+-- the gesture started. One short click remains Ctrl+LMB; two short clicks on
+-- the same tiled window toggle fake fullscreen like SUPER+F.
 local middleSwipeDistance = 80
+local middleClickMoveTolerance = 8
+local middleDoubleClickTimeout = 400
 local dragFloatingWindow = hl.dsp.window.drag()
 local floatingMiddleDragActive = false
 local tiledMiddleGesture
+local pendingTiledMiddleClick
+local pendingTiledMiddleClickTimer
 
 local function sendSyntheticTap(mods, key, window)
     for _, state in ipairs({ "down", "up" }) do
@@ -697,6 +707,37 @@ local function sendSyntheticTap(mods, key, window)
             window = window,
         }))
     end
+end
+
+local function sendPendingTiledMiddleClick()
+    local click = pendingTiledMiddleClick
+    pendingTiledMiddleClick = nil
+    pendingTiledMiddleClickTimer = nil
+    if click then
+        sendSyntheticTap("CTRL", "mouse:272", click.window)
+    end
+end
+
+local function handleTiledMiddleClick(gesture)
+    local pending = pendingTiledMiddleClick
+    if pending and tostring(pending.window.stable_id) == tostring(gesture.window.stable_id) then
+        pendingTiledMiddleClickTimer:set_enabled(false)
+        pendingTiledMiddleClick = nil
+        pendingTiledMiddleClickTimer = nil
+        toggleFakeFullscreen(gesture.window)
+        return
+    end
+
+    if pending then
+        pendingTiledMiddleClickTimer:set_enabled(false)
+        sendPendingTiledMiddleClick()
+    end
+
+    pendingTiledMiddleClick = gesture
+    pendingTiledMiddleClickTimer = hl.timer(sendPendingTiledMiddleClick, {
+        timeout = middleDoubleClickTimeout,
+        type    = "oneshot",
+    })
 end
 
 -- The floating dispatcher asks Hyprland to call this bind again on release so
@@ -739,12 +780,14 @@ local function finishTiledMiddleGesture()
     local dy = cursor.y - gesture.y
     if dy >= middleSwipeDistance and dy >= math.abs(dx) then
         sendSyntheticTap("CTRL", "W", gesture.window)
+    elseif math.abs(dx) <= middleClickMoveTolerance and math.abs(dy) <= middleClickMoveTolerance then
+        handleTiledMiddleClick(gesture)
     else
-        sendSyntheticTap("CTRL", "mouse:272")
+        sendSyntheticTap("CTRL", "mouse:272", gesture.window)
     end
 end
 
-bind("mouse:274", handleMiddlePressOrFloatingRelease, "마우스 · 플로팅 창 이동/타일 창 Ctrl+클릭·아래로 닫기")
+bind("mouse:274", handleMiddlePressOrFloatingRelease, "마우스 · 플로팅 창 이동/타일 창 Ctrl+클릭·더블클릭 전체화면·아래로 닫기")
 hl.bind("mouse:274", finishTiledMiddleGesture, { release = true })
 
 -- Move/resize windows with mainMod + LMB/RMB and dragging
