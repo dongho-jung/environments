@@ -49,6 +49,7 @@ resource "host_file" "zshrc" {
       export WORDCHARS=""
       export LANG="en_US.UTF-8"
       export LC_ALL="en_US.UTF-8"
+      export KUBECONFIG=~/.kube/vultr-stg.yaml
       export HISTFILE="${host_git_repo.shell_history.path_resolved}/arch-desktop"
       export HISTSIZE=1000000000
       export SAVEHIST=1000000000
