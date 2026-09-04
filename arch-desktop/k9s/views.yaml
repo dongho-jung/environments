@@ -2,7 +2,6 @@ views:
   v1/nodes:
     columns:
       - "INTERNAL-IP|S"
-      - "EXTERNAL-IP|S"
       - "GPU/A|H"
       - "GPU/C|H"
       - "SH-GPU/A|H"
