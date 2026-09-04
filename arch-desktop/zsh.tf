@@ -62,6 +62,7 @@ resource "host_file" "zshrc" {
   block {
     name    = "alias"
     content = <<-EOT
+      alias k='kubectl'
       alias y='wl-copy' p='wl-paste'
       alias rr='source ${local.zshrc_path}'
       alias rm='echo "rm is disabled. use \`trash\` command instead."'
