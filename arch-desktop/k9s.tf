@@ -19,3 +19,12 @@ resource "host_file_block" "k9s_skin_environment" {
     host_file.k9s_solarized_light_skin,
   ]
 }
+
+resource "host_file" "k9s_views" {
+  path    = "~/.config/k9s/views.yaml"
+  content = file("${path.module}/k9s/views.yaml")
+
+  depends_on = [
+    host_package_pacman.k9s,
+  ]
+}
