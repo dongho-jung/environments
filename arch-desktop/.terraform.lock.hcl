@@ -2,8 +2,7 @@
 # Manual edits may be lost in future updates.
 
 provider "registry.terraform.io/dongho-jung/host" {
-  version     = "0.21.0"
-  constraints = "~> 0.21.0"
+  version = "0.21.0"
   hashes = [
     "h1:PIkbH/yh5ATiJ07hkk9DMZlCaKneHo0gJ/JLmGSpKK8=",
     "zh:04ad46a9173cc957f782a9853072ee10803137ec37b46d11d20720137993459c",
