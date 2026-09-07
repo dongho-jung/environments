@@ -704,7 +704,8 @@ bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스
 -- like SUPER+LMB everywhere else. In the interior of tiled windows, directional
 -- drags of at least 80 logical pixels navigate tabs (left/right), restore a
 -- closed tab (up), or close the current tab (down). One short click remains
--- Ctrl+LMB; two short clicks on the same tiled window toggle fake fullscreen.
+-- Ctrl+LMB, sent immediately on release. A second short click at the same spot
+-- toggles fake fullscreen; the first click has already reached the app.
 local middleResizeMargin = 20
 local middleSwipeDistance = 80
 local middleClickMoveTolerance = 8
@@ -713,8 +714,8 @@ local dragFloatingWindow = hl.dsp.window.drag()
 local resizeWindow = hl.dsp.window.resize()
 local middleWindowDragAction
 local tiledMiddleGesture
-local pendingTiledMiddleClick
-local pendingTiledMiddleClickTimer
+local lastTiledMiddleClick
+local lastTiledMiddleClickTimer
 
 local function isCursorNearWindowEdge(w, cursor)
     if not cursor or not w.at or not w.size then return false end
@@ -739,32 +740,30 @@ local function sendSyntheticTap(mods, key, window)
     end
 end
 
-local function sendPendingTiledMiddleClick()
-    local click = pendingTiledMiddleClick
-    pendingTiledMiddleClick = nil
-    pendingTiledMiddleClickTimer = nil
-    if click then
-        sendSyntheticTap("CTRL", "mouse:272", click.window)
+local function clearLastTiledMiddleClick()
+    if lastTiledMiddleClickTimer then
+        lastTiledMiddleClickTimer:set_enabled(false)
     end
+    lastTiledMiddleClick = nil
+    lastTiledMiddleClickTimer = nil
 end
 
 local function handleTiledMiddleClick(gesture)
-    local pending = pendingTiledMiddleClick
-    if pending and tostring(pending.window.stable_id) == tostring(gesture.window.stable_id) then
-        pendingTiledMiddleClickTimer:set_enabled(false)
-        pendingTiledMiddleClick = nil
-        pendingTiledMiddleClickTimer = nil
+    local last = lastTiledMiddleClick
+    clearLastTiledMiddleClick()
+    if last
+        and tostring(last.window.stable_id) == tostring(gesture.window.stable_id)
+        and math.abs(last.x - gesture.x) <= middleClickMoveTolerance
+        and math.abs(last.y - gesture.y) <= middleClickMoveTolerance then
         toggleFakeFullscreen(gesture.window)
         return
     end
 
-    if pending then
-        pendingTiledMiddleClickTimer:set_enabled(false)
-        sendPendingTiledMiddleClick()
-    end
-
-    pendingTiledMiddleClick = gesture
-    pendingTiledMiddleClickTimer = hl.timer(sendPendingTiledMiddleClick, {
+    -- Only double-click recognition expires later. Never queue a click: its
+    -- target coordinates would follow the cursor after the button was released.
+    sendSyntheticTap("CTRL", "mouse:272", gesture.window)
+    lastTiledMiddleClick = gesture
+    lastTiledMiddleClickTimer = hl.timer(clearLastTiledMiddleClick, {
         timeout = middleDoubleClickTimeout,
         type    = "oneshot",
     })
@@ -785,12 +784,14 @@ local function handleMiddlePressOrWindowDragRelease()
 
     local cursor = hl.get_cursor_pos()
     if isCursorNearWindowEdge(w, cursor) then
+        clearLastTiledMiddleClick()
         middleWindowDragAction = resizeWindow
         hl.dispatch(middleWindowDragAction)
         return
     end
 
     if w.floating then
+        clearLastTiledMiddleClick()
         middleWindowDragAction = dragFloatingWindow
         hl.dispatch(middleWindowDragAction)
         return
@@ -818,7 +819,11 @@ local function finishTiledMiddleGesture()
     local absDy = math.abs(dy)
     if absDx <= middleClickMoveTolerance and absDy <= middleClickMoveTolerance then
         handleTiledMiddleClick(gesture)
-    elseif math.max(absDx, absDy) < middleSwipeDistance then
+        return
+    end
+
+    clearLastTiledMiddleClick()
+    if math.max(absDx, absDy) < middleSwipeDistance then
         sendSyntheticTap("CTRL", "mouse:272", gesture.window)
     elseif absDx > absDy then
         if dx < 0 then
