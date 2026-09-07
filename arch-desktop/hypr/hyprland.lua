@@ -454,9 +454,24 @@ bind(mainMod .. " + CTRL + down",  hl.dsp.window.resize({ x = 0, y =  20, relati
 -- 현재 창으로 group/tab 만들기 또는 해제
 bind(mainMod .. " + G", hl.dsp.group.toggle(), "그룹 · 탭 그룹 만들기/해제")
 
--- group 안에서 다음/이전 탭으로 이동
-bind(mainMod .. " + TAB",         hl.dsp.group.next(), "그룹 · 다음 탭")
-bind(mainMod .. " + SHIFT + TAB", hl.dsp.group.prev(), "그룹 · 이전 탭")
+-- Navigate tabs when the focused window belongs to a group; otherwise move
+-- through the existing workspaces on the current monitor.
+local function focusGroupOrWorkspace(groupDispatcher, workspace)
+    return function()
+        local w = hl.get_active_window()
+        if w and w.group then
+            hl.dispatch(groupDispatcher)
+            return
+        end
+
+        hl.dispatch(hl.dsp.focus({ workspace = workspace }))
+    end
+end
+
+bind(mainMod .. " + TAB", focusGroupOrWorkspace(hl.dsp.group.next(), "e+1"),
+    "탐색 · 다음 그룹 탭/워크스페이스")
+bind(mainMod .. " + SHIFT + TAB", focusGroupOrWorkspace(hl.dsp.group.prev(), "e-1"),
+    "탐색 · 이전 그룹 탭/워크스페이스")
 
 -- group 안에서 현재 창 순서 이동
 bind(mainMod .. " + CTRL + TAB", hl.dsp.group.move_window({ forward = true }), "그룹 · 현재 탭을 뒤로 이동")
