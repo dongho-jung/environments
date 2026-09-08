@@ -12,14 +12,14 @@ k9s:
     enableMouse: false
     # Keep the one-line status indicator instead of the seven-line header.
     headless: true
-    logoless: false
+    logoless: true
     # Hide navigation breadcrumbs; K9s retains its transient message row.
     crumbsless: true
     splashless: true
     reactive: false
-    noIcons: false
+    noIcons: true
     invert: false
-    defaultsToFullScreen: false
+    defaultsToFullScreen: true
     useFullGVRTitle: false
   skipLatestRevCheck: false
   disablePodCounting: false
