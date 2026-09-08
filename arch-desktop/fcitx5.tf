@@ -21,10 +21,10 @@ resource "host_package_pacman" "fcitx5_configtool" {
   name = "fcitx5-configtool"
 }
 
-# Fcitx rewrites the files below itself — the profile on every input-method
-# switch, the conf files from configtool — and its ini writer ends every file
-# with a blank line. Each content appends that same blank line so both writers
-# agree; otherwise every rewrite shows up as drift.
+# Fcitx rewrites its own configuration, including hangul.conf whenever Hangul
+# is activated. Its INI writer comments out default-valued options and ends
+# every file with a blank line. Keep profile and hangul.conf in that form and
+# append the trailing blank line below so input-method switches cause no drift.
 resource "host_file" "fcitx5_config" {
   path    = "~/.config/fcitx5/config"
   content = format("%s\n", file("${path.module}/fcitx5/config"))
@@ -44,6 +44,7 @@ resource "host_file" "fcitx5_profile" {
   ]
 }
 
+# F9 remains explicit: excluding Hangul_Hanja reserves that key for quickphrase.
 resource "host_file" "fcitx5_hangul_config" {
   path    = "~/.config/fcitx5/conf/hangul.conf"
   content = format("%s\n", file("${path.module}/fcitx5/conf/hangul.conf"))
