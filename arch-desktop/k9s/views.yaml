@@ -2,7 +2,8 @@ views:
   v1/pods:
     columns:
       - NAMESPACE
-      - NAME
+      # Shorten only the display, preserving the suffix that identifies each Pod.
+      - 'NAME:.metadata.name | if length > 40 then [.[0:21], .[-16:]] | join("...") else . end'
       - READY
       - STATUS
       - RESTARTS
@@ -16,6 +17,8 @@ views:
       - "%MEM/R"
       - "%MEM/L"
       - "PF|H"
+      # Keep full names searchable and available in wide mode.
+      - "FULL-NAME:.metadata.name|W"
   v1/nodes:
     columns:
       - "INTERNAL-IP|S"
