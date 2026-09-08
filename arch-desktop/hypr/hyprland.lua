@@ -537,14 +537,13 @@ local chromiumOverlayLaunchRule = hl.window_rule({
     enabled          = false,
     match            = { class = "chromium" },
     float            = true,
-    center           = true,
     workspace        = chromiumOverlayWorkspace .. " silent",
     no_initial_focus = true,
 })
 
 local function setChromiumOverlayOpacity(w)
     for _, prop in ipairs({ "opacity", "opacity_inactive", "opacity_fullscreen" }) do
-        hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "0.60", window = w }))
+        hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "1.0", window = w }))
     end
     for _, prop in ipairs({ "opacity_override", "opacity_inactive_override", "opacity_fullscreen_override" }) do
         hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "true", window = w }))
@@ -576,9 +575,10 @@ local function configureChromiumOverlay(w, width, height)
 end
 
 local function showChromiumOverlay(w)
-    local monitor = hl.get_active_monitor()
+    local cursor = hl.get_cursor_pos()
+    local monitor = hl.get_monitor_at_cursor()
     local workspace = monitor and hl.get_active_workspace(monitor)
-    if not monitor or not workspace then return end
+    if not cursor or not monitor or not workspace then return end
 
     -- A pinned window cannot move between workspaces. Reattach it to the
     -- currently active workspace first, then restore the sticky state.
@@ -595,7 +595,24 @@ local function showChromiumOverlay(w)
         action   = "set",
         window   = w,
     }))
-    hl.dispatch(hl.dsp.window.center({ window = w }))
+    -- Center on the pointer and keep the window inside the monitor's usable
+    -- area. Monitor dimensions are physical pixels; window/cursor coordinates
+    -- and reserved edges use logical pixels.
+    local monitorWidth = monitor.width / monitor.scale
+    local monitorHeight = monitor.height / monitor.scale
+    if monitor.transform % 2 == 1 then
+        monitorWidth, monitorHeight = monitorHeight, monitorWidth
+    end
+    local reserved = monitor.reserved
+    local left = monitor.x + reserved.left
+    local top = monitor.y + reserved.top
+    local right = monitor.x + monitorWidth - reserved.right - w.size.x
+    local bottom = monitor.y + monitorHeight - reserved.bottom - w.size.y
+    hl.dispatch(hl.dsp.window.move({
+        x      = math.floor(math.max(left, math.min(cursor.x - w.size.x / 2, right))),
+        y      = math.floor(math.max(top, math.min(cursor.y - w.size.y / 2, bottom))),
+        window = w,
+    }))
     setChromiumOverlayOpacity(w)
     hl.dispatch(hl.dsp.window.pin({ action = "set", window = w }))
     hl.dispatch(hl.dsp.focus({ window = w }))
@@ -692,7 +709,7 @@ local function toggleChromiumOverlay()
     launchChromiumOverlay()
 end
 
-bind(mainMod .. " + grave",         toggleChromiumOverlay,        "앱 · 반투명 Chromium 열기/숨기기")
+bind(mainMod .. " + grave",         toggleChromiumOverlay,        "앱 · 마우스 위치에 Chromium 열기/숨기기")
 bind(mainMod .. " + SHIFT + grave", moveActiveWindowToScratchpad, "워크스페이스 · 창을 scratchpad로 보내기")
 
 -- Scroll through existing workspaces with mainMod + scroll
