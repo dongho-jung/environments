@@ -454,9 +454,24 @@ bind(mainMod .. " + CTRL + down",  hl.dsp.window.resize({ x = 0, y =  20, relati
 -- 현재 창으로 group/tab 만들기 또는 해제
 bind(mainMod .. " + G", hl.dsp.group.toggle(), "그룹 · 탭 그룹 만들기/해제")
 
--- group 안에서 다음/이전 탭으로 이동
-bind(mainMod .. " + TAB",         hl.dsp.group.next(), "그룹 · 다음 탭")
-bind(mainMod .. " + SHIFT + TAB", hl.dsp.group.prev(), "그룹 · 이전 탭")
+-- Navigate tabs when the focused window belongs to a group; otherwise move
+-- through the existing workspaces on the current monitor.
+local function focusGroupOrWorkspace(groupDispatcher, workspace)
+    return function()
+        local w = hl.get_active_window()
+        if w and w.group then
+            hl.dispatch(groupDispatcher)
+            return
+        end
+
+        hl.dispatch(hl.dsp.focus({ workspace = workspace }))
+    end
+end
+
+bind(mainMod .. " + TAB", focusGroupOrWorkspace(hl.dsp.group.next(), "e+1"),
+    "탐색 · 다음 그룹 탭/워크스페이스")
+bind(mainMod .. " + SHIFT + TAB", focusGroupOrWorkspace(hl.dsp.group.prev(), "e-1"),
+    "탐색 · 이전 그룹 탭/워크스페이스")
 
 -- group 안에서 현재 창 순서 이동
 bind(mainMod .. " + CTRL + TAB", hl.dsp.group.move_window({ forward = true }), "그룹 · 현재 탭을 뒤로 이동")
@@ -522,14 +537,13 @@ local chromiumOverlayLaunchRule = hl.window_rule({
     enabled          = false,
     match            = { class = "chromium" },
     float            = true,
-    center           = true,
     workspace        = chromiumOverlayWorkspace .. " silent",
     no_initial_focus = true,
 })
 
 local function setChromiumOverlayOpacity(w)
     for _, prop in ipairs({ "opacity", "opacity_inactive", "opacity_fullscreen" }) do
-        hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "0.60", window = w }))
+        hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "1.0", window = w }))
     end
     for _, prop in ipairs({ "opacity_override", "opacity_inactive_override", "opacity_fullscreen_override" }) do
         hl.dispatch(hl.dsp.window.set_prop({ prop = prop, value = "true", window = w }))
@@ -561,9 +575,10 @@ local function configureChromiumOverlay(w, width, height)
 end
 
 local function showChromiumOverlay(w)
-    local monitor = hl.get_active_monitor()
+    local cursor = hl.get_cursor_pos()
+    local monitor = hl.get_monitor_at_cursor()
     local workspace = monitor and hl.get_active_workspace(monitor)
-    if not monitor or not workspace then return end
+    if not cursor or not monitor or not workspace then return end
 
     -- A pinned window cannot move between workspaces. Reattach it to the
     -- currently active workspace first, then restore the sticky state.
@@ -580,7 +595,24 @@ local function showChromiumOverlay(w)
         action   = "set",
         window   = w,
     }))
-    hl.dispatch(hl.dsp.window.center({ window = w }))
+    -- Center on the pointer and keep the window inside the monitor's usable
+    -- area. Monitor dimensions are physical pixels; window/cursor coordinates
+    -- and reserved edges use logical pixels.
+    local monitorWidth = monitor.width / monitor.scale
+    local monitorHeight = monitor.height / monitor.scale
+    if monitor.transform % 2 == 1 then
+        monitorWidth, monitorHeight = monitorHeight, monitorWidth
+    end
+    local reserved = monitor.reserved
+    local left = monitor.x + reserved.left
+    local top = monitor.y + reserved.top
+    local right = monitor.x + monitorWidth - reserved.right - w.size.x
+    local bottom = monitor.y + monitorHeight - reserved.bottom - w.size.y
+    hl.dispatch(hl.dsp.window.move({
+        x      = math.floor(math.max(left, math.min(cursor.x - w.size.x / 2, right))),
+        y      = math.floor(math.max(top, math.min(cursor.y - w.size.y / 2, bottom))),
+        window = w,
+    }))
     setChromiumOverlayOpacity(w)
     hl.dispatch(hl.dsp.window.pin({ action = "set", window = w }))
     hl.dispatch(hl.dsp.focus({ window = w }))
@@ -677,7 +709,7 @@ local function toggleChromiumOverlay()
     launchChromiumOverlay()
 end
 
-bind(mainMod .. " + grave",         toggleChromiumOverlay,        "앱 · 반투명 Chromium 열기/숨기기")
+bind(mainMod .. " + grave",         toggleChromiumOverlay,        "앱 · 마우스 위치에 Chromium 열기/숨기기")
 bind(mainMod .. " + SHIFT + grave", moveActiveWindowToScratchpad, "워크스페이스 · 창을 scratchpad로 보내기")
 
 -- Scroll through existing workspaces with mainMod + scroll
@@ -689,7 +721,8 @@ bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스
 -- like SUPER+LMB everywhere else. In the interior of tiled windows, directional
 -- drags of at least 80 logical pixels navigate tabs (left/right), restore a
 -- closed tab (up), or close the current tab (down). One short click remains
--- Ctrl+LMB; two short clicks on the same tiled window toggle fake fullscreen.
+-- Ctrl+LMB, sent immediately on release. A second short click at the same spot
+-- toggles fake fullscreen; the first click has already reached the app.
 local middleResizeMargin = 20
 local middleSwipeDistance = 80
 local middleClickMoveTolerance = 8
@@ -698,8 +731,8 @@ local dragFloatingWindow = hl.dsp.window.drag()
 local resizeWindow = hl.dsp.window.resize()
 local middleWindowDragAction
 local tiledMiddleGesture
-local pendingTiledMiddleClick
-local pendingTiledMiddleClickTimer
+local lastTiledMiddleClick
+local lastTiledMiddleClickTimer
 
 local function isCursorNearWindowEdge(w, cursor)
     if not cursor or not w.at or not w.size then return false end
@@ -724,32 +757,30 @@ local function sendSyntheticTap(mods, key, window)
     end
 end
 
-local function sendPendingTiledMiddleClick()
-    local click = pendingTiledMiddleClick
-    pendingTiledMiddleClick = nil
-    pendingTiledMiddleClickTimer = nil
-    if click then
-        sendSyntheticTap("CTRL", "mouse:272", click.window)
+local function clearLastTiledMiddleClick()
+    if lastTiledMiddleClickTimer then
+        lastTiledMiddleClickTimer:set_enabled(false)
     end
+    lastTiledMiddleClick = nil
+    lastTiledMiddleClickTimer = nil
 end
 
 local function handleTiledMiddleClick(gesture)
-    local pending = pendingTiledMiddleClick
-    if pending and tostring(pending.window.stable_id) == tostring(gesture.window.stable_id) then
-        pendingTiledMiddleClickTimer:set_enabled(false)
-        pendingTiledMiddleClick = nil
-        pendingTiledMiddleClickTimer = nil
+    local last = lastTiledMiddleClick
+    clearLastTiledMiddleClick()
+    if last
+        and tostring(last.window.stable_id) == tostring(gesture.window.stable_id)
+        and math.abs(last.x - gesture.x) <= middleClickMoveTolerance
+        and math.abs(last.y - gesture.y) <= middleClickMoveTolerance then
         toggleFakeFullscreen(gesture.window)
         return
     end
 
-    if pending then
-        pendingTiledMiddleClickTimer:set_enabled(false)
-        sendPendingTiledMiddleClick()
-    end
-
-    pendingTiledMiddleClick = gesture
-    pendingTiledMiddleClickTimer = hl.timer(sendPendingTiledMiddleClick, {
+    -- Only double-click recognition expires later. Never queue a click: its
+    -- target coordinates would follow the cursor after the button was released.
+    sendSyntheticTap("CTRL", "mouse:272", gesture.window)
+    lastTiledMiddleClick = gesture
+    lastTiledMiddleClickTimer = hl.timer(clearLastTiledMiddleClick, {
         timeout = middleDoubleClickTimeout,
         type    = "oneshot",
     })
@@ -770,12 +801,14 @@ local function handleMiddlePressOrWindowDragRelease()
 
     local cursor = hl.get_cursor_pos()
     if isCursorNearWindowEdge(w, cursor) then
+        clearLastTiledMiddleClick()
         middleWindowDragAction = resizeWindow
         hl.dispatch(middleWindowDragAction)
         return
     end
 
     if w.floating then
+        clearLastTiledMiddleClick()
         middleWindowDragAction = dragFloatingWindow
         hl.dispatch(middleWindowDragAction)
         return
@@ -803,7 +836,11 @@ local function finishTiledMiddleGesture()
     local absDy = math.abs(dy)
     if absDx <= middleClickMoveTolerance and absDy <= middleClickMoveTolerance then
         handleTiledMiddleClick(gesture)
-    elseif math.max(absDx, absDy) < middleSwipeDistance then
+        return
+    end
+
+    clearLastTiledMiddleClick()
+    if math.max(absDx, absDy) < middleSwipeDistance then
         sendSyntheticTap("CTRL", "mouse:272", gesture.window)
     elseif absDx > absDy then
         if dx < 0 then

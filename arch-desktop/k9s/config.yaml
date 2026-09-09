@@ -1,0 +1,52 @@
+k9s:
+  liveViewAutoRefresh: false
+  gpuVendors: {}
+  screenDumpDir: /home/dongho/.local/state/k9s/screen-dumps
+  refreshRate: 2
+  apiServerTimeout: 2m0s
+  maxConnRetry: 5
+  readOnly: false
+  noExitOnCtrlC: false
+  portForwardAddress: localhost
+  ui:
+    enableMouse: false
+    # Keep the one-line status indicator instead of the seven-line header.
+    headless: true
+    logoless: true
+    # Hide navigation breadcrumbs; K9s retains its transient message row.
+    crumbsless: true
+    splashless: true
+    reactive: false
+    noIcons: true
+    invert: false
+    defaultsToFullScreen: true
+    useFullGVRTitle: false
+  skipLatestRevCheck: false
+  disablePodCounting: false
+  shellPod:
+    image: busybox:1.37.0
+    namespace: default
+    limits:
+      cpu: 100m
+      memory: 100Mi
+  imageScans:
+    enable: false
+    exclusions:
+      namespaces: []
+      labels: {}
+  logger:
+    tail: 100
+    buffer: 5000
+    sinceSeconds: -1
+    textWrap: false
+    disableAutoscroll: false
+    columnLock: false
+    showTime: false
+  thresholds:
+    cpu:
+      critical: 90
+      warn: 70
+    memory:
+      critical: 90
+      warn: 70
+  defaultView: ""
