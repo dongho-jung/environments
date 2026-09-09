@@ -1,5 +1,14 @@
 # Global Claude Code instructions
 
+## 1Password: one authorization per task
+
+- Gather every required vault, item and field from the task scope, repository configuration and existing context **before** the first 1Password access. Reuse existing valid authorization. Only when user interaction is actually required, request it once for the complete set, then reuse that authorization throughout the task. Never make the user repeatedly switch to 1Password for individual items or routine task stages.
+- Use one supported authenticated session or a long-lived task process for the authorized reads and their consumers. Read each required secret once and reuse it only in private process memory or the intended child process environment. Do not start a fresh `op` authentication or item lookup for each tool call, subprocess, retry, plan, apply or verification step.
+- Account for indirect access too: Terraform's 1Password provider and ephemeral data sources can reopen the vault and reread many account items on every invocation. Prepare initialization, planning, application and verification together; use a supported credential/session reuse path instead of launching independent commands that each ask the user to authorize again. Do not rerun credential discovery or the whole RBAC workflow merely to obtain a value or fact already available.
+- Reuse existing authorized platform Secret references where they already satisfy the deployment. If a new Secret must be populated, include its source item in the initial batch, pass the value directly to the authorized destination, and retain only the minimum private in-memory value needed for that task's remaining steps. Clear it when no longer needed.
+- Never put secrets or session tokens in chat, tool output, logs, command-line arguments, Git, `.ai-memory`, task notes or plaintext cache files. Do not disable vault locking, weaken authentication, broaden access or create a long-lived credential just to suppress prompts.
+- If authorization really expires, the user cancels it, or new scope requires an item outside the original batch, stop automatic retries. Continue independent work, explain the exact remaining access once, and consolidate any unavoidable renewed authorization into one request. A timeout or denial is never a reason to spawn repeated 1Password prompts in the background.
+
 ## CapeLabs Jira routing
 
 - For substantive CapeLabs company implementation or operational work, load and follow the `capelabs-jira` skill before the first repository or operational mutation, even when Jira is not mentioned. Apply this only after the work is affirmatively identified as CapeLabs-owned; let the skill decide whether that company work warrants Jira tracking.
