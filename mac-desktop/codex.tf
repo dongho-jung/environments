@@ -22,3 +22,8 @@ resource "host_link" "codex_command_c" {
   source      = "codex/commands/c.md"
   destination = "~/.codex/commands/c.md"
 }
+
+resource "host_link" "codex_agents" {
+  source      = "../arch-desktop/codex/AGENTS.md"
+  destination = "~/.codex/AGENTS.md"
+}

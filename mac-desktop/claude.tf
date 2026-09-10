@@ -12,3 +12,8 @@ resource "host_link" "claude_settings" {
   source      = "claude/settings.json"
   destination = "~/.claude/settings.json"
 }
+
+resource "host_link" "claude_instructions" {
+  source      = "../arch-desktop/claude/CLAUDE.md"
+  destination = "~/.claude/CLAUDE.md"
+}
