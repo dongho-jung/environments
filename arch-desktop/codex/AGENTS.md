@@ -56,6 +56,10 @@
 
 ## Proportional validation and automation side effects
 
+- Before changing executable behavior, compare the local runtime and relevant tool versions with the repository's CI and release definitions. Resolve mismatches before the first full validation run using supported, isolated version selection. Run version-sensitive regression checks with the deployed version; a pass on a newer local runtime is not production evidence. Preserve the machine's global tool installation.
+- Choose regression checks from the actual failure mechanism before implementation. For connection, queue, process-lifecycle or ownership changes, exercise the affected cancellation, disconnect, reconnect and shutdown boundaries, including pending work when relevant. Use the real application entry point for process-lifecycle regressions and finish those checks before the first image publication or deployment.
+- When a check fails, preserve its output and reproduce the smallest failing case in the matching environment before repeating the full suite or CI. Reuse successful checks while their relevant inputs remain unchanged, complete required gates, and keep unrelated improvements out of the delivery. Never weaken assertions or extend timeouts solely to obtain a pass.
+- Before rollout, identify the existing shutdown grace period, rollout deadline and completion signals. Account for the old revision's shutdown behavior during its replacement. If progress stalls, inspect the current phase through the authorized operational tools and report the confirmed cause and next check. Verify the intended revision, old-process termination and affected client reconnections before declaring completion; a deployment API returning success alone is insufficient.
 - Match validation effort to the behavior and risk changed. Documentation-only,
   comment-only, formatting-only, and inert metadata changes normally need only
   relevant static checks such as formatting, link or schema validation, and
