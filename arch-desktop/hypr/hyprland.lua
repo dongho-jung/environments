@@ -886,26 +886,27 @@ bind("code:80", hl.dsp.exec_cmd("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
 bind("code:88", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),                "미디어 · 숫자패드 2로 음량 낮추기", { locked = true, repeating = true })
 bind("code:90", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),               "미디어 · 숫자패드 0으로 음소거 전환", { locked = true })
 
--- Screenshots: hyprshot captures (region/window/full output) and pipes the raw
--- image to satty for annotation. Escape copies the current result (including any
--- annotations) to the clipboard and closes Satty.
+-- Screenshots: screenshot.sh remembers the last captured region/window/output
+-- geometry for CTRL+ALT+Print and opens Satty for annotation. Escape copies the
+-- current result (including any annotations) to the clipboard and closes Satty.
 -- CTRL+Print captures the focused window immediately, without asking for a window
 -- selection. SHIFT+Print toggles a selected-region recording, while
 -- CTRL+SHIFT+Print toggles a recording cropped to the focused window. ALT+Print
 -- selects a region and stitches it into a long image while that region is scrolled.
-local satty = "satty -f - --copy-command wl-copy --actions-on-escape=save-to-clipboard,exit --early-exit"
+local screenshot = "bash \"$HOME/.config/hypr/screenshot.sh\""
 -- Keep capture shortcuts available inside temporary input modes such as
 -- wl-wysiwyc's keyboard-navigation submap.
 local captureBinds = {}
 local function captureBind(keys, dispatcher, description)
     captureBinds[#captureBinds + 1] = bind(keys, dispatcher, description, { submap_universal = true })
 end
-captureBind("Print",                       hl.dsp.exec_cmd("hyprshot -m region --freeze --raw | " .. satty), "캡처 · 선택 영역 스크린샷 후 주석")
-captureBind(mainMod .. " + Print",         hl.dsp.exec_cmd("hyprshot -m window --raw | " .. satty),          "캡처 · 선택한 창 스크린샷 후 주석")
-captureBind(mainMod .. " + SHIFT + Print", hl.dsp.exec_cmd("hyprshot -m output --raw | " .. satty),          "캡처 · 모니터 스크린샷 후 주석")
+captureBind("Print",                       hl.dsp.exec_cmd(screenshot .. " region"),                       "캡처 · 선택 영역 스크린샷 후 주석")
+captureBind(mainMod .. " + Print",         hl.dsp.exec_cmd(screenshot .. " window"),                       "캡처 · 선택한 창 스크린샷 후 주석")
+captureBind(mainMod .. " + SHIFT + Print", hl.dsp.exec_cmd(screenshot .. " output"),                       "캡처 · 모니터 스크린샷 후 주석")
 captureBind("ALT + Print",                 hl.dsp.exec_cmd("wayscrollshot"),                                  "캡처 · 스크롤 영역을 긴 이미지로 저장")
 captureBind("SHIFT + Print",               hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\""),   "녹화 · 선택 영역 시작/중지")
-captureBind("CTRL + Print",                hl.dsp.exec_cmd("hyprshot -m window -m active --raw | " .. satty), "캡처 · 현재 창 즉시 스크린샷 후 주석")
+captureBind("CTRL + Print",                hl.dsp.exec_cmd(screenshot .. " active-window"),                "캡처 · 현재 창 즉시 스크린샷 후 주석")
+captureBind("CTRL + ALT + Print",          hl.dsp.exec_cmd(screenshot .. " last"),                         "캡처 · 마지막 영역 다시 스크린샷 후 주석")
 captureBind("CTRL + SHIFT + Print",        hl.dsp.exec_cmd("bash \"$HOME/.config/hypr/record-region.sh\" toggle-window"), "녹화 · 현재 창 시작/중지")
 
 -- Universal capture shortcuts must not bypass the private session guard.
