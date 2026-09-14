@@ -10,6 +10,13 @@
 - Ask only for a consequential choice or material effect that remains outside the authorized scope after discovery, such as an unresolved target, irreversible data loss or a new privilege grant. Prepare the concrete change and recovery plan first, group foreseeable uncovered effects into one question, and continue independent authorized work. If blocked by a real rule or denial, name the exact source and quote the relevant condition; explain what is still missing instead of silently stopping.
 - Before the final answer, reconcile the working tree, remote commit, PR state and actual deployed revision/configuration. Verify relevant health and requested behavior. Report what is committed, pushed, merged, deployed and verified, with links or identifiers; distinguish any remaining limitation. A task is complete only when its applicable delivery steps are finished or a concrete external dependency prevents further progress.
 
+## CapeLabs operations use CapeLabs MCP
+
+- Use the connected `capelabs` MCP for CapeLabs operational discovery, diagnosis, logs, database queries, infrastructure planning, deployment, and live verification. This applies to read-only work as well as mutations. Discover the appropriate MCP tools and their exact targets before choosing an access path.
+- Do not connect to CapeLabs hosts with SSH, SCP, SFTP, remote shells or tunnels, and do not bypass MCP with direct kubectl, database clients, provider CLIs or service HTTP/API calls. A working SSH key, missing local kubeconfig, convenience, or an example in a repository helper or skill does not authorize another access path. Local source inspection, Git/gh repository and PR operations, and isolated local validation remain allowed.
+- If MCP lacks the required tool or target, reports unavailable data, times out, or denies access, report the exact missing capability and continue independent local work. Do not silently substitute SSH or a direct API, obtain broader credentials, or create a Pod/Job to run an equivalent remote command. A missing production room in an old database does not prove that the room is absent.
+- Use another operational access path only when the user explicitly authorizes that exact path and target in the current task. General instructions to diagnose, fix, deliver or deploy do not authorize bypassing MCP. Carry this restriction across repositories, retries, reconnects and compaction.
+
 ## 1Password: one authorization per task
 
 - Gather every required vault, item and field from the task scope, repository configuration and existing context **before** the first 1Password access. Reuse existing valid authorization. Only when user interaction is actually required, request it once for the complete set, then reuse that authorization throughout the task. Never make the user repeatedly switch to 1Password for individual items or routine task stages.
@@ -41,6 +48,10 @@
 
 ## Proportional validation and automation side effects
 
+- Before changing executable behavior, compare the local runtime and relevant tool versions with the repository's CI and release definitions. Resolve mismatches before the first full validation run using supported, isolated version selection. Run version-sensitive regression checks with the deployed version; a pass on a newer local runtime is not production evidence. Preserve the machine's global tool installation.
+- Choose regression checks from the actual failure mechanism before implementation. For connection, queue, process-lifecycle or ownership changes, exercise the affected cancellation, disconnect, reconnect and shutdown boundaries, including pending work when relevant. Use the real application entry point for process-lifecycle regressions and finish those checks before the first image publication or deployment.
+- When a check fails, preserve its output and reproduce the smallest failing case in the matching environment before repeating the full suite or CI. Reuse successful checks while their relevant inputs remain unchanged, complete required gates, and keep unrelated improvements out of the delivery. Never weaken assertions or extend timeouts solely to obtain a pass.
+- Before rollout, identify the existing shutdown grace period, rollout deadline and completion signals. Account for the old revision's shutdown behavior during its replacement. If progress stalls, inspect the current phase through the authorized operational tools and report the confirmed cause and next check. Verify the intended revision, old-process termination and affected client reconnections before declaring completion; a deployment API returning success alone is insufficient.
 - Match validation effort to the behavior and risk changed. Documentation-only,
   comment-only, formatting-only, and inert metadata changes normally need only
   relevant static checks such as formatting, link or schema validation, and
