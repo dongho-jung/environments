@@ -99,6 +99,13 @@ resource "host_file" "zshrc" {
       bindkey '^[[1;5D' beginning-of-line
       bindkey '^[b' beginning-of-line
       bindkey '^[f' end-of-line
+
+      # Open the current command line in $EDITOR (nvim) and run what comes back.
+      # Bash binds ^X^E out of the box; zsh leaves it undefined and needs the
+      # widget autoloaded and registered with zle first.
+      autoload -Uz edit-command-line
+      zle -N edit-command-line
+      bindkey '^X^E' edit-command-line
     EOT
   }
 
