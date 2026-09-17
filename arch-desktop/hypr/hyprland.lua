@@ -480,11 +480,12 @@ bind(mainMod .. " + CTRL + TAB", hl.dsp.group.move_window({ forward = true }), "
 bind(mainMod .. " + SHIFT + G", hl.dsp.group.lock(), "그룹 · 새 창 자동 합류 잠금")
 
 -- Switch workspaces with mainMod + [0-9]
--- Move active window to a workspace with mainMod + SHIFT + [0-9]
+-- Move active window to a workspace with mainMod + SHIFT + [0-9]. `follow = false`
+-- keeps the focus on the current workspace instead of trailing the window.
 for i = 1, 10 do
     local key = i % 10 -- 10 maps to key 0
     bind(mainMod .. " + " .. key,         hl.dsp.focus({ workspace = i}), "워크스페이스 · " .. i .. "번으로 이동")
-    bind(mainMod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i }), "워크스페이스 · 창을 " .. i .. "번으로 보내기")
+    bind(mainMod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i, follow = false }), "워크스페이스 · 창을 " .. i .. "번으로 보내기")
 end
 
 -- A special workspace already follows workspace changes while it is visible,
