@@ -145,6 +145,20 @@ resource "host_file" "zshrc" {
         mkdir -p "$TMP"
         cd "$TMP"
       }
+
+      # API keys live in ~/.key, which is deliberately unmanaged: it never
+      # enters this repository, Terraform state or Git. `sk` loads it on demand
+      # instead of every shell paying for it. local_options keeps allexport
+      # scoped to this function, so the file's bare NAME=value lines reach child
+      # processes without turning the whole shell into an exporting one.
+      sk() {
+        if [[ ! -r ~/.key ]]; then
+          print -u2 "sk: ~/.key not found"
+          return 1
+        fi
+        setopt local_options allexport
+        source ~/.key
+      }
     EOT
   }
 
