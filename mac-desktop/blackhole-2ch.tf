@@ -24,7 +24,7 @@ resource "host_mac_audio_multi_output" "default" {
 
   devices = [
     {
-      builtin_output = "headphones"
+      builtin_output = "speakers"
     },
     {
       uid = data.host_mac_audio_device.blackhole_2ch.uid
