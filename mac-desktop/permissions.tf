@@ -25,11 +25,13 @@ resource "host_mac_permission" "hammerspoon_accessibility" {
   depends_on = [host_package_brew.hammerspoon]
 }
 
-# Karabiner remaps Fn and Caps Lock through its non-privileged agents, which is
-# the process macOS lists under Input Monitoring.
-resource "host_mac_permission" "karabiner_input_monitoring" {
-  service = "input_monitoring"
-  client  = "org.pqrs.Karabiner-Elements-Non-Privileged-Agents-v2"
+# Karabiner remaps Fn and Caps Lock from Karabiner-Core-Service, the process
+# macOS lists under Accessibility in Karabiner-Elements 16. The non-privileged
+# agents that older versions listed under Input Monitoring no longer run, and
+# the virtual keyboard is a driver extension approved separately.
+resource "host_mac_permission" "karabiner_accessibility" {
+  service = "accessibility"
+  client  = "org.pqrs.Karabiner-Core-Service"
 
   depends_on = [host_package_brew.karabiner_elements]
 }
