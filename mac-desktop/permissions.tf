@@ -5,6 +5,17 @@
 # terminal running Terraform; without it every check reports `unknown` and
 # prints the pane that grants it.
 
+# The checks below read the privacy database, which that same database
+# protects. iTerm2 runs Terraform here, so its Full Disk Access is what turns
+# every `unknown` below into a real answer. Terraform works without it.
+resource "host_mac_permission" "iterm2_full_disk_access" {
+  service  = "full_disk_access"
+  client   = "com.googlecode.iterm2"
+  required = false
+
+  depends_on = [host_package_brew.iterm2]
+}
+
 # Input switching breaks without this: hammerspoon/input-switch.lua drives
 # Text Input Source Services from the F16/F17 keys Karabiner produces.
 resource "host_mac_permission" "hammerspoon_accessibility" {
