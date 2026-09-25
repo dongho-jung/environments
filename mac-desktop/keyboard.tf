@@ -1,8 +1,9 @@
 resource "host_mac_settings" "keyboard" {
   groups = {
     NSGlobalDomain = {
-      # F1-F12 act as standard function keys; the media controls need Fn.
-      "com.apple.keyboard.fnState" = true
+      # F1-F12 drive brightness, volume and the rest directly. Fn is what
+      # reaches F1-F12 themselves, which Karabiner already remaps elsewhere.
+      "com.apple.keyboard.fnState" = false
     }
   }
 
