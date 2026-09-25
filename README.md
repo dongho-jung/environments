@@ -26,7 +26,10 @@ Terraform, 클론, `terraform init`/`apply`까지 알아서 간다. 여러 번 �
 앱이 깔린 뒤 macOS가 직접 띄우는 승인(Karabiner 드라이버 확장, BlackHole
 오디오 드라이버, Hammerspoon·KeyCastr·Shottr·BetterTouchTool 손쉬운 사용 및
 입력 모니터링, Docker Desktop 권한 도우미)은 스크립트가 대신 눌러줄 수 없다.
-허용한 다음 `./bootstrap.sh`를 다시 돌리면 나머지가 수렴한다.
+허용한 다음 `./bootstrap.sh`를 다시 돌리면 나머지가 수렴한다. 손쉬운 사용과
+입력 모니터링 같은 개인정보 보호 권한은 `mac-desktop/permissions.tf`에
+선언돼 있어서, 무엇이 빠졌고 어느 창에서 켜야 하는지는 Terraform이 알려준다.
+상태까지 읽으려면 터미널에 전체 디스크 접근 권한이 필요하다.
 
 `--plan`은 apply 대신 plan에서 멈추고, 나머지 옵션은 `./bootstrap.sh --help`.
 
