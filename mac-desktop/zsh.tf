@@ -52,7 +52,7 @@ resource "host_file" "zshrc" {
     content = <<-EOT
       alias y='pbcopy' p='pbpaste'
       alias rr='source ${local.zshrc_path}'
-      alias rm='echo "rm is disabled. use `trash` command instead."'
+      alias rm='echo "rm is disabled. use \`trash\` command instead."'
       alias -g ...='../..'
       alias -g ....='../../..'
     EOT
