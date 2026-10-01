@@ -1,51 +1,51 @@
-local prev_input_source = nil
-local temp_hotkey = nil
+local english = "com.apple.keylayout.ABC"
+local korean = "com.apple.inputmethod.Korean.2SetKorean"
+local japanese = "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese"
+local setting = "inputSwitch.lastAsianSource"
 
-function temp_eng()
-  if hs.keycodes.currentSourceID() == "com.apple.keylayout.ABC" then
-    if prev_input_source ~= nil then
-      hs.keycodes.currentSourceID(prev_input_source)
-    end
-    return
+local function isAsian(source)
+  return source == korean or source == japanese
+end
+
+local lastAsian = hs.settings.get(setting)
+if not isAsian(lastAsian) then lastAsian = korean end
+
+local function rememberCurrent()
+  local current = hs.keycodes.currentSourceID()
+  if isAsian(current) then
+    lastAsian = current
+    hs.settings.set(setting, current)
   end
-  prev_input_source = hs.keycodes.currentSourceID()
-  hs.keycodes.currentSourceID("com.apple.keylayout.ABC")
+  return current
 end
 
--- 임시 영어 전환 (F16)
-hs.hotkey.bind({}, 'f16', temp_eng)
-
-------------------------------------------------------------
--- F17: 입력 소스 순환 전환
-------------------------------------------------------------
-
-local input_sources = {
-  "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese",
-  "com.apple.inputmethod.Korean.2SetKorean"
-}
-
-local current_index = 1
-
-local function getCurrentSourceId()
-  return hs.keycodes.currentSourceID()
-end
-
-local function switchInputSource()
-  local current = getCurrentSourceId()
-
-  -- 현재 인덱스 찾기
-  for i, id in ipairs(input_sources) do
-    if id == current then
-      current_index = i
-      break
-    end
+local function selectSource(source)
+  if not hs.keycodes.currentSourceID(source) then
+    hs.alert.show("Enable Korean 2-Set and Japanese Romaji in Keyboard > Text Input")
+    return false
   end
-
-  -- 다음 인덱스 계산
-  local next_index = (current_index % #input_sources) + 1
-  local next_source = input_sources[next_index]
-
-  hs.keycodes.currentSourceID(next_source)
+  if isAsian(source) then
+    lastAsian = source
+    hs.settings.set(setting, source)
+  end
+  return true
 end
 
-hs.hotkey.bind({}, "f17", switchInputSource)
+local function toggleEnglish()
+  local current = rememberCurrent()
+  return selectSource(current == english and lastAsian or english)
+end
+
+local function toggleAsian()
+  rememberCurrent()
+  return selectSource(lastAsian == korean and japanese or korean)
+end
+
+rememberCurrent()
+hs.keycodes.inputSourceChanged(rememberCurrent)
+
+-- Karabiner maps Caps Lock to F16 and a standalone Fn/Globe tap to F17.
+hs.hotkey.bind({}, "f16", toggleEnglish)
+hs.hotkey.bind({}, "f17", toggleAsian)
+
+return { toggleEnglish = toggleEnglish, toggleAsian = toggleAsian }

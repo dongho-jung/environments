@@ -18,16 +18,15 @@ resource "host_mac_settings" "settings" {
       "wvous-br-corner"         = 14
     }
 
+    # Keyboard keys live in keyboard.tf and trackpad keys in trackpad.tf.
     NSGlobalDomain = {
       "com.apple.springing.enabled"        = true
       "com.apple.springing.delay"          = 0.5
       "com.apple.sound.beep.flash"         = 0
-      "com.apple.keyboard.fnState"         = true
       NSAutomaticCapitalizationEnabled     = true
       NSAutomaticPeriodSubstitutionEnabled = true
       NSWindowShouldDragOnGesture          = true
       AppleMiniaturizeOnDoubleClick        = false
-      "com.apple.trackpad.forceClick"      = true
     }
 
     "com.apple.menuextra.clock" = {
@@ -42,18 +41,6 @@ resource "host_mac_settings" "settings" {
       showsClicks  = true
       style        = "selection"
       video        = true
-    }
-
-    "com.apple.AppleMultitouchTrackpad" = {
-      Clicking                = true
-      TrackpadThreeFingerDrag = false
-      TrackpadRightClick      = true
-    }
-
-    "com.apple.driver.AppleBluetoothMultitouch.trackpad" = {
-      Clicking                = true
-      TrackpadThreeFingerDrag = false
-      TrackpadRightClick      = true
     }
   }
 }
