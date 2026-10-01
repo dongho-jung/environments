@@ -28,3 +28,12 @@ resource "host_sysctl" "kernel_sysrq" {
   key   = "kernel.sysrq"
   value = "1"
 }
+
+# /boot is the vfat EFI system partition with fsck pass 2 in fstab, but the
+# base install never pulled in dosfstools, so systemd-fsck had no fsck.vfat to
+# run and the dirty bit left by the 2026-10-01 forced power-off stayed set
+# ("Volume was not properly unmounted" on every boot). With the package present
+# the ESP is checked and cleaned at boot like the ext4 filesystems.
+resource "host_package_pacman" "dosfstools" {
+  name = "dosfstools"
+}
