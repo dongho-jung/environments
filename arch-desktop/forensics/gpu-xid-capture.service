@@ -1,0 +1,16 @@
+[Unit]
+Description=Capture GPU and kernel state on NVIDIA Xid or kernel lockup
+Documentation=file:/usr/local/bin/gpu-xid-capture
+After=systemd-journald.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gpu-xid-capture watch
+Restart=always
+RestartSec=5
+# Keep collecting even when the desktop is thrashing.
+Nice=-5
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target

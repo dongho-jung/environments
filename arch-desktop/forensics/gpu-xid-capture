@@ -1,0 +1,117 @@
+#!/bin/bash
+# gpu-xid-capture -- snapshot GPU and kernel state the moment the NVIDIA driver
+# reports an Xid or the kernel reports a lockup, so the next display freeze
+# leaves evidence behind even if the machine is then power-cycled by hand.
+#
+#   gpu-xid-capture watch              follow the kernel log, capture on match
+#   gpu-xid-capture capture [REASON]   take one snapshot now (manual test)
+#
+# Snapshots land in /var/log/gpu-xid/<timestamp>/ (GPU_XID_OUT_ROOT overrides).
+# Everything that has to talk to the GPU runs in the background under a timeout,
+# so a wedged GPU can never stall the GPU-independent captures or the sync.
+set -u
+
+OUT_ROOT="${GPU_XID_OUT_ROOT:-/var/log/gpu-xid}"
+KEEP="${GPU_XID_KEEP:-10}"
+DEBOUNCE_SECONDS="${GPU_XID_DEBOUNCE:-120}"
+TAG=gpu-xid-capture
+
+# Kernel log lines that mark a GPU fault or a kernel-level stall:
+#   NVRM: Xid ...                      any NVIDIA GPU error (62 = PMU halt, 79 = off the bus)
+#   nvidia-modeset: ERROR ...          display engine failures
+#   watchdog: BUG: soft lockup         CPU stuck in kernel mode
+#   NMI watchdog: ... hard LOCKUP      CPU stuck with interrupts off
+#   INFO: task X blocked for more than hung task
+#   rcu: INFO: ... detected stall      RCU stall
+PATTERN='NVRM: Xid|fallen off the bus|nvidia-modeset: ERROR|soft lockup|hard LOCKUP|blocked for more than|detected stall'
+
+log() {
+    logger -t "$TAG" -- "$*"
+    printf '%s\n' "$*" >&2
+}
+
+prune() {
+    local -a dirs
+    mapfile -t dirs < <(find "$OUT_ROOT" -mindepth 1 -maxdepth 1 -type d | sort)
+    while [ "${#dirs[@]}" -gt "$KEEP" ]; do
+        rm -rf -- "${dirs[0]}"
+        dirs=("${dirs[@]:1}")
+    done
+}
+
+capture() {
+    local reason="${1:-manual}"
+    local dir gpu f waited
+    dir="$OUT_ROOT/$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$dir" || { log "cannot create $dir"; return 1; }
+    log "capturing to $dir ($reason)"
+    printf '%s\n%s\n' "$(date -Is)" "$reason" > "$dir/trigger.txt"
+
+    # GPU-touching and slow collectors first, in the background, each bounded.
+    ( timeout -k 5 20 nvidia-smi -q ) > "$dir/nvidia-smi-q.txt" 2>&1 &
+    ( timeout -k 10 180 nvidia-bug-report.sh --safe-mode \
+        --output-file "$dir/nvidia-bug-report.log" ) > "$dir/nvidia-bug-report.stdout" 2>&1 &
+
+    # Fast, GPU-independent evidence.
+    journalctl -k -b --no-pager -o short-precise 2>&1 | tail -n 1500 > "$dir/kernel-log.txt"
+    journalctl -b --since -15min --no-pager -o short-precise > "$dir/journal-15min.txt" 2>&1
+    coredumpctl list --since -15min --no-pager > "$dir/coredumps.txt" 2>&1
+    cat /proc/driver/nvidia/params > "$dir/nvidia-params.txt" 2>&1
+    for gpu in /proc/driver/nvidia/gpus/*/; do
+        [ -d "$gpu" ] || continue
+        mkdir -p "$dir/nvidia-proc/$(basename "$gpu")"
+        for f in "$gpu"*; do
+            [ -f "$f" ] && cp -- "$f" "$dir/nvidia-proc/$(basename "$gpu")/" 2>/dev/null
+        done
+    done
+    lspci -vvv -d 10de: > "$dir/lspci-nvidia.txt" 2>&1
+    sensors > "$dir/sensors.txt" 2>&1
+    # Hyprland logs only to $XDG_RUNTIME_DIR, which is tmpfs and gone after a reboot.
+    for f in /run/user/*/hypr/*/hyprland.log; do
+        [ -f "$f" ] || continue
+        cp -- "$f" "$dir/hyprland-$(basename "$(dirname "$f")").log" 2>/dev/null
+    done
+    sync
+
+    # Give the GPU-touching collectors a bounded chance to finish, then sync again.
+    waited=0
+    while [ "$(jobs -rp | wc -l)" -gt 0 ] && [ "$waited" -lt 200 ]; do
+        sleep 2
+        waited=$((waited + 2))
+    done
+    sync
+    prune
+    log "capture complete: $dir"
+}
+
+watch() {
+    local last=0 now line
+    log "watching kernel log for: $PATTERN"
+    journalctl -k -f -n 0 -o short-precise 2>/dev/null \
+        | grep --line-buffered -E "$PATTERN" \
+        | while IFS= read -r line; do
+            now=$(date +%s)
+            if [ $((now - last)) -lt "$DEBOUNCE_SECONDS" ]; then
+                log "within debounce window, not capturing again: $line"
+                continue
+            fi
+            last=$now
+            capture "$line"
+        done
+    log "kernel log stream ended"
+    exit 1
+}
+
+case "${1:-watch}" in
+    watch)
+        watch
+        ;;
+    capture)
+        shift
+        capture "${*:-manual}"
+        ;;
+    *)
+        sed -n '2,10p' "$0" >&2
+        exit 2
+        ;;
+esac
