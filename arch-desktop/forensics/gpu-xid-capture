@@ -27,7 +27,8 @@ PATTERN='NVRM: Xid|fallen off the bus|nvidia-modeset: ERROR|soft lockup|hard LOC
 
 log() {
     logger -t "$TAG" -- "$*"
-    printf '%s\n' "$*" >&2
+    # Under systemd stderr already lands in the journal; echo only elsewhere.
+    [ -n "${JOURNAL_STREAM:-}" ] || printf '%s\n' "$*" >&2
 }
 
 prune() {
