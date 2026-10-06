@@ -720,8 +720,8 @@ bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }), "워크스
 -- Reuse the middle button as a context-sensitive gesture. Every window resizes
 -- like SUPER+RMB when the gesture starts near an edge. Floating windows move
 -- like SUPER+LMB everywhere else. In the interior of tiled windows, directional
--- drags of at least 80 logical pixels navigate tabs (left/right), restore a
--- closed tab (up), or close the current tab (down). One short click remains
+-- drags of at least 80 logical pixels navigate page history (left/right),
+-- restore a closed tab (up), or close the current tab (down). One short click remains
 -- Ctrl+LMB, sent immediately on release. A second short click at the same spot
 -- toggles fake fullscreen; the first click has already reached the app.
 local middleResizeMargin = 20
@@ -845,9 +845,9 @@ local function finishTiledMiddleGesture()
         sendSyntheticTap("CTRL", "mouse:272", gesture.window)
     elseif absDx > absDy then
         if dx < 0 then
-            sendSyntheticTap("CTRL + SHIFT", "Tab", gesture.window)
+            sendSyntheticTap("ALT", "Left", gesture.window)
         else
-            sendSyntheticTap("CTRL", "Tab", gesture.window)
+            sendSyntheticTap("ALT", "Right", gesture.window)
         end
     elseif dy < 0 then
         sendSyntheticTap("CTRL + SHIFT", "T", gesture.window)
@@ -856,7 +856,7 @@ local function finishTiledMiddleGesture()
     end
 end
 
-bind("mouse:274", handleMiddlePressOrWindowDragRelease, "마우스 · 창 가장자리 크기 조절·플로팅 이동/타일 내부 Ctrl+클릭·탭 제스처·더블클릭 전체화면")
+bind("mouse:274", handleMiddlePressOrWindowDragRelease, "마우스 · 창 가장자리 크기 조절·플로팅 이동/타일 내부 Ctrl+클릭·페이지 이동·탭 제스처·더블클릭 전체화면")
 hl.bind("mouse:274", finishTiledMiddleGesture, { release = true })
 
 -- Move/resize windows with mainMod + LMB/RMB and dragging
