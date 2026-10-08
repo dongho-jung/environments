@@ -29,8 +29,11 @@ resource "host_system_file" "nvidia_firmware_logs" {
 # or RCU-stall line, snapshots nvidia-smi, nvidia-bug-report, the NVIDIA /proc
 # tree, lspci, sensors, the last 15 minutes of journal and every live Hyprland
 # log into /var/log/gpu-xid/<timestamp>/, then syncs so a following power cycle
-# cannot take the evidence with it. GPU-touching collectors run in the
-# background under timeouts, so a wedged GPU cannot stall the sync.
+# cannot take the evidence with it. Volatile logs and host state are synced
+# before GPU access; NVIDIA procfs, PCI and sensor reads are background jobs
+# too, since the procfs power query blocked the 2026-10-08 capture. Each job
+# writes an exit-status sidecar, distinguishing failures and timeouts from an
+# empty successful result. Even SIGKILL cannot immediately stop a D-state task.
 # `sudo gpu-xid-capture capture manual` takes a snapshot on demand.
 resource "host_system_file" "gpu_xid_capture" {
   source      = "${path.module}/forensics/gpu-xid-capture"

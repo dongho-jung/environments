@@ -7,13 +7,17 @@
 #   gpu-xid-capture capture [REASON]   take one snapshot now (manual test)
 #
 # Snapshots land in /var/log/gpu-xid/<timestamp>/ (GPU_XID_OUT_ROOT overrides).
-# Everything that has to talk to the GPU runs in the background under a timeout,
-# so a wedged GPU can never stall the GPU-independent captures or the sync.
+# Volatile logs are saved and synced before any GPU query. All driver/procfs,
+# PCI and sensor queries run independently under timeouts: even reading the
+# NVIDIA procfs power file can block in uninterruptible kernel sleep.
+# GPU_XID_PROC_ROOT and GPU_XID_RUNTIME_ROOT allow isolated fixture captures.
 set -u
 
 OUT_ROOT="${GPU_XID_OUT_ROOT:-/var/log/gpu-xid}"
 KEEP="${GPU_XID_KEEP:-10}"
 DEBOUNCE_SECONDS="${GPU_XID_DEBOUNCE:-120}"
+NVIDIA_PROC_ROOT="${GPU_XID_PROC_ROOT:-/proc/driver/nvidia}"
+RUNTIME_ROOT="${GPU_XID_RUNTIME_ROOT:-/run/user}"
 TAG=gpu-xid-capture
 
 # Kernel log lines that mark a GPU fault or a kernel-level stall:
@@ -40,6 +44,15 @@ prune() {
     done
 }
 
+# Always background this function. timeout cannot reap a task stuck in kernel
+# D state, even after SIGKILL; it must never block the initial evidence sync.
+collect() {
+    local output="$1" limit="$2"
+    shift 2
+    timeout -k 1 "$limit" "$@" > "$output" 2>&1
+    printf '%s\n' "$?" > "$output.status"
+}
+
 capture() {
     local reason="${1:-manual}"
     local dir gpu f waited
@@ -48,41 +61,52 @@ capture() {
     log "capturing to $dir ($reason)"
     printf '%s\n%s\n' "$(date -Is)" "$reason" > "$dir/trigger.txt"
 
-    # GPU-touching and slow collectors first, in the background, each bounded.
-    ( timeout -k 5 20 nvidia-smi -q ) > "$dir/nvidia-smi-q.txt" 2>&1 &
-    ( timeout -k 10 180 nvidia-bug-report.sh --safe-mode \
-        --output-file "$dir/nvidia-bug-report.log" ) > "$dir/nvidia-bug-report.stdout" 2>&1 &
-
-    # Fast, GPU-independent evidence.
-    journalctl -k -b --no-pager -o short-precise 2>&1 | tail -n 1500 > "$dir/kernel-log.txt"
-    journalctl -b --since -15min --no-pager -o short-precise > "$dir/journal-15min.txt" 2>&1
-    coredumpctl list --since -15min --no-pager > "$dir/coredumps.txt" 2>&1
-    cat /proc/driver/nvidia/params > "$dir/nvidia-params.txt" 2>&1
-    for gpu in /proc/driver/nvidia/gpus/*/; do
-        [ -d "$gpu" ] || continue
-        mkdir -p "$dir/nvidia-proc/$(basename "$gpu")"
-        for f in "$gpu"*; do
-            [ -f "$f" ] && cp -- "$f" "$dir/nvidia-proc/$(basename "$gpu")/" 2>/dev/null
-        done
-    done
-    lspci -vvv -d 10de: > "$dir/lspci-nvidia.txt" 2>&1
-    sensors > "$dir/sensors.txt" 2>&1
-    # Hyprland logs only to $XDG_RUNTIME_DIR, which is tmpfs and gone after a reboot.
-    for f in /run/user/*/hypr/*/hyprland.log; do
+    # Save tmpfs logs first: shutdown can begin seconds after the Xid. The
+    # 2026-10-08 capture blocked on /proc/driver/nvidia/gpus/.../power before
+    # reaching the old Hyprland-copy and sync steps, losing both at reboot.
+    for f in "$RUNTIME_ROOT"/*/hypr/*/hyprland.log; do
         [ -f "$f" ] || continue
         cp -- "$f" "$dir/hyprland-$(basename "$(dirname "$f")").log" 2>/dev/null
     done
+    uname -a > "$dir/uname.txt"
+    cat /proc/uptime /proc/loadavg /proc/meminfo /proc/pressure/* > "$dir/system-state.txt" 2>&1
+    ps -eo pid,ppid,stat,wchan:32,comm > "$dir/processes.txt" 2>&1
+    journalctl -k -b --no-pager -o short-precise 2>&1 | tail -n 1500 > "$dir/kernel-log.txt"
+    journalctl -b --since -15min --no-pager -o short-precise > "$dir/journal-15min.txt" 2>&1
     sync
+    log "fast evidence saved: $dir"
 
-    # Give the GPU-touching collectors a bounded chance to finish, then sync again.
+    collect "$dir/nvidia-smi-q.txt" 20 nvidia-smi -q &
+    collect "$dir/nvidia-bug-report.stdout" 180 nvidia-bug-report.sh --safe-mode \
+        --output-file "$dir/nvidia-bug-report.log" &
+    collect "$dir/coredumps.txt" 5 coredumpctl list --since -15min --no-pager &
+    collect "$dir/nvidia-params.txt" 5 cat "$NVIDIA_PROC_ROOT/params" &
+    for gpu in "$NVIDIA_PROC_ROOT"/gpus/*/; do
+        [ -d "$gpu" ] || continue
+        mkdir -p "$dir/nvidia-proc/$(basename "$gpu")"
+        for f in "$gpu"*; do
+            [ -f "$f" ] || continue
+            collect "$dir/nvidia-proc/$(basename "$gpu")/$(basename "$f")" 5 cat -- "$f" &
+        done
+    done
+    collect "$dir/lspci-nvidia.txt" 5 lspci -vvv -d 10de: &
+    collect "$dir/sensors.txt" 5 sensors &
+
+    # Bound the coordinator too, including unkillable D-state collectors. A
+    # missing .status means a collector never returned; 124/137 means timeout.
     waited=0
     while [ "$(jobs -rp | wc -l)" -gt 0 ] && [ "$waited" -lt 200 ]; do
         sleep 2
         waited=$((waited + 2))
     done
+    if [ "$(jobs -rp | wc -l)" -gt 0 ]; then
+        printf 'incomplete: collectors still running\n' > "$dir/capture-status.txt"
+    else
+        printf 'complete\n' > "$dir/capture-status.txt"
+    fi
     sync
     prune
-    log "capture complete: $dir"
+    log "capture finished: $dir ($(cat "$dir/capture-status.txt"))"
 }
 
 watch() {
