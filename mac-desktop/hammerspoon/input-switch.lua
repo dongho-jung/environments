@@ -45,7 +45,18 @@ rememberCurrent()
 hs.keycodes.inputSourceChanged(rememberCurrent)
 
 -- Karabiner maps Caps Lock to F16 and a standalone Fn/Globe tap to F17.
-hs.hotkey.bind({}, "f16", toggleEnglish)
+-- F16 retains held modifiers, including Shift overlapping the end of a word.
+local capsModifiers = {{}}
+for _, modifier in ipairs({"shift", "ctrl", "alt", "cmd"}) do
+  for i = 1, #capsModifiers do
+    local mods = {table.unpack(capsModifiers[i])}
+    mods[#mods + 1] = modifier
+    capsModifiers[#capsModifiers + 1] = mods
+  end
+end
+for _, mods in ipairs(capsModifiers) do
+  hs.hotkey.bind(mods, "f16", toggleEnglish)
+end
 hs.hotkey.bind({}, "f17", toggleAsian)
 
 return { toggleEnglish = toggleEnglish, toggleAsian = toggleAsian }

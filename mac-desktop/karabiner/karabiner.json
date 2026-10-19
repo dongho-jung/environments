@@ -7,7 +7,10 @@
                         "description": "Caps Lock: English / last Korean or Japanese",
                         "manipulators": [
                             {
-                                "from": { "key_code": "caps_lock" },
+                                "from": {
+                                    "key_code": "caps_lock",
+                                    "modifiers": { "optional": ["any"] }
+                                },
                                 "to": [
                                     {
                                         "key_code": "f16",
