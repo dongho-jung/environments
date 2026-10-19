@@ -13,7 +13,7 @@ local function fixture()
   local f = {
     current = en, activeMethod = en, saved = nil, alerts = 0, requests = 0,
     enabled = true, missingJapanese = false, ignoreSwitch = false,
-    now = 0, timers = {}, bindings = {},
+    now = 0, timers = {}, bindings = {}, modifiers = {}, inCallback = false,
   }
   local function after(delay, callback)
     local t = {at = f.now + delay, callback = callback, active = true}
@@ -41,6 +41,16 @@ local function fixture()
   function f.external(source)
     f.current, f.activeMethod = source, source
     f.changed()
+  end
+  local function nativeSwitch()
+    if f.ignoreSwitch then return end
+    after(0.01, function()
+      local nextSource = {[en] = jp, [jp] = kr, [kr] = en}
+      f.current = nextSource[f.current]
+      f.activeMethod = f.current
+      f.changed()
+      f.changed() -- macOS may send duplicate source notifications.
+    end)
   end
   local mock = {
     settings = {get = function() return f.saved end, set = function(_, value) f.saved = value end},
@@ -70,15 +80,29 @@ local function fixture()
       keyStroke = function(mods, key, delay)
         assert(chord(mods, key) == 'alt+ctrl:space' and delay == 0)
         f.requests = f.requests + 1
-        if f.ignoreSwitch then return end
-        after(0.01, function()
-          local nextSource = {[en] = jp, [jp] = kr, [kr] = en}
-          f.current = nextSource[f.current]
-          f.activeMethod = f.current -- Only native switching activates the app's IME.
-          f.changed()
-          f.changed() -- macOS may send duplicate source notifications.
-        end)
+        -- A Space pair with modifier flags has no modifier press/release events.
+        -- The native input switcher can ignore it even with the shortcut enabled.
       end,
+      event = {
+        newKeyEvent = function(mods, key, down)
+          return {post = function()
+            assert(not f.inCallback, 'defer synthetic keys until the hotkey callback returns')
+            if key == 'ctrl' or key == 'alt' then
+              f.modifiers[key] = down or nil
+              if not next(f.modifiers) and f.pendingShortcut then
+                f.pendingShortcut = false
+                nativeSwitch()
+              end
+            elseif key == 'space' then
+              assert(f.modifiers.ctrl and f.modifiers.alt, 'native shortcut needs modifier events')
+              assert(chord(mods, key) == 'alt+ctrl:space')
+              if down then f.requests = f.requests + 1 else f.pendingShortcut = true end
+            else
+              error('unexpected synthetic key: ' .. key)
+            end
+          end}
+        end,
+      },
     },
   }
   function f.reload()
@@ -86,9 +110,13 @@ local function fixture()
     f.module = assert(loadfile(path, 't', {hs = mock, ipairs = ipairs, table = table}))()
   end
   function f.expect(action, source)
-    assert(action(), 'switch request rejected')
+    f.inCallback = true
+    local accepted = action()
+    f.inCallback = false
+    assert(accepted, 'switch request rejected')
     f.settle()
     assert(f.current == source and f.activeMethod == source, 'wrong input method')
+    assert(next(f.modifiers) == nil and not f.pendingShortcut, 'release synthetic modifiers')
   end
   f.reload()
   return f
@@ -126,6 +154,7 @@ end
 
 f = fixture()
 assert(f.module.toggleEnglish())
+f.tick() -- Dispatch after the hotkey callback returns.
 f.tick() -- The intermediate Japanese notification must not become lastAsian.
 assert(f.saved == nil)
 assert(f.module.toggleEnglish()) -- Reverse the pending request before the next step.
@@ -146,6 +175,7 @@ assert(not f.module.toggleEnglish() and f.requests == 0 and f.alerts == 2)
 
 f = fixture()
 assert(f.module.toggleEnglish())
+f.tick()
 f.tick()
 f.enabled = false
 f.settle()
@@ -171,6 +201,13 @@ assert(f.requests == 3 and f.alerts == 1, 'stop after one unsuccessful cycle')
 
 f = fixture()
 assert(f.module.toggleEnglish())
+f.module.stop()
+f.settle()
+assert(f.requests == 0 and f.alerts == 0, 'unloading cancels undispatched switches')
+
+f = fixture()
+assert(f.module.toggleEnglish())
+f.tick()
 f.module.stop()
 f.settle()
 assert(f.requests == 1 and f.alerts == 0 and next(f.bindings) == nil and f.onChange == nil,

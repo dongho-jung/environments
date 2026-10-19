@@ -48,7 +48,15 @@ local function advance()
   timer = hs.timer.doAfter(1, failed)
   -- TISSelectInputSource can change the menu without activating a CJK IME.
   -- The native shortcut switches the focused app's actual input method.
-  hs.eventtap.keyStroke({"ctrl", "alt"}, "space", 0)
+  -- The switcher needs real modifier press/release events. keyStroke only
+  -- attaches flags to Space and can leave the native shortcut unhandled.
+  local event = hs.eventtap.event
+  event.newKeyEvent({"ctrl"}, "ctrl", true):post()
+  event.newKeyEvent({"ctrl", "alt"}, "alt", true):post()
+  event.newKeyEvent({"ctrl", "alt"}, "space", true):post()
+  event.newKeyEvent({"ctrl", "alt"}, "space", false):post()
+  event.newKeyEvent({"ctrl"}, "alt", false):post()
+  event.newKeyEvent({}, "ctrl", false):post()
 end
 
 local function sourceChanged()
@@ -80,7 +88,8 @@ local function selectSource(source)
   end
   target, steps, limit = source, 0, count
   -- A second key press changes the destination, without racing another switch.
-  if not timer then advance() end
+  -- Return from the Carbon hotkey handler before posting another shortcut.
+  if not timer then timer = hs.timer.doAfter(0, advance) end
   return true
 end
 
