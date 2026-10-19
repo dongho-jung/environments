@@ -1,7 +1,7 @@
 # The system runs in Japanese and the keyboard cycles ABC, Japanese romaji, and
-# 2-set Korean. hammerspoon/input-switch.lua selects those sources through Text
-# Input Source Services from the F16/F17 keys Karabiner produces, so the list
-# below is what that script expects to find enabled.
+# 2-set Korean. hammerspoon/input-switch.lua selects those sources through the
+# native shortcut declared in input-source.tf, from the F16/F17 keys Karabiner
+# produces. The list below is what that script expects to find enabled.
 #
 # macOS reads the enabled sources when a session starts. A change here applies
 # after logging out and back in, and the running input daemon can rewrite the

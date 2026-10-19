@@ -9,6 +9,9 @@ end
 
 local lastAsian = hs.settings.get(setting)
 if not isAsian(lastAsian) then lastAsian = korean end
+local target, timer, waiting, stepSource
+local steps, limit = 0, 0
+local bindings = {}
 
 local function rememberCurrent()
   local current = hs.keycodes.currentSourceID()
@@ -19,30 +22,81 @@ local function rememberCurrent()
   return current
 end
 
+local function cancel()
+  if timer then timer:stop(); timer = nil end
+  target, waiting = nil, false
+end
+
+local function finish()
+  cancel()
+  rememberCurrent()
+end
+
+local function failed()
+  cancel()
+  hs.alert.show("Input source switch failed. Check Keyboard > Keyboard Shortcuts > Input Sources")
+end
+
+local function advance()
+  local current = hs.keycodes.currentSourceID()
+  if current == target then finish(); return end
+  local shortcut = hs.hotkey.systemAssigned({"ctrl", "alt"}, "space")
+  if not shortcut or not shortcut.enabled then failed(); return end
+  if steps >= limit then failed(); return end
+  steps = steps + 1
+  waiting, stepSource = true, current
+  timer = hs.timer.doAfter(1, failed)
+  -- TISSelectInputSource can change the menu without activating a CJK IME.
+  -- The native shortcut switches the focused app's actual input method.
+  hs.eventtap.keyStroke({"ctrl", "alt"}, "space", 0)
+end
+
+local function sourceChanged()
+  local current = hs.keycodes.currentSourceID()
+  if not target then rememberCurrent(); return end
+  if current == target then finish(); return end
+  if waiting and current ~= stepSource then
+    waiting = false
+    timer:stop()
+    timer = hs.timer.doAfter(0, advance)
+  end
+end
+
 local function selectSource(source)
-  if not hs.keycodes.currentSourceID(source) then
+  local available, count = {}, 0
+  for _, list in ipairs({hs.keycodes.layouts(true), hs.keycodes.methods(true)}) do
+    for _, id in ipairs(list) do
+      if not available[id] then available[id] = true; count = count + 1 end
+    end
+  end
+  if not available[source] then
     hs.alert.show("Enable Korean 2-Set and Japanese Romaji in Keyboard > Text Input")
     return false
   end
-  if isAsian(source) then
-    lastAsian = source
-    hs.settings.set(setting, source)
+  local shortcut = hs.hotkey.systemAssigned({"ctrl", "alt"}, "space")
+  if not shortcut or not shortcut.enabled then
+    hs.alert.show("Enable Control-Option-Space for Select the next source in Input menu")
+    return false
   end
+  target, steps, limit = source, 0, count
+  -- A second key press changes the destination, without racing another switch.
+  if not timer then advance() end
   return true
 end
 
 local function toggleEnglish()
-  local current = rememberCurrent()
+  local current = target or rememberCurrent()
   return selectSource(current == english and lastAsian or english)
 end
 
 local function toggleAsian()
-  rememberCurrent()
-  return selectSource(lastAsian == korean and japanese or korean)
+  local current = target or rememberCurrent()
+  local asian = isAsian(current) and current or lastAsian
+  return selectSource(asian == korean and japanese or korean)
 end
 
 rememberCurrent()
-hs.keycodes.inputSourceChanged(rememberCurrent)
+hs.keycodes.inputSourceChanged(sourceChanged)
 
 -- Karabiner maps Caps Lock to F16 and a standalone Fn/Globe tap to F17.
 -- F16 retains held modifiers, including Shift overlapping the end of a word.
@@ -55,8 +109,14 @@ for _, modifier in ipairs({"shift", "ctrl", "alt", "cmd"}) do
   end
 end
 for _, mods in ipairs(capsModifiers) do
-  hs.hotkey.bind(mods, "f16", toggleEnglish)
+  bindings[#bindings + 1] = hs.hotkey.bind(mods, "f16", toggleEnglish)
 end
-hs.hotkey.bind({}, "f17", toggleAsian)
+bindings[#bindings + 1] = hs.hotkey.bind({}, "f17", toggleAsian)
 
-return { toggleEnglish = toggleEnglish, toggleAsian = toggleAsian }
+local function stop()
+  cancel()
+  hs.keycodes.inputSourceChanged(nil)
+  for _, binding in ipairs(bindings) do binding:delete() end
+end
+
+return { toggleEnglish = toggleEnglish, toggleAsian = toggleAsian, stop = stop }

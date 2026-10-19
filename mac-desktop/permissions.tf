@@ -16,8 +16,8 @@ resource "host_mac_permission" "iterm2_full_disk_access" {
   depends_on = [host_package_brew.iterm2]
 }
 
-# Input switching breaks without this: hammerspoon/input-switch.lua drives
-# Text Input Source Services from the F16/F17 keys Karabiner produces.
+# Input switching breaks without this: hammerspoon/input-switch.lua sends the
+# native input-source shortcut from the F16/F17 keys Karabiner produces.
 resource "host_mac_permission" "hammerspoon_accessibility" {
   service = "accessibility"
   client  = "org.hammerspoon.Hammerspoon"
