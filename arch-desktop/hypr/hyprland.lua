@@ -800,6 +800,18 @@ local function handleMiddlePressOrWindowDragRelease()
     local w = hl.get_active_window()
     if not w then return end
 
+    -- Hyprland sees Chromium's title, not its current tab URL. Let The Spark
+    -- Toy own the original middle-button press and drag, even at window edges
+    -- or in floating windows. pass_event also preserves the matching release
+    -- if the title/focus changes while held; no synthetic click is needed.
+    local title = w.title:lower()
+    if w.class:lower() == "chromium"
+        and (title:find("the spark toy", 1, true)
+            or title:find("the-spark-toy", 1, true)) then
+        clearLastTiledMiddleClick()
+        return { pass_event = true }
+    end
+
     local cursor = hl.get_cursor_pos()
     if isCursorNearWindowEdge(w, cursor) then
         clearLastTiledMiddleClick()
