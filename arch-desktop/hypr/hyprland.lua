@@ -869,7 +869,10 @@ local function finishTiledMiddleGesture()
 end
 
 bind("mouse:274", handleMiddlePressOrWindowDragRelease, "마우스 · 창 가장자리 크기 조절·플로팅 이동/타일 내부 Ctrl+클릭·페이지 이동·탭 제스처·더블클릭 전체화면")
-hl.bind("mouse:274", finishTiledMiddleGesture, { release = true })
+-- Hyprland 0.57.0 shadows a mouse release bind after its press is consumed.
+-- Keep the release eligible without forwarding the original button to apps.
+-- https://github.com/hyprwm/Hyprland/discussions/16709
+hl.bind("mouse:274", finishTiledMiddleGesture, { release = true, transparent = true })
 
 -- Move/resize windows with mainMod + LMB/RMB and dragging
 bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   "마우스 · 창 이동", { mouse = true })
